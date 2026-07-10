@@ -1,0 +1,149 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with role details.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Unique Firebase Auth user ID." },
+        "name": { "type": "string", "description": "Display name of the user." },
+        "email": { "type": "string", "format": "email", "description": "User email address." },
+        "role": { "type": "string", "enum": ["user", "admin"], "description": "Access role." },
+        "status": { "type": "string", "enum": ["active", "suspended"], "description": "Account status." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp." }
+      },
+      "required": ["userId", "name", "email", "role", "status", "createdAt"]
+    },
+    "Medicado": {
+      "title": "Medicado",
+      "description": "Patient/dependant being managed.",
+      "type": "object",
+      "properties": {
+        "medicadoId": { "type": "string", "description": "Patient ID." },
+        "userId": { "type": "string", "description": "Owner User ID." },
+        "name": { "type": "string", "description": "Patient full name." },
+        "birthDate": { "type": "string", "description": "Birthdate of the patient." },
+        "relationship": { "type": "string", "description": "Relationship (e.g. self, son, mother, spouse)." },
+        "photoUrl": { "type": "string", "description": "Optional patient photo." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp." }
+      },
+      "required": ["medicadoId", "userId", "name", "relationship", "createdAt"]
+    },
+    "Receita": {
+      "title": "Receita",
+      "description": "Medical prescription loaded by user.",
+      "type": "object",
+      "properties": {
+        "receitaId": { "type": "string", "description": "Prescription ID." },
+        "medicadoId": { "type": "string", "description": "Medicado ID associated." },
+        "userId": { "type": "string", "description": "User who uploaded." },
+        "date": { "type": "string", "description": "Date of prescription." },
+        "doctorName": { "type": "string", "description": "Doctor's name." },
+        "imageUrl": { "type": "string", "description": "Prescription image url." },
+        "notes": { "type": "string", "description": "Manual text notes." },
+        "extracted": { "type": "boolean", "description": "Whether AI has extracted medicines." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp." }
+      },
+      "required": ["receitaId", "medicadoId", "userId", "date", "extracted", "createdAt"]
+    },
+    "Medicamento": {
+      "title": "Medicamento",
+      "description": "Prescribed medicine details extracted or entered.",
+      "type": "object",
+      "properties": {
+        "medicamentoId": { "type": "string", "description": "Medicine ID." },
+        "receitaId": { "type": "string", "description": "Associated Prescription ID." },
+        "medicadoId": { "type": "string", "description": "Associated Medicado ID." },
+        "userId": { "type": "string", "description": "Associated User ID." },
+        "name": { "type": "string", "description": "Name of the drug." },
+        "dosage": { "type": "string", "description": "Dose (e.g., 1 tablet, 5ml)." },
+        "intervalHours": { "type": "integer", "description": "How often to take in hours." },
+        "durationDays": { "type": "integer", "description": "Duration in days." },
+        "instructions": { "type": "string", "description": "Extra instructions." },
+        "category": { "type": "string", "enum": ["pill", "syrup", "drop", "cream", "injection", "other"], "description": "Category of medicine." },
+        "pharmacyId": { "type": "string", "description": "ID of pharmacy where purchased/saved." },
+        "status": { "type": "string", "enum": ["active", "completed", "paused"], "description": "Current status." },
+        "reminderOffset": { "type": "integer", "description": "Reminder offset in minutes (e.g. 0, 5, 10, 15)." },
+        "pricePlaceholder": { "type": "number", "description": "Mock price for Stripe integration." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp." }
+      },
+      "required": ["medicamentoId", "medicadoId", "userId", "name", "dosage", "intervalHours", "durationDays", "status", "createdAt"]
+    },
+    "DoseLog": {
+      "title": "DoseLog",
+      "description": "Log of a single medication dose taken.",
+      "type": "object",
+      "properties": {
+        "logId": { "type": "string", "description": "Log entry ID." },
+        "medicamentoId": { "type": "string", "description": "Associated Medicine ID." },
+        "medicadoId": { "type": "string", "description": "Associated Patient ID." },
+        "userId": { "type": "string", "description": "Associated User ID." },
+        "plannedTime": { "type": "string", "format": "date-time", "description": "Planned dose time." },
+        "takenTime": { "type": "string", "format": "date-time", "description": "Actual time taken." },
+        "status": { "type": "string", "enum": ["taken", "missed", "skipped"], "description": "Intake status." }
+      },
+      "required": ["logId", "medicamentoId", "medicadoId", "userId", "plannedTime", "takenTime", "status"]
+    },
+    "Consulta": {
+      "title": "Consulta",
+      "description": "Medical appointment booking and history.",
+      "type": "object",
+      "properties": {
+        "consultaId": { "type": "string", "description": "Appointment ID." },
+        "userId": { "type": "string", "description": "Associated User ID." },
+        "medicadoId": { "type": "string", "description": "Associated Medicado ID." },
+        "doctorName": { "type": "string", "description": "Doctor full name." },
+        "specialty": { "type": "string", "description": "Medical specialty." },
+        "dateTime": { "type": "string", "format": "date-time", "description": "Appointment schedule time." },
+        "location": { "type": "string", "description": "Hospital/Clinic name or address." },
+        "notes": { "type": "string", "description": "Doctor recommendations/notes." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp." }
+      },
+      "required": ["consultaId", "userId", "medicadoId", "doctorName", "dateTime", "createdAt"]
+    },
+    "Farmacia": {
+      "title": "Farmacia",
+      "description": "Registered pharmacy/drugstore details.",
+      "type": "object",
+      "properties": {
+        "farmaciaId": { "type": "string", "description": "Pharmacy ID." },
+        "userId": { "type": "string", "description": "User who created/associated." },
+        "name": { "type": "string", "description": "Pharmacy name." },
+        "address": { "type": "string", "description": "Pharmacy address." },
+        "phone": { "type": "string", "description": "Contact phone." },
+        "isFavorite": { "type": "boolean", "description": "Is user's favorite pharmacy." }
+      },
+      "required": ["farmaciaId", "userId", "name"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Individual user accounts."
+    },
+    "/users/{userId}/medicados/{medicadoId}": {
+      "schema": "Medicado",
+      "description": "Subcollection of patients per user."
+    },
+    "/users/{userId}/medicados/{medicadoId}/receitas/{receitaId}": {
+      "schema": "Receita",
+      "description": "Subcollection of prescriptions per patient."
+    },
+    "/users/{userId}/medicados/{medicadoId}/medicamentos/{medicamentoId}": {
+      "schema": "Medicamento",
+      "description": "Subcollection of drugs prescribed to patient."
+    },
+    "/users/{userId}/medicados/{medicadoId}/medicamentos/{medicamentoId}/doseLogs/{logId}": {
+      "schema": "DoseLog",
+      "description": "Subcollection of dose intake logs."
+    },
+    "/users/{userId}/consultas/{consultaId}": {
+      "schema": "Consulta",
+      "description": "User appointments subcollection."
+    },
+    "/users/{userId}/farmacias/{farmaciaId}": {
+      "schema": "Farmacia",
+      "description": "User pharmacies subcollection."
+    }
+  }
+}

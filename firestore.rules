@@ -1,0 +1,337 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ==========================================
+    // GLOBAL Safety Net
+    // ==========================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ==========================================
+    // GLOBAL PRIMITIVES & HELPERS
+    // ==========================================
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Bootstrapped Admin check using the runtime user's email
+    function isAdmin() {
+      return isSignedIn() && 
+             isEmailVerified() && 
+             request.auth.token.email == "antonio.marcus.barreto@gmail.com";
+    }
+
+    // Check if the current user profile is active (not suspended)
+    function isUserActive(userId) {
+      // Allow if the user has an active document or during user creation
+      return exists(/databases/$(database)/documents/users/$(userId)) ? 
+             get(/databases/$(database)/documents/users/$(userId)).data.status == 'active' : 
+             true;
+    }
+
+    // ==========================================
+    // ENTITY VALIDATION SCHEMAS
+    // ==========================================
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['userId', 'name', 'email', 'role', 'status', 'createdAt']) &&
+             data.keys().size() == 6 &&
+             data.userId == request.auth.uid &&
+             data.name is string && data.name.size() <= 128 &&
+             data.email is string && data.email.size() <= 128 &&
+             data.role in ['user', 'admin'] &&
+             data.status in ['active', 'suspended'] &&
+             data.createdAt == request.time;
+    }
+
+    function isValidMedicado(data, userId) {
+      return data.keys().hasAll(['medicadoId', 'userId', 'name', 'relationship', 'createdAt']) &&
+             (data.keys().size() == 5 || (data.keys().size() == 6 && data.keys().hasAny(['photoUrl', 'birthDate']))) &&
+             data.userId == userId &&
+             data.medicadoId is string && data.medicadoId.size() <= 128 &&
+             data.name is string && data.name.size() <= 128 &&
+             data.relationship is string && data.relationship.size() <= 64 &&
+             data.createdAt == request.time;
+    }
+
+    function isValidReceita(data, userId, medicadoId) {
+      return data.keys().hasAll(['receitaId', 'medicadoId', 'userId', 'date', 'extracted', 'createdAt']) &&
+             data.userId == userId &&
+             data.medicadoId == medicadoId &&
+             data.receitaId is string && data.receitaId.size() <= 128 &&
+             data.date is string && data.date.size() <= 32 &&
+             data.extracted is bool &&
+             data.createdAt == request.time;
+    }
+
+    function isValidMedicamento(data, userId, medicadoId) {
+      return data.keys().hasAll(['medicamentoId', 'medicadoId', 'userId', 'name', 'dosage', 'intervalHours', 'durationDays', 'status', 'createdAt']) &&
+             data.userId == userId &&
+             data.medicadoId == medicadoId &&
+             data.medicamentoId is string && data.medicamentoId.size() <= 128 &&
+             data.name is string && data.name.size() <= 128 &&
+             data.dosage is string && data.dosage.size() <= 64 &&
+             data.intervalHours is int && data.intervalHours > 0 && data.intervalHours <= 168 &&
+             data.durationDays is int && data.durationDays > 0 && data.durationDays <= 365 &&
+             data.status in ['active', 'completed', 'paused'] &&
+             data.createdAt == request.time;
+    }
+
+    function isValidDoseLog(data, userId, medicadoId, medicamentoId) {
+      return data.keys().hasAll(['logId', 'medicamentoId', 'medicadoId', 'userId', 'plannedTime', 'takenTime', 'status']) &&
+             data.userId == userId &&
+             data.medicadoId == medicadoId &&
+             data.medicamentoId == medicamentoId &&
+             data.logId is string && data.logId.size() <= 128 &&
+             data.plannedTime is string && data.plannedTime.size() <= 64 &&
+             data.takenTime is string && data.takenTime.size() <= 64 &&
+             data.status in ['taken', 'missed', 'skipped'];
+    }
+
+    function isValidConsulta(data, userId) {
+      return data.keys().hasAll(['consultaId', 'userId', 'medicadoId', 'doctorName', 'dateTime', 'createdAt']) &&
+             data.userId == userId &&
+             data.consultaId is string && data.consultaId.size() <= 128 &&
+             data.medicadoId is string && data.medicadoId.size() <= 128 &&
+             data.doctorName is string && data.doctorName.size() <= 128 &&
+             data.dateTime is string && data.dateTime.size() <= 64 &&
+             data.createdAt == request.time;
+    }
+
+    function isValidFarmacia(data, userId) {
+      return data.keys().hasAll(['farmaciaId', 'userId', 'name']) &&
+             data.userId == userId &&
+             data.farmaciaId is string && data.farmaciaId.size() <= 128 &&
+             data.name is string && data.name.size() <= 128;
+    }
+
+    function isValidCupom(data, userId) {
+      return data.keys().hasAll(['cupomId', 'userId', 'establishment', 'date', 'totalPrice', 'createdAt']) &&
+             data.userId == userId &&
+             data.cupomId is string && data.cupomId.size() <= 128 &&
+             data.establishment is string && data.establishment.size() <= 128 &&
+             data.date is string && data.date.size() <= 64 &&
+             data.totalPrice is number &&
+             data.createdAt == request.time;
+    }
+
+    // ==========================================
+    // RESOURCE ROUTES & ACTIONS
+    // ==========================================
+
+    // 1. Users Collection
+    match /users/{userId} {
+      // Admins can see/list all profiles. Standard users can only view their own profile.
+      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+
+      // Creating a user profile
+      allow create: if isSignedIn() && 
+                       isEmailVerified() && 
+                       request.auth.uid == userId && 
+                       isValidUser(incoming()) &&
+                       // Prevent self-privilege escalation during creation
+                       (incoming().role == 'user' || isAdmin()) &&
+                       (incoming().status == 'active' || isAdmin());
+
+      // Updating a user profile
+      allow update: if isSignedIn() && 
+                       isEmailVerified() && 
+                       isValidUser(incoming()) &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         // Admins can edit everything
+                         isAdmin() || 
+                         (
+                           request.auth.uid == userId &&
+                           isUserActive(userId) &&
+                           // Users cannot alter their own role or status
+                           incoming().role == existing().role &&
+                           incoming().status == existing().status &&
+                           incoming().diff(existing()).affectedKeys().hasOnly(['name', 'email'])
+                         )
+                       );
+
+      // Only admins can delete profiles
+      allow delete: if isAdmin();
+
+      // 2. Medicados Subcollection (Patients)
+      match /medicados/{medicadoId} {
+        allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(medicadoId);
+        allow list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+
+        allow create: if isSignedIn() && 
+                         isEmailVerified() && 
+                         request.auth.uid == userId && 
+                         isUserActive(userId) &&
+                         isValidId(medicadoId) && 
+                         isValidMedicado(incoming(), userId);
+
+        allow update: if isSignedIn() && 
+                         isEmailVerified() && 
+                         request.auth.uid == userId && 
+                         isUserActive(userId) &&
+                         isValidId(medicadoId) && 
+                         isValidMedicado(incoming(), userId) &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasAny(['name', 'relationship', 'photoUrl', 'birthDate']);
+
+        allow delete: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(medicadoId);
+
+        // 3. Receitas Subcollection (Prescriptions)
+        match /receitas/{receitaId} {
+          allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(receitaId);
+          allow list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+
+          allow create: if isSignedIn() && 
+                           isEmailVerified() && 
+                           request.auth.uid == userId && 
+                           isUserActive(userId) &&
+                           isValidId(receitaId) && 
+                           isValidReceita(incoming(), userId, medicadoId) &&
+                           exists(/databases/$(database)/documents/users/$(userId)/medicados/$(medicadoId));
+
+          allow update: if isSignedIn() && 
+                           isEmailVerified() && 
+                           request.auth.uid == userId && 
+                           isUserActive(userId) &&
+                           isValidId(receitaId) && 
+                           isValidReceita(incoming(), userId, medicadoId) &&
+                           incoming().createdAt == existing().createdAt &&
+                           incoming().diff(existing()).affectedKeys().hasAny(['date', 'doctorName', 'imageUrl', 'notes', 'extracted']);
+
+          allow delete: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(receitaId);
+        }
+
+        // 4. Medicamentos Subcollection (Medicines)
+        match /medicamentos/{medicamentoId} {
+          allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(medicamentoId);
+          allow list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+
+          allow create: if isSignedIn() && 
+                           isEmailVerified() && 
+                           request.auth.uid == userId && 
+                           isUserActive(userId) &&
+                           isValidId(medicamentoId) && 
+                           isValidMedicamento(incoming(), userId, medicadoId) &&
+                           exists(/databases/$(database)/documents/users/$(userId)/medicados/$(medicadoId));
+
+          allow update: if isSignedIn() && 
+                           isEmailVerified() && 
+                           request.auth.uid == userId && 
+                           isUserActive(userId) &&
+                           isValidId(medicamentoId) && 
+                           isValidMedicamento(incoming(), userId, medicadoId) &&
+                           incoming().createdAt == existing().createdAt &&
+                           incoming().diff(existing()).affectedKeys().hasAny(['name', 'dosage', 'intervalHours', 'durationDays', 'instructions', 'category', 'pharmacyId', 'status', 'reminderOffset', 'pricePlaceholder']);
+
+          allow delete: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(medicamentoId);
+
+          // 5. DoseLogs Subcollection (Logs of medication intake)
+          match /doseLogs/{logId} {
+            allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(logId);
+            allow list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+
+            allow create: if isSignedIn() && 
+                             isEmailVerified() && 
+                             request.auth.uid == userId && 
+                             isUserActive(userId) &&
+                             isValidId(logId) && 
+                             isValidDoseLog(incoming(), userId, medicadoId, medicamentoId) &&
+                             exists(/databases/$(database)/documents/users/$(userId)/medicados/$(medicadoId)/medicamentos/$(medicamentoId));
+
+            allow update: if isSignedIn() && 
+                             isEmailVerified() && 
+                             request.auth.uid == userId && 
+                             isUserActive(userId) &&
+                             isValidId(logId) && 
+                             isValidDoseLog(incoming(), userId, medicadoId, medicamentoId) &&
+                             incoming().diff(existing()).affectedKeys().hasAny(['takenTime', 'status']);
+
+            allow delete: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(logId);
+          }
+        }
+      }
+
+      // 6. Consultas Subcollection (Doctor Appointments)
+      match /consultas/{consultaId} {
+        allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(consultaId);
+        allow list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+
+        allow create: if isSignedIn() && 
+                         isEmailVerified() && 
+                         request.auth.uid == userId && 
+                         isUserActive(userId) &&
+                         isValidId(consultaId) && 
+                         isValidConsulta(incoming(), userId);
+
+        allow update: if isSignedIn() && 
+                         isEmailVerified() && 
+                         request.auth.uid == userId && 
+                         isUserActive(userId) &&
+                         isValidId(consultaId) && 
+                         isValidConsulta(incoming(), userId) &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasAny(['doctorName', 'specialty', 'dateTime', 'location', 'notes', 'medicadoId']);
+
+        allow delete: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(consultaId);
+      }
+
+      // 7. Farmacias Subcollection (Pharmacy database entries)
+      match /farmacias/{farmaciaId} {
+        allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(farmaciaId);
+        allow list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+
+        allow create: if isSignedIn() && 
+                         isEmailVerified() && 
+                         request.auth.uid == userId && 
+                         isUserActive(userId) &&
+                         isValidId(farmaciaId) && 
+                         isValidFarmacia(incoming(), userId);
+
+        allow update: if isSignedIn() && 
+                         isEmailVerified() && 
+                         request.auth.uid == userId && 
+                         isUserActive(userId) &&
+                         isValidId(farmaciaId) && 
+                         isValidFarmacia(incoming(), userId) &&
+                         incoming().diff(existing()).affectedKeys().hasAny(['name', 'address', 'phone', 'isFavorite']);
+
+        allow delete: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(farmaciaId);
+      }
+
+      // 8. Cupons Subcollection
+      match /cupons/{cupomId} {
+        allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(cupomId);
+        allow list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+
+        allow create: if isSignedIn() && 
+                         isEmailVerified() && 
+                         request.auth.uid == userId && 
+                         isUserActive(userId) &&
+                         isValidId(cupomId) && 
+                         isValidCupom(incoming(), userId);
+
+        allow delete: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(cupomId);
+      }
+    }
+  }
+}

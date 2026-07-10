@@ -1,0 +1,22 @@
+{
+  "name": "HoraCertaAI - Gerenciador de Medicamentos",
+  "short_name": "HoraCertaAI",
+  "description": "Seu gerenciador inteligente de medicamentos e receitas com IA.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fbfbf8",
+  "theme_color": "#0d9488",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://images.unsplash.com/photo-1584017911766-d451b3d0e843?w=192&h=192&fit=crop&auto=format",
+      "sizes": "192x192",
+      "type": "image/jpeg"
+    },
+    {
+      "src": "https://images.unsplash.com/photo-1584017911766-d451b3d0e843?w=512&h=512&fit=crop&auto=format",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ]
+}

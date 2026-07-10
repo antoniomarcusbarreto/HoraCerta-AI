@@ -1,0 +1,56 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+  
+  --color-brand-cream: #FDFBF7;
+  --color-brand-cream-dark: #F7F4EB;
+  --color-brand-cream-darker: #EFECE1;
+  --color-brand-teal: #0D3E46;
+  --color-brand-teal-light: #15555F;
+  --color-brand-teal-pale: #E4ECEE;
+  --color-brand-coral: #EAA15F;
+  --color-brand-coral-light: #F3BC8B;
+  --color-brand-peach: #FFF1E6;
+}
+
+body {
+  background-color: var(--color-brand-cream);
+  font-family: var(--font-sans);
+  color: var(--color-brand-teal);
+  -webkit-tap-highlight-color: transparent;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+/* Custom Scrollbar for clean mobile feel */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-brand-cream);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-brand-cream-darker);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-brand-teal-pale);
+}
+
+/* For clean animation of ring/pie charts */
+@keyframes dash {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.animate-dash {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  animation: dash 1.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
