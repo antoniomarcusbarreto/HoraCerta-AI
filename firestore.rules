@@ -32,11 +32,13 @@ service cloud.firestore {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
-    // Bootstrapped Admin check using the runtime user's email
+    // Admin check driven exclusively by the Firebase custom claim `admin: true`,
+    // granted out-of-band via the Admin SDK (see server/setAdminClaim.js). Never
+    // trust client-supplied fields (email, role, etc.) for authorization.
     function isAdmin() {
-      return isSignedIn() && 
-             isEmailVerified() && 
-             request.auth.token.email == "antonio.marcus.barreto@gmail.com";
+      return isSignedIn() &&
+             isEmailVerified() &&
+             request.auth.token.admin == true;
     }
 
     // Check if the current user profile is active (not suspended)
@@ -51,15 +53,25 @@ service cloud.firestore {
     // ENTITY VALIDATION SCHEMAS
     // ==========================================
 
-    function isValidUser(data) {
+    // NOTE: `userId` here is the /users/{userId} path segment, not necessarily
+    // request.auth.uid — an admin editing someone else's profile has
+    // request.auth.uid == the admin's own uid, while `userId` is the target's.
+    // createdAt is intentionally NOT re-asserted against request.time here: the
+    // `create` rule enforces that at creation time, while `update` separately
+    // enforces incoming().createdAt == existing().createdAt (immutability).
+    function isValidUser(data, userId) {
       return data.keys().hasAll(['userId', 'name', 'email', 'role', 'status', 'createdAt']) &&
-             data.keys().size() == 6 &&
-             data.userId == request.auth.uid &&
+             data.keys().hasOnly(['userId', 'name', 'email', 'role', 'status', 'createdAt', 'freeTrialUntil', 'subscriptionStatus', 'subscriptionPlan', 'avatarUrl']) &&
+             data.userId == userId &&
              data.name is string && data.name.size() <= 128 &&
              data.email is string && data.email.size() <= 128 &&
              data.role in ['user', 'admin'] &&
              data.status in ['active', 'suspended'] &&
-             data.createdAt == request.time;
+             data.createdAt is timestamp &&
+             (!('freeTrialUntil' in data) || (data.freeTrialUntil is string && data.freeTrialUntil.size() <= 64)) &&
+             (!('subscriptionStatus' in data) || data.subscriptionStatus in ['active', 'inactive', 'expired']) &&
+             (!('subscriptionPlan' in data) || data.subscriptionPlan in ['monthly', 'yearly', 'none']) &&
+             (!('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() <= 900000));
     }
 
     function isValidMedicado(data, userId) {
@@ -144,29 +156,30 @@ service cloud.firestore {
       allow list: if isAdmin();
 
       // Creating a user profile
-      allow create: if isSignedIn() && 
-                       isEmailVerified() && 
-                       request.auth.uid == userId && 
-                       isValidUser(incoming()) &&
+      allow create: if isSignedIn() &&
+                       isEmailVerified() &&
+                       request.auth.uid == userId &&
+                       isValidUser(incoming(), userId) &&
+                       incoming().createdAt == request.time &&
                        // Prevent self-privilege escalation during creation
                        (incoming().role == 'user' || isAdmin()) &&
                        (incoming().status == 'active' || isAdmin());
 
       // Updating a user profile
-      allow update: if isSignedIn() && 
-                       isEmailVerified() && 
-                       isValidUser(incoming()) &&
+      allow update: if isSignedIn() &&
+                       isEmailVerified() &&
+                       isValidUser(incoming(), userId) &&
                        incoming().createdAt == existing().createdAt &&
                        (
-                         // Admins can edit everything
-                         isAdmin() || 
+                         // Admins can edit everything (role, status, trial, subscription, etc.)
+                         isAdmin() ||
                          (
                            request.auth.uid == userId &&
                            isUserActive(userId) &&
-                           // Users cannot alter their own role or status
+                           // Users cannot alter their own role, status, trial or subscription
                            incoming().role == existing().role &&
                            incoming().status == existing().status &&
-                           incoming().diff(existing()).affectedKeys().hasOnly(['name', 'email'])
+                           incoming().diff(existing()).affectedKeys().hasOnly(['name', 'email', 'avatarUrl'])
                          )
                        );
 

@@ -13,7 +13,6 @@ const SEED_USERS: User[] = [
     userId: "user_antonio",
     name: "Antonio Marcus",
     email: "antonio.marcus.barreto@gmail.com",
-    password: "antonio123",
     role: "admin", // Let's make him admin so he can test the admin module!
     status: "active",
     createdAt: new Date().toISOString(),
@@ -25,7 +24,6 @@ const SEED_USERS: User[] = [
     userId: "user_maria",
     name: "Maria Silva",
     email: "maria.silva@example.com",
-    password: "maria123",
     role: "user",
     status: "active",
     createdAt: new Date().toISOString(),
@@ -37,7 +35,6 @@ const SEED_USERS: User[] = [
     userId: "user_joao",
     name: "João Souza",
     email: "joao.souza@example.com",
-    password: "joao123",
     role: "user",
     status: "suspended",
     createdAt: new Date().toISOString(),
@@ -314,6 +311,24 @@ class DBLocalFallback {
     dbFirebase.deleteUserProfile(userId).catch(e => {
       console.warn("Firestore: erro ao remover perfil de usuário.", e);
     });
+  }
+
+  // Local-cache-only writes (no Firestore call). Used by admin flows that have
+  // already awaited the Firestore write themselves and only want the cache to
+  // reflect a confirmed success — avoids a redundant/racing background write.
+  setUserCache(updated: User) {
+    const users = this.getUsers();
+    const index = users.findIndex(u => u.userId === updated.userId);
+    if (index !== -1) {
+      users[index] = updated;
+    } else {
+      users.push(updated);
+    }
+    this.set("users", users);
+  }
+  removeUserCache(userId: string) {
+    const users = this.getUsers().filter(u => u.userId !== userId);
+    this.set("users", users);
   }
 
   // Medicados

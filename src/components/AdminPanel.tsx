@@ -1,20 +1,21 @@
 import React, { useState } from "react";
 import { User } from "../types";
-import { 
-  Shield, 
-  ShieldAlert, 
-  UserCheck, 
-  UserX, 
-  Trash2, 
-  Plus, 
-  RefreshCw, 
-  Key, 
-  Search, 
-  Lock, 
-  Calendar, 
-  Gift, 
-  CreditCard, 
-  Award, 
+import { auth } from "../firebase";
+import {
+  Shield,
+  ShieldAlert,
+  UserCheck,
+  UserX,
+  Trash2,
+  Plus,
+  RefreshCw,
+  Search,
+  Calendar,
+  Gift,
+  CreditCard,
+  Award,
+  Key,
+  Lock,
   X,
   Sparkles,
   CheckCircle,
@@ -24,9 +25,10 @@ import {
 
 interface AdminPanelProps {
   users: User[];
-  onUpdateUser: (user: User) => void;
-  onDeleteUser: (userId: string) => void;
+  onUpdateUser: (user: User) => Promise<boolean>;
+  onDeleteUser: (userId: string) => Promise<boolean>;
   onAddUser: (user: Omit<User, "createdAt">) => void;
+  onNotify: (message: string) => void;
   activeTab?: string;
   setActiveTab?: (tab: string) => void;
   activeUserId?: string;
@@ -38,6 +40,7 @@ export default function AdminPanel({
   onUpdateUser,
   onDeleteUser,
   onAddUser,
+  onNotify,
   activeTab,
   setActiveTab,
   activeUserId,
@@ -52,9 +55,10 @@ export default function AdminPanel({
   const [userRole, setUserRole] = useState<"user" | "admin">("user");
   const [userStatus, setUserStatus] = useState<"active" | "suspended">("active");
 
-  // Edit Password states
+  // Change Password states (real Firebase Auth password, via server/admin endpoint)
   const [editingPasswordUser, setEditingPasswordUser] = useState<User | null>(null);
   const [newPassword, setNewPassword] = useState("");
+  const [isSubmittingPassword, setIsSubmittingPassword] = useState(false);
 
   // Trial Extension states
   const [editingTrialUser, setEditingTrialUser] = useState<User | null>(null);
@@ -105,30 +109,20 @@ export default function AdminPanel({
     }
   };
 
-  const handleToggleStatus = (user: User) => {
+  // Every handler below awaits the Firestore write and only mutates local UI
+  // state (closing modals, etc.) on confirmed success — onUpdateUser itself
+  // shows the error toast and leaves everything untouched on failure.
+  const handleToggleStatus = async (user: User) => {
     const nextStatus = user.status === "active" ? "suspended" : "active";
-    onUpdateUser({ ...user, status: nextStatus });
+    await onUpdateUser({ ...user, status: nextStatus });
   };
 
-  const handleToggleRole = (user: User) => {
+  const handleToggleRole = async (user: User) => {
     const nextRole = user.role === "admin" ? "user" : "admin";
-    onUpdateUser({ ...user, role: nextRole });
+    await onUpdateUser({ ...user, role: nextRole });
   };
 
-  const handlePasswordSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingPasswordUser || !newPassword.trim()) return;
-
-    onUpdateUser({
-      ...editingPasswordUser,
-      password: newPassword,
-    });
-
-    setEditingPasswordUser(null);
-    setNewPassword("");
-  };
-
-  const handleTrialSubmit = (e: React.FormEvent) => {
+  const handleTrialSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingTrialUser) return;
 
@@ -138,28 +132,75 @@ export default function AdminPanel({
     const currentExpiry = editingTrialUser.freeTrialUntil ? new Date(editingTrialUser.freeTrialUntil) : new Date();
     // Start counting from today if it was expired, otherwise append to current expiry
     const baseDate = currentExpiry.getTime() > Date.now() ? currentExpiry : new Date();
-    
+
     const nextExpiry = new Date(baseDate.getTime() + days * 24 * 60 * 60 * 1000);
 
-    onUpdateUser({
+    const success = await onUpdateUser({
       ...editingTrialUser,
       freeTrialUntil: nextExpiry.toISOString(),
     });
 
-    setEditingTrialUser(null);
+    if (success) {
+      setEditingTrialUser(null);
+    }
   };
 
-  const handleSubscriptionSubmit = (e: React.FormEvent) => {
+  const handleSubscriptionSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingSubscriptionUser) return;
 
-    onUpdateUser({
+    const success = await onUpdateUser({
       ...editingSubscriptionUser,
       subscriptionStatus: subStatus,
       subscriptionPlan: subPlan,
     });
 
-    setEditingSubscriptionUser(null);
+    if (success) {
+      setEditingSubscriptionUser(null);
+    }
+  };
+
+  // Changing another user's real login password requires the Admin SDK, which
+  // only exists server-side. This calls a backend endpoint that verifies the
+  // caller's `admin` custom claim before touching Firebase Auth.
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPasswordUser) return;
+    if (newPassword.trim().length < 6) {
+      onNotify("A nova senha deve ter pelo menos 6 caracteres.");
+      return;
+    }
+
+    setIsSubmittingPassword(true);
+    try {
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) {
+        onNotify("Sessão expirada. Faça login novamente no portal.");
+        return;
+      }
+
+      const response = await fetch("/api/admin/change-user-password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ uid: editingPasswordUser.userId, newPassword }),
+      });
+
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        throw new Error(errJson.error || "Falha ao alterar a senha no servidor.");
+      }
+
+      onNotify(`Senha de ${editingPasswordUser.name} alterada com sucesso.`);
+      setEditingPasswordUser(null);
+      setNewPassword("");
+    } catch (err: any) {
+      onNotify(err.message || "Não foi possível alterar a senha.");
+    } finally {
+      setIsSubmittingPassword(false);
+    }
   };
 
   const handleAddUserSubmit = (e: React.FormEvent) => {
@@ -414,13 +455,13 @@ export default function AdminPanel({
 
                       {/* Delete user */}
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           if (u.email === "antonio.marcus.barreto@gmail.com") {
                             alert("Não é possível remover o administrador principal bootstrapped!");
                             return;
                           }
                           if (confirm(`Remover permanentemente o usuário ${u.name}?`)) {
-                            onDeleteUser(u.userId);
+                            await onDeleteUser(u.userId);
                           }
                         }}
                         className="p-1 rounded-md border border-red-100 bg-red-50 text-red-500 hover:bg-red-600 hover:text-white transition-all"
@@ -661,7 +702,7 @@ export default function AdminPanel({
               Alterar Senha do Usuário
             </h3>
             <p className="text-[11px] text-gray-500 text-center mb-4">
-              Defina uma nova senha de login para <strong className="text-brand-teal">{editingPasswordUser.name}</strong>.
+              Defina uma nova senha de login para <strong className="text-brand-teal">{editingPasswordUser.name}</strong>. Isso altera a conta real no Firebase Auth.
             </p>
 
             <form onSubmit={handlePasswordSubmit} className="space-y-4">
@@ -689,9 +730,10 @@ export default function AdminPanel({
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 bg-brand-teal text-brand-cream rounded-xl py-2.5 text-xs font-semibold hover:bg-brand-teal-light transition-all shadow-md"
+                  disabled={isSubmittingPassword}
+                  className="flex-1 bg-brand-teal text-brand-cream rounded-xl py-2.5 text-xs font-semibold hover:bg-brand-teal-light transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Confirmar Nova Senha
+                  {isSubmittingPassword ? "Salvando..." : "Confirmar Nova Senha"}
                 </button>
               </div>
             </form>

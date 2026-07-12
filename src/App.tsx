@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { dbLocal } from "./dbLocalFallback";
+import { auth, dbFirebase } from "./firebase";
+import { signInWithEmailAndPassword, signOut as firebaseSignOut, updatePassword, onAuthStateChanged, sendEmailVerification, User as FirebaseUser } from "firebase/auth";
 import { User, Medicado, Receita, Medicamento, DoseLog, Consulta, Farmacia, MedicineCategory, CupomFiscal } from "./types";
 import BottomNavBar from "./components/BottomNavBar";
 import Dashboard from "./components/Dashboard";
@@ -15,6 +17,8 @@ export default function App() {
   // 1. Authentication State
   const [activeUser, setActiveUser] = useState<User | null>(null);
   const [activeAdminUser, setActiveAdminUser] = useState<User | null>(null);
+  const [firebaseAuthUser, setFirebaseAuthUser] = useState<FirebaseUser | null>(null);
+  const [resendCooldown, setResendCooldown] = useState(0);
   
   // 2. Global Database States
   const [users, setUsers] = useState<User[]>([]);
@@ -36,8 +40,8 @@ export default function App() {
   // 3.1 Separate Admin Page Route States
   const [isAdminRoute, setIsAdminRoute] = useState(() => {
     return typeof window !== "undefined" && (
-      window.location.pathname === "/admin" || 
-      window.location.pathname === "/admin/" || 
+      window.location.pathname === "/app/admin" ||
+      window.location.pathname === "/app/admin/" ||
       window.location.hash.startsWith("#/admin")
     );
   });
@@ -72,6 +76,44 @@ export default function App() {
       }
     }
   }, []);
+
+  // Track the live Firebase Auth session (needed for emailVerified gating —
+  // the Firestore-backed `activeUser` profile has no such field).
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
+      setFirebaseAuthUser(fbUser);
+    });
+    return unsubscribe;
+  }, []);
+
+  // Cooldown timer for the "resend verification email" button.
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setTimeout(() => setResendCooldown((s) => s - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
+
+  const handleResendVerification = async () => {
+    if (!firebaseAuthUser || resendCooldown > 0) return;
+    try {
+      await sendEmailVerification(firebaseAuthUser);
+      showToast("E-mail de verificação reenviado!");
+      setResendCooldown(60);
+    } catch {
+      showToast("Não foi possível reenviar o e-mail agora. Tente novamente em instantes.");
+    }
+  };
+
+  const handleCheckVerification = async () => {
+    if (!firebaseAuthUser) return;
+    await firebaseAuthUser.reload();
+    if (firebaseAuthUser.emailVerified) {
+      setFirebaseAuthUser(auth.currentUser);
+      showToast("E-mail verificado com sucesso!");
+    } else {
+      showToast("Ainda não detectamos a verificação. Confira sua caixa de entrada.");
+    }
+  };
 
   // Sync data whenever active user shifts (isolated queries per tenant)
   useEffect(() => {
@@ -140,8 +182,8 @@ export default function App() {
   useEffect(() => {
     const handleLocationChange = () => {
       setIsAdminRoute(
-        window.location.pathname === "/admin" || 
-        window.location.pathname === "/admin/" || 
+        window.location.pathname === "/app/admin" ||
+        window.location.pathname === "/app/admin/" ||
         window.location.hash.startsWith("#/admin")
       );
     };
@@ -215,13 +257,13 @@ export default function App() {
               const alreadyNotified = localStorage.getItem(notifiedKey);
               
               if (!alreadyNotified) {
-                const patient = medicados.find((p) => p.medicadoId === med.medicadoId);
-                const patientName = patient ? patient.name : "Paciente";
-                
+                // Notification text is intentionally generic — no patient name,
+                // medicine name or dosage (PHI) on the lock screen. Details are
+                // only shown after the user unlocks the device and opens the app.
                 if ("serviceWorker" in navigator && Notification.permission === "granted") {
                   navigator.serviceWorker.ready.then((reg) => {
-                    reg.showNotification(`Hora de remediar: ${med.name}!`, {
-                      body: `Paciente: ${patientName}\nDosagem: ${med.dosage}\nHorário: ${slotTime}`,
+                    reg.showNotification("Lembrete de Medicamento", {
+                      body: "Você tem uma nova dose pendente. Abra o aplicativo para verificar os detalhes.",
                       icon: "https://images.unsplash.com/photo-1584017911766-d451b3d0e843?w=192&h=192&fit=crop&auto=format",
                       badge: "https://images.unsplash.com/photo-1584017911766-d451b3d0e843?w=192&h=192&fit=crop&auto=format",
                       vibrate: [300, 100, 300],
@@ -230,8 +272,8 @@ export default function App() {
                     } as any);
                   });
                 } else if (Notification.permission === "granted") {
-                  new Notification(`Hora de remediar: ${med.name}!`, {
-                    body: `Paciente: ${patientName}\nDosagem: ${med.dosage}\nHorário: ${slotTime}`,
+                  new Notification("Lembrete de Medicamento", {
+                    body: "Você tem uma nova dose pendente. Abra o aplicativo para verificar os detalhes.",
                   });
                 }
 
@@ -286,8 +328,8 @@ export default function App() {
     setTimeout(() => {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.ready.then((reg) => {
-          reg.showNotification("Lembrete: Amoxicilina (Teste)", {
-            body: "Paciente: Julia Barreto\nDosagem: 1 comprimido (500mg)\nHorário: Agora!",
+          reg.showNotification("Lembrete de Medicamento (Teste)", {
+            body: "Você tem uma nova dose pendente. Abra o aplicativo para verificar os detalhes.",
             icon: "https://images.unsplash.com/photo-1584017911766-d451b3d0e843?w=192&h=192&fit=crop&auto=format",
             badge: "https://images.unsplash.com/photo-1584017911766-d451b3d0e843?w=192&h=192&fit=crop&auto=format",
             vibrate: [200, 100, 200],
@@ -295,8 +337,8 @@ export default function App() {
           } as any);
         });
       } else {
-        new Notification("Lembrete: Amoxicilina (Teste)", {
-          body: "Paciente: Julia Barreto\nDosagem: 1 comprimido (500mg)",
+        new Notification("Lembrete de Medicamento (Teste)", {
+          body: "Você tem uma nova dose pendente. Abra o aplicativo para verificar os detalhes.",
         });
       }
     }, 3000);
@@ -329,13 +371,6 @@ export default function App() {
   const [profileStream, setProfileStream] = useState<MediaStream | null>(null);
   const profileVideoRef = React.useRef<HTMLVideoElement | null>(null);
 
-  // Synchronize profile inputs when active user changes
-  useEffect(() => {
-    if (activeUser) {
-      setProfilePassword(activeUser.password || "");
-    }
-  }, [activeUser]);
-
   // Manage profile camera stream lifecycle
   useEffect(() => {
     let activeStream: MediaStream | null = null;
@@ -367,48 +402,107 @@ export default function App() {
     };
   }, [isCameraActive]);
 
-  const handleCapturePhoto = () => {
+  const handleCapturePhoto = async () => {
     if (!profileVideoRef.current) return;
     const canvas = document.createElement("canvas");
     canvas.width = 300;
     canvas.height = 300;
     const ctx = canvas.getContext("2d");
-    if (ctx) {
+    if (ctx && activeUser) {
       ctx.drawImage(profileVideoRef.current, 0, 0, 300, 300);
-      const dataUrl = canvas.toDataURL("image/jpeg");
-      if (activeUser) {
-        const updated = { ...activeUser, avatarUrl: dataUrl };
-        handleUpdateUser(updated);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+      const ok = await handleUpdateUser({ ...activeUser, avatarUrl: dataUrl });
+      if (ok) {
         showToast("Sua foto de perfil foi atualizada com sucesso!");
       }
     }
     setIsCameraActive(false);
   };
 
+  // Avatar upload guardrails: only real images, capped at 500KB, downscaled
+  // client-side before it ever touches localStorage/Firestore — an
+  // unvalidated multi-MB data URL can blow the localStorage quota and stall
+  // the app's synchronous cache reads.
+  const ALLOWED_AVATAR_TYPES = ["image/jpeg", "image/png"];
+  const MAX_AVATAR_BYTES = 500 * 1024;
+  const AVATAR_MAX_DIMENSION = 512;
+
+  const resizeImageDataUrl = (dataUrl: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, AVATAR_MAX_DIMENSION / Math.max(img.width, img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("Canvas indisponível."));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
+      };
+      img.onerror = () => reject(new Error("Não foi possível processar a imagem."));
+      img.src = dataUrl;
+    });
+  };
+
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file later
     if (!file) return;
+
+    if (!ALLOWED_AVATAR_TYPES.includes(file.type)) {
+      showToast("Formato inválido. Envie uma imagem JPEG ou PNG.");
+      return;
+    }
+    if (file.size > MAX_AVATAR_BYTES) {
+      showToast("Imagem muito grande. O tamanho máximo permitido é 500KB.");
+      return;
+    }
+
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const dataUrl = event.target?.result as string;
-      if (activeUser && dataUrl) {
-        const updated = { ...activeUser, avatarUrl: dataUrl };
-        handleUpdateUser(updated);
-        showToast("Sua foto de perfil foi carregada com sucesso!");
+      if (!activeUser || !dataUrl) return;
+      try {
+        const resized = await resizeImageDataUrl(dataUrl);
+        const ok = await handleUpdateUser({ ...activeUser, avatarUrl: resized });
+        if (ok) {
+          showToast("Sua foto de perfil foi carregada com sucesso!");
+        }
+      } catch {
+        showToast("Não foi possível processar a imagem selecionada.");
       }
+    };
+    reader.onerror = () => {
+      showToast("Não foi possível ler o arquivo selecionado.");
     };
     reader.readAsDataURL(file);
   };
 
-  const handleSavePassword = () => {
+  const handleSavePassword = async () => {
     if (!activeUser) return;
-    if (!profilePassword.trim()) {
-      showToast("Por favor, digite uma senha válida.");
+    if (profilePassword.trim().length < 6) {
+      showToast("A senha deve ter pelo menos 6 caracteres.");
       return;
     }
-    const updated = { ...activeUser, password: profilePassword };
-    handleUpdateUser(updated);
-    showToast("Sua senha de acesso foi atualizada!");
+    if (!auth.currentUser || auth.currentUser.uid !== activeUser.userId) {
+      showToast("Não é possível alterar a senha nesta sessão. Faça login novamente.");
+      return;
+    }
+    try {
+      await updatePassword(auth.currentUser, profilePassword);
+      setProfilePassword("");
+      showToast("Sua senha de acesso foi atualizada!");
+    } catch (err: any) {
+      if (err.code === "auth/requires-recent-login") {
+        showToast("Por segurança, faça login novamente antes de trocar a senha.");
+      } else {
+        showToast("Não foi possível atualizar a senha.");
+      }
+    }
   };
 
   // Show visual toast notifications
@@ -576,23 +670,49 @@ export default function App() {
   // ==========================================
   // ADMIN PANEL CONTROLS (SUPER-USER)
   // ==========================================
-  const handleUpdateUser = (updatedUser: User) => {
-    dbLocal.updateUser(updatedUser);
+  // Awaits the real Firestore write before touching local state/cache. If the
+  // server rejects the write (e.g. permission denied), the client state is
+  // left untouched and an error toast is shown — no more optimistic
+  // fire-and-forget updates that could silently diverge from the backend.
+  const handleUpdateUser = async (updatedUser: User): Promise<boolean> => {
+    try {
+      await dbFirebase.updateUserProfile(updatedUser);
+    } catch (err: any) {
+      console.error("Erro ao atualizar usuário no Firestore:", err);
+      showToast(`Erro: não foi possível salvar as alterações de ${updatedUser.name} no servidor.`);
+      return false;
+    }
+
+    dbLocal.setUserCache(updatedUser);
     setUsers(dbLocal.getUsers());
     showToast(`Cadastro de ${updatedUser.name} atualizado no diretório.`);
-    
+
     // If the administrator edited their own status or role, update session
     if (activeUser && activeUser.userId === updatedUser.userId) {
       setActiveUser(updatedUser);
     }
+    return true;
   };
 
-  const handleDeleteUser = (userId: string) => {
-    dbLocal.deleteUser(userId);
+  const handleDeleteUser = async (userId: string): Promise<boolean> => {
+    try {
+      await dbFirebase.deleteUserProfile(userId);
+    } catch (err: any) {
+      console.error("Erro ao remover usuário no Firestore:", err);
+      showToast("Erro: permissão negada no servidor ao remover o usuário.");
+      return false;
+    }
+
+    dbLocal.removeUserCache(userId);
     setUsers(dbLocal.getUsers());
     showToast("Cadastro de usuário removido com sucesso.");
+    return true;
   };
 
+  // Note: unlike update/delete above, admin-created users have no real
+  // Firebase Auth account behind them (that requires the Admin SDK on a
+  // trusted backend, which is out of scope here) — this stays a local-only
+  // demo record, intentionally not wired through the same await/rollback path.
   const handleAddUser = (userData: Omit<User, "createdAt">) => {
     const newUser: User = {
       ...userData,
@@ -696,24 +816,50 @@ export default function App() {
   // ==========================================
   // SEPARATE ADMIN PORTAL HANDLERS
   // ==========================================
-  const handleAdminLogin = (email: string, pass: string) => {
-    const found = users.find(u => u.email.toLowerCase() === email.toLowerCase().trim() && u.password === pass);
-    if (!found) {
+  const handleAdminLogin = async (email: string, pass: string) => {
+    const trimmedEmail = email.trim().toLowerCase();
+
+    let firebaseUser: FirebaseUser;
+    try {
+      const credential = await signInWithEmailAndPassword(auth, trimmedEmail, pass);
+      firebaseUser = credential.user;
+    } catch {
       throw new Error("E-mail ou senha incorretos.");
     }
-    if (found.role !== "admin") {
+
+    // Authorization is driven exclusively by the Firebase custom claim "admin",
+    // never by client-side role/password checks.
+    const tokenResult = await firebaseUser.getIdTokenResult(true);
+    if (tokenResult.claims.admin !== true) {
+      await firebaseSignOut(auth);
       throw new Error("Acesso negado: Este portal é restrito para administradores.");
     }
-    if (found.status === "suspended") {
+
+    let profile = await dbFirebase.getUser(firebaseUser.uid);
+    if (!profile) {
+      profile = {
+        userId: firebaseUser.uid,
+        name: firebaseUser.displayName || trimmedEmail.split("@")[0],
+        email: trimmedEmail,
+        role: "admin",
+        status: "active",
+        createdAt: new Date().toISOString(),
+      };
+      dbLocal.updateUser(profile);
+    }
+
+    if (profile.status === "suspended") {
+      await firebaseSignOut(auth);
       throw new Error("Acesso negado: Esta conta está suspensa.");
     }
 
-    setActiveAdminUser(found);
-    localStorage.setItem("horacerta_active_admin_id", found.userId);
-    showToast(`Olá, ${found.name}! Portal de Controle ativado.`);
+    setActiveAdminUser(profile);
+    localStorage.setItem("horacerta_active_admin_id", profile.userId);
+    showToast(`Olá, ${profile.name}! Portal de Controle ativado.`);
   };
 
   const handleAdminLogout = () => {
+    firebaseSignOut(auth).catch(() => {});
     setActiveAdminUser(null);
     localStorage.removeItem("horacerta_active_admin_id");
     showToast("Sessão do portal de controle encerrada.");
@@ -727,8 +873,8 @@ export default function App() {
     // Redirect back to user app
     setIsAdminRoute(false);
     window.location.hash = "";
-    if (window.location.pathname.startsWith("/admin")) {
-      window.history.pushState({}, "", "/");
+    if (window.location.pathname.startsWith("/app/admin")) {
+      window.history.pushState({}, "", "/app");
     }
   };
 
@@ -768,14 +914,14 @@ export default function App() {
               </div>
 
               <form
-                onSubmit={(e) => {
+                onSubmit={async (e) => {
                   e.preventDefault();
                   const target = e.target as typeof e.target & {
                     email: { value: string };
                     password: { value: string };
                   };
                   try {
-                    handleAdminLogin(target.email.value, target.password.value);
+                    await handleAdminLogin(target.email.value, target.password.value);
                   } catch (err: any) {
                     alert(err.message);
                   }
@@ -794,8 +940,7 @@ export default function App() {
                       name="email"
                       type="email"
                       required
-                      placeholder="antonio.marcus.barreto@gmail.com"
-                      defaultValue="antonio.marcus.barreto@gmail.com"
+                      placeholder="seu.email@exemplo.com"
                       className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl pl-10 pr-4 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline-none focus:border-brand-teal/50 transition-all font-medium"
                     />
                   </div>
@@ -814,7 +959,6 @@ export default function App() {
                       type="password"
                       required
                       placeholder="Senha de acesso admin"
-                      defaultValue="antonio123"
                       className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl pl-10 pr-4 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline-none focus:border-brand-teal/50 transition-all font-medium"
                     />
                   </div>
@@ -835,7 +979,7 @@ export default function App() {
                 onClick={() => {
                   setIsAdminRoute(false);
                   window.location.hash = "";
-                  window.history.pushState({}, "", "/");
+                  window.history.pushState({}, "", "/app");
                 }}
                 className="text-xs font-bold text-brand-teal/50 hover:text-brand-teal transition-all flex items-center gap-1"
               >
@@ -866,7 +1010,7 @@ export default function App() {
                   onClick={() => {
                     setIsAdminRoute(false);
                     window.location.hash = "";
-                    window.history.pushState({}, "", "/");
+                    window.history.pushState({}, "", "/app");
                   }}
                   className="px-3.5 py-2 bg-brand-peach/80 hover:bg-brand-peach border border-brand-cream-darker text-brand-teal text-xs font-bold rounded-xl transition-all shadow-sm active:scale-95"
                 >
@@ -886,6 +1030,7 @@ export default function App() {
               onUpdateUser={handleUpdateUser}
               onDeleteUser={handleDeleteUser}
               onAddUser={handleAddUser}
+              onNotify={showToast}
               activeUserId={activeUser?.userId}
               onSimulateUser={handleSimulateUser}
             />
@@ -912,6 +1057,47 @@ export default function App() {
       {/* Main app navigation switcher */}
       {!activeUser ? (
         <AuthScreen onLoginSuccess={handleLoginSuccess} />
+      ) : firebaseAuthUser && !firebaseAuthUser.emailVerified ? (
+        /* Blocked until the user confirms their e-mail — firestore.rules
+           requires email_verified == true for essentially every write, so
+           nothing in the app would actually persist for this session anyway. */
+        <div className="min-h-screen flex flex-col justify-center items-center px-4 py-8 select-none font-sans">
+          <div className="w-full max-w-md bg-white border border-brand-cream-darker rounded-[2.5rem] p-8 shadow-xl text-center relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-brand-peach/35 rounded-full translate-x-12 -translate-y-12" />
+            <div className="w-14 h-14 bg-brand-peach text-brand-coral rounded-3xl flex items-center justify-center mx-auto mb-4 border border-brand-coral/15 shadow-sm relative z-10">
+              <Mail className="w-7 h-7" />
+            </div>
+            <h1 className="text-xl font-display font-bold text-brand-teal tracking-tight relative z-10">
+              Verifique seu e-mail
+            </h1>
+            <p className="text-xs text-gray-500 font-sans mt-2 mb-6 leading-relaxed relative z-10">
+              Enviamos um link de confirmação para{" "}
+              <strong className="text-brand-teal">{firebaseAuthUser.email}</strong>. Por segurança, você precisa
+              confirmar seu e-mail antes de usar o HoraCertaAI.
+            </p>
+            <div className="space-y-2 relative z-10">
+              <button
+                onClick={handleResendVerification}
+                disabled={resendCooldown > 0}
+                className="w-full font-display font-semibold text-xs py-3 bg-brand-teal text-brand-cream rounded-xl hover:bg-brand-teal-light disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              >
+                {resendCooldown > 0 ? `Reenviar e-mail (${resendCooldown}s)` : "Reenviar e-mail de verificação"}
+              </button>
+              <button
+                onClick={handleCheckVerification}
+                className="w-full font-display font-semibold text-xs py-3 bg-brand-cream border border-brand-cream-darker text-brand-teal rounded-xl hover:bg-brand-peach transition-all"
+              >
+                Já verifiquei, atualizar
+              </button>
+              <button
+                onClick={handleLogout}
+                className="w-full text-xs font-bold text-brand-teal/50 hover:text-brand-teal py-2 transition-all"
+              >
+                Sair
+              </button>
+            </div>
+          </div>
+        </div>
       ) : showScanFlow ? (
         <div className="pt-4">
           <PrescriptionScanner
@@ -1113,9 +1299,7 @@ export default function App() {
                         onClick={() => {
                           setIsChangingPassword(false);
                           setShowPassword(false);
-                          if (activeUser) {
-                            setProfilePassword(activeUser.password || "");
-                          }
+                          setProfilePassword("");
                         }}
                         className="text-[10px] font-bold text-gray-400 hover:text-gray-600 transition-all"
                       >

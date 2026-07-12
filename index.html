@@ -1,18 +1,643 @@
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>HoraCertaAI</title>
-    <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#0d9488" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <link rel="apple-touch-icon" href="https://images.unsplash.com/photo-1584017911766-d451b3d0e843?w=192&h=192&fit=crop&auto=format" />
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hora Certa AI — Saúde da família, na hora certa</title>
+  <meta name="description" content="Hora Certa AI reúne remédios, receitas e consultas de toda a família em um só lugar, com leitura de receitas por inteligência artificial e lembretes que chegam no minuto certo." />
+  <meta name="theme-color" content="#0D3E46" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Space+Grotesk:wght@500;700&family=Newsreader:ital,wght@0,600;1,500&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --cream:#FDFBF7; --cream-dark:#F7F4EB; --cream-darker:#EFECE1;
+    --teal:#0D3E46; --teal-light:#15555F; --teal-deep:#092A30; --teal-pale:#E4ECEE;
+    --coral:#EAA15F; --coral-light:#F3BC8B; --coral-deep:#D6853C; --peach:#FFF1E6;
+    --ink:#0E2C30; --ink-soft:#4C6469; --cream-70:rgba(253,251,247,.72); --cream-45:rgba(253,251,247,.45);
+    --serif:'Newsreader',Charter,Georgia,serif;
+    --sans:'Space Grotesk',ui-sans-serif,system-ui,sans-serif;
+    --body:'Inter',ui-sans-serif,system-ui,sans-serif;
+    --container:1180px;
+    --ease:cubic-bezier(.16,.8,.24,1);
+  }
+  *,*::before,*::after{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  @media (prefers-reduced-motion:reduce){ html{scroll-behavior:auto;} *,*::before,*::after{animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; scroll-behavior:auto !important;} }
+  body{margin:0;background:var(--cream);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden;}
+  img,svg{display:block;max-width:100%;}
+  a{color:inherit;text-decoration:none;}
+  h1,h2,h3,h4{margin:0;font-weight:600;text-wrap:balance;}
+  p{margin:0;}
+  ul{margin:0;padding:0;list-style:none;}
+  button{font:inherit;cursor:pointer;}
+  .wrap{width:100%;max-width:var(--container);margin:0 auto;padding:0 28px;}
+  .eyebrow{font-family:var(--sans);font-weight:700;font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;}
+  .eyebrow--coral{color:var(--coral-deep);}
+  .eyebrow--cream{color:var(--coral-light);}
+  em{font-family:var(--serif);font-style:italic;font-weight:500;}
 
+  /* ---------- reveal-on-scroll ---------- */
+  .reveal{opacity:0;transform:translateY(22px);transition:opacity .8s var(--ease),transform .8s var(--ease);}
+  .reveal.is-visible{opacity:1;transform:translateY(0);}
+  .reveal-stagger > *{opacity:0;transform:translateY(18px);transition:opacity .7s var(--ease),transform .7s var(--ease);}
+  .reveal-stagger.is-visible > *{opacity:1;transform:translateY(0);}
+  .reveal-stagger.is-visible > *:nth-child(1){transition-delay:.03s;}
+  .reveal-stagger.is-visible > *:nth-child(2){transition-delay:.12s;}
+  .reveal-stagger.is-visible > *:nth-child(3){transition-delay:.21s;}
+  .reveal-stagger.is-visible > *:nth-child(4){transition-delay:.30s;}
+
+  /* ---------- nav ---------- */
+  .nav{position:sticky;top:0;z-index:50;background:var(--cream-70);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid transparent;transition:border-color .3s var(--ease),background .3s var(--ease);}
+  .nav.is-scrolled{border-color:var(--cream-darker);}
+  .nav-inner{display:flex;align-items:center;justify-content:space-between;padding:16px 28px;max-width:var(--container);margin:0 auto;}
+  .logo{display:flex;align-items:baseline;gap:2px;font-family:var(--sans);font-weight:700;font-size:19px;color:var(--teal);}
+  .logo-ai{background:var(--teal);color:var(--cream);font-size:10px;letter-spacing:.06em;padding:2px 5px;border-radius:5px;transform:translateY(-6px);}
+  .nav-links{display:flex;align-items:center;gap:34px;font-family:var(--sans);font-weight:500;font-size:14px;color:var(--ink-soft);}
+  .nav-links a{position:relative;padding:4px 0;transition:color .2s;}
+  .nav-links a:hover{color:var(--teal);}
+  .nav-links a::after{content:"";position:absolute;left:0;right:100%;bottom:0;height:1.5px;background:var(--coral);transition:right .28s var(--ease);}
+  .nav-links a:hover::after{right:0;}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font-family:var(--sans);font-weight:700;font-size:14px;padding:13px 26px;border-radius:100px;border:1.5px solid transparent;transition:transform .22s var(--ease),box-shadow .22s var(--ease),background .22s var(--ease),border-color .22s var(--ease);white-space:nowrap;}
+  .btn:focus-visible{outline:2px solid var(--coral);outline-offset:3px;}
+  .btn--coral{background:var(--coral);color:var(--teal-deep);box-shadow:0 10px 24px -10px rgba(214,133,60,.55);}
+  .btn--coral:hover{background:var(--coral-light);transform:translateY(-2px);box-shadow:0 14px 28px -10px rgba(214,133,60,.65);}
+  .btn--ghost-cream{background:transparent;border-color:rgba(253,251,247,.35);color:var(--cream);}
+  .btn--ghost-cream:hover{border-color:var(--cream);background:rgba(253,251,247,.08);transform:translateY(-2px);}
+  .btn svg{width:15px;height:15px;}
+  .nav .btn{padding:10px 20px;font-size:13px;}
+
+  /* ---------- hero ---------- */
+  .hero{position:relative;background:linear-gradient(155deg,var(--teal) 0%,var(--teal-deep) 78%);overflow:hidden;padding:76px 0 110px;}
+  .hero::before{content:"";position:absolute;inset:0;background-image:radial-gradient(circle at 1px 1px, rgba(253,251,247,.055) 1px, transparent 0);background-size:26px 26px;pointer-events:none;}
+  .hero-glow{position:absolute;width:640px;height:640px;border-radius:50%;background:radial-gradient(circle,rgba(234,161,95,.28) 0%,rgba(234,161,95,0) 68%);top:-140px;right:-160px;pointer-events:none;}
+  .hero-inner{position:relative;display:grid;grid-template-columns:1.05fr .95fr;gap:56px;align-items:center;}
+  .hero-copy .eyebrow{margin-bottom:20px;}
+  .hero h1{font-family:var(--serif);font-weight:600;color:var(--cream);font-size:clamp(34px,4.6vw,58px);line-height:1.08;letter-spacing:-.01em;}
+  .hero h1 em{color:var(--coral-light);}
+  .hero-sub{margin-top:24px;max-width:46ch;color:var(--cream-70);font-size:17px;line-height:1.65;}
+  .hero-cta{margin-top:38px;display:flex;flex-wrap:wrap;gap:14px;}
+  .hero-note{margin-top:22px;display:flex;align-items:center;gap:9px;color:var(--cream-45);font-size:12.5px;font-family:var(--sans);}
+  .hero-note svg{width:14px;height:14px;flex-shrink:0;color:var(--coral-light);}
+
+  /* ---------- phone mockup ---------- */
+  .phone-stage{position:relative;display:flex;justify-content:center;}
+  .phone{position:relative;width:280px;border-radius:38px;background:linear-gradient(160deg,#0A2226,#132F33);padding:9px;box-shadow:0 50px 90px -30px rgba(0,0,0,.55),0 0 0 1px rgba(253,251,247,.06);transform:rotate(-5deg);animation:float 6.5s ease-in-out infinite;}
+  @keyframes float{0%,100%{transform:rotate(-5deg) translateY(0);}50%{transform:rotate(-5deg) translateY(-14px);}}
+  @media (prefers-reduced-motion:reduce){.phone{animation:none;}}
+  .phone-notch{position:absolute;top:9px;left:50%;transform:translateX(-50%);width:84px;height:20px;background:#0A2226;border-radius:0 0 14px 14px;z-index:3;}
+  .phone-screen{position:relative;background:var(--cream);border-radius:30px;padding:34px 15px 16px;overflow:hidden;font-family:var(--sans);}
+  .app-topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+  .app-wordmark{font-size:9.5px;font-weight:700;letter-spacing:.15em;color:var(--coral-deep);}
+  .app-heart{width:26px;height:26px;border-radius:50%;background:var(--cream-darker);display:flex;align-items:center;justify-content:center;}
+  .app-heart svg{width:13px;height:13px;color:var(--teal);}
+  .app-greet{font-size:19px;font-weight:700;color:var(--teal);letter-spacing:-.01em;}
+  .app-greet span{color:var(--coral-deep);}
+  .app-greet-sub{font-family:var(--body);font-size:10.5px;color:var(--ink-soft);margin-top:3px;}
+  .plan-card{margin-top:14px;background:linear-gradient(135deg,var(--teal) 0%,var(--teal-deep) 100%);border-radius:20px;padding:16px;display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .plan-card-label{font-size:8.5px;font-weight:700;letter-spacing:.12em;color:var(--coral-light);margin-bottom:6px;}
+  .plan-card-title{color:var(--cream);font-size:13.5px;font-weight:700;line-height:1.25;max-width:120px;}
+  .plan-card-sub{font-family:var(--body);color:var(--cream-70);font-size:9px;margin-top:5px;max-width:120px;line-height:1.4;}
+  .plan-card-btn{margin-top:10px;display:inline-block;background:var(--coral);color:var(--teal-deep);font-size:9px;font-weight:700;padding:6px 12px;border-radius:100px;}
+  .ring-wrap{position:relative;width:58px;height:58px;flex-shrink:0;}
+  .ring-wrap svg{transform:rotate(-90deg);}
+  .ring-pct{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--cream);font-size:11px;font-weight:700;}
+  .sec-row{display:flex;align-items:center;justify-content:space-between;margin:16px 0 9px;}
+  .sec-row h4{font-size:12px;font-weight:700;color:var(--teal);}
+  .sec-pill{background:var(--teal-pale);color:var(--teal);font-size:9px;font-weight:700;padding:5px 10px;border-radius:100px;}
+  .patients-row{display:flex;gap:8px;}
+  .patient-card{flex:1;background:var(--cream-dark);border:1px solid var(--cream-darker);border-radius:14px;padding:9px;}
+  .avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:700;}
+  .avatar--a{background:linear-gradient(135deg,var(--coral),var(--coral-deep));}
+  .avatar--b{background:linear-gradient(135deg,var(--teal-light),var(--teal-deep));}
+  .patient-name{font-size:10px;font-weight:700;color:var(--teal);margin-top:6px;}
+  .tag{display:inline-block;margin-top:3px;background:var(--peach);color:var(--coral-deep);font-size:7.5px;font-weight:700;letter-spacing:.03em;padding:2px 6px;border-radius:100px;}
+  .schedule-card{margin-top:9px;background:var(--peach);border-radius:14px;padding:10px;display:flex;gap:9px;align-items:flex-start;}
+  .schedule-med{font-size:10.5px;font-weight:700;color:var(--teal);margin-top:6px;}
+  .schedule-dose{font-family:var(--body);font-size:9px;color:var(--ink-soft);margin-top:1px;}
+  .schedule-time{display:inline-flex;align-items:center;gap:3px;margin-top:6px;font-family:var(--body);font-size:8.5px;color:var(--coral-deep);font-weight:600;}
+  .schedule-time svg{width:9px;height:9px;}
+  .bottom-nav{margin-top:16px;background:var(--cream);border-top:1px solid var(--cream-darker);display:flex;align-items:flex-end;justify-content:space-between;padding-top:10px;}
+  .bn-item{display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--ink-soft);}
+  .bn-item svg{width:15px;height:15px;}
+  .bn-item span{font-size:6.5px;font-weight:600;}
+  .bn-item--active{color:var(--teal);}
+  .bn-fab{width:38px;height:38px;border-radius:50%;background:var(--coral);display:flex;align-items:center;justify-content:center;margin-top:-20px;box-shadow:0 8px 16px -4px rgba(214,133,60,.6);}
+  .bn-fab svg{width:16px;height:16px;color:var(--teal-deep);}
+
+  /* ---------- empathy ---------- */
+  .empathy{padding:96px 0 84px;}
+  .empathy-inner{max-width:760px;}
+  .empathy h2{font-family:var(--serif);font-size:clamp(24px,3vw,34px);font-weight:600;color:var(--teal);margin-top:14px;line-height:1.28;}
+  .pain-chips{display:flex;flex-wrap:wrap;gap:10px;margin:30px 0;}
+  .pain-chip{font-family:var(--sans);font-size:13px;font-weight:500;color:var(--ink-soft);background:var(--cream-dark);border:1px solid var(--cream-darker);padding:9px 16px;border-radius:100px;text-decoration:line-through;text-decoration-color:var(--coral);text-decoration-thickness:1.5px;}
+  .empathy-resolve{font-family:var(--serif);font-style:italic;font-weight:500;color:var(--coral-deep);font-size:19px;}
+
+  /* ---------- flagship features ---------- */
+  .feature-row{display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:center;padding:64px 0;}
+  .feature-row + .feature-row{border-top:1px solid var(--cream-darker);}
+  .feature-row.reverse .feature-art{order:2;}
+  .feature-copy h3{font-family:var(--serif);font-weight:600;color:var(--teal);font-size:clamp(22px,2.6vw,30px);line-height:1.24;margin-top:12px;}
+  .feature-copy p{margin-top:16px;color:var(--ink-soft);font-size:15.5px;line-height:1.7;max-width:46ch;}
+  .feature-art{position:relative;background:var(--cream-dark);border:1px solid var(--cream-darker);border-radius:24px;padding:32px;min-height:250px;display:flex;align-items:center;justify-content:center;overflow:hidden;}
+
+  /* scanner illustration */
+  .art-scan{position:relative;width:210px;height:150px;}
+  .scan-frame{position:absolute;inset:0;border-radius:14px;background:var(--cream);border:1px solid var(--cream-darker);box-shadow:0 18px 34px -18px rgba(13,62,70,.28);}
+  .scan-corner{position:absolute;width:20px;height:20px;border:2.5px solid var(--coral);}
+  .scan-corner.tl{top:-2px;left:-2px;border-right:0;border-bottom:0;border-radius:8px 0 0 0;}
+  .scan-corner.tr{top:-2px;right:-2px;border-left:0;border-bottom:0;border-radius:0 8px 0 0;}
+  .scan-corner.bl{bottom:-2px;left:-2px;border-right:0;border-top:0;border-radius:0 0 0 8px;}
+  .scan-corner.br{bottom:-2px;right:-2px;border-left:0;border-top:0;border-radius:0 0 8px 0;}
+  .scan-line{position:absolute;left:6px;right:6px;height:2px;background:linear-gradient(90deg,transparent,var(--coral) 20%,var(--coral) 80%,transparent);animation:scanmove 2.6s ease-in-out infinite;box-shadow:0 0 10px 1px rgba(234,161,95,.6);}
+  @keyframes scanmove{0%,100%{top:14px;}50%{top:130px;}}
+  .scan-doc-line{position:absolute;left:20px;height:6px;border-radius:3px;background:var(--cream-darker);}
+  .scan-chip{position:absolute;background:var(--teal);color:var(--cream);font-family:var(--sans);font-size:10px;font-weight:700;padding:6px 10px;border-radius:100px;box-shadow:0 10px 18px -8px rgba(13,62,70,.5);animation:chipin .6s var(--ease) both;}
+  @keyframes chipin{from{opacity:0;transform:translateY(8px) scale(.9);}to{opacity:1;transform:translateY(0) scale(1);}}
+
+  /* patients illustration */
+  .art-patients{position:relative;width:220px;height:180px;}
+  .pat-hub{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:52px;height:52px;border-radius:50%;background:var(--teal);display:flex;align-items:center;justify-content:center;box-shadow:0 14px 26px -12px rgba(13,62,70,.55);}
+  .pat-hub svg{width:22px;height:22px;color:var(--cream);}
+  .pat-node{position:absolute;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-family:var(--sans);font-weight:700;font-size:12px;box-shadow:0 10px 20px -10px rgba(0,0,0,.35);}
+  .pat-line{position:absolute;border-top:1.5px dashed var(--cream-darker);transform-origin:left center;}
+
+  /* reminders illustration */
+  .art-remind{width:230px;}
+  .remind-track{position:relative;height:4px;background:var(--cream-darker);border-radius:4px;margin:0 6px;}
+  .remind-fill{position:absolute;left:0;top:0;bottom:0;width:68%;background:linear-gradient(90deg,var(--coral),var(--coral-deep));border-radius:4px;}
+  .remind-dots{display:flex;justify-content:space-between;margin-top:-8px;padding:0 2px;}
+  .remind-dot{width:16px;height:16px;border-radius:50%;background:var(--cream);border:3px solid var(--cream-darker);}
+  .remind-dot.on{border-color:var(--coral);background:var(--coral);}
+  .remind-ring-row{display:flex;align-items:center;gap:14px;margin-top:26px;}
+  .remind-ring-row .ring-wrap{width:52px;height:52px;}
+  .remind-ring-row .ring-pct{color:var(--teal);font-size:10px;}
+  .remind-ring-text{font-family:var(--sans);font-size:11.5px;font-weight:700;color:var(--teal);}
+  .remind-ring-text small{display:block;font-family:var(--body);font-weight:400;color:var(--ink-soft);font-size:10.5px;margin-top:2px;}
+
+  /* ---------- secondary grid ---------- */
+  .secondary{background:var(--cream-dark);padding:92px 0;}
+  .secondary-head{max-width:640px;margin-bottom:48px;}
+  .secondary-head h2{font-family:var(--serif);font-weight:600;color:var(--teal);font-size:clamp(24px,3vw,32px);margin-top:14px;line-height:1.28;}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;}
+  .sec-card{background:var(--cream);border:1px solid var(--cream-darker);border-radius:20px;padding:26px 22px;transition:transform .28s var(--ease),box-shadow .28s var(--ease),border-color .28s var(--ease);}
+  .sec-card:hover{transform:translateY(-5px);box-shadow:0 24px 40px -22px rgba(13,62,70,.25);border-color:var(--cream-darker);}
+  .sec-icon{width:38px;height:38px;border-radius:11px;background:var(--peach);display:flex;align-items:center;justify-content:center;color:var(--coral-deep);margin-bottom:16px;}
+  .sec-icon svg{width:19px;height:19px;}
+  .sec-card h4{font-family:var(--sans);font-weight:700;font-size:15px;color:var(--teal);}
+  .sec-card p{font-size:13.5px;color:var(--ink-soft);margin-top:8px;line-height:1.55;}
+
+  /* ---------- how it works ---------- */
+  .how{background:linear-gradient(155deg,var(--teal) 0%,var(--teal-deep) 85%);padding:100px 0;position:relative;overflow:hidden;}
+  .how::before{content:"";position:absolute;inset:0;background-image:radial-gradient(circle at 1px 1px, rgba(253,251,247,.05) 1px, transparent 0);background-size:26px 26px;}
+  .how-head{position:relative;max-width:560px;margin-bottom:56px;}
+  .how-head h2{font-family:var(--serif);font-weight:600;color:var(--cream);font-size:clamp(24px,3vw,34px);margin-top:14px;line-height:1.28;}
+  .how-steps{position:relative;display:grid;grid-template-columns:repeat(3,1fr);gap:0;}
+  .how-step{position:relative;padding:0 28px 0 0;}
+  .how-step:not(:first-child){padding-left:28px;border-left:1px solid rgba(253,251,247,.16);}
+  .how-num{font-family:var(--serif);font-style:italic;font-weight:500;color:var(--coral-light);font-size:34px;}
+  .how-step h4{font-family:var(--sans);font-weight:700;color:var(--cream);font-size:16px;margin-top:14px;}
+  .how-step p{font-family:var(--body);color:var(--cream-70);font-size:13.5px;margin-top:9px;line-height:1.6;max-width:30ch;}
+
+  /* ---------- security ---------- */
+  .security{padding:100px 0;}
+  .security-inner{display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:center;}
+  .security h2{font-family:var(--serif);font-weight:600;color:var(--teal);font-size:clamp(24px,3vw,32px);margin-top:14px;line-height:1.28;}
+  .security p{color:var(--ink-soft);font-size:15.5px;line-height:1.7;margin-top:18px;max-width:46ch;}
+  .trust-list{display:flex;flex-direction:column;gap:14px;margin-top:26px;}
+  .trust-item{display:flex;align-items:center;gap:11px;font-family:var(--sans);font-weight:600;font-size:14px;color:var(--teal);}
+  .trust-item svg{width:20px;height:20px;color:var(--coral-deep);flex-shrink:0;}
+  .security-visual{background:var(--teal);border-radius:26px;padding:40px;position:relative;overflow:hidden;min-height:280px;display:flex;align-items:center;justify-content:center;}
+  .security-visual::before{content:"";position:absolute;width:340px;height:340px;border-radius:50%;border:1px solid rgba(253,251,247,.1);}
+  .security-visual::after{content:"";position:absolute;width:230px;height:230px;border-radius:50%;border:1px solid rgba(253,251,247,.14);}
+  .lock-badge{position:relative;width:78px;height:78px;border-radius:50%;background:var(--coral);display:flex;align-items:center;justify-content:center;box-shadow:0 20px 40px -14px rgba(0,0,0,.4);}
+  .lock-badge svg{width:34px;height:34px;color:var(--teal-deep);}
+
+  /* ---------- final cta ---------- */
+  .final-cta{position:relative;background:linear-gradient(155deg,var(--teal) 0%,var(--teal-deep) 85%);padding:120px 0;text-align:center;overflow:hidden;}
+  .final-cta::before{content:"";position:absolute;inset:0;background-image:radial-gradient(circle at 1px 1px, rgba(253,251,247,.05) 1px, transparent 0);background-size:26px 26px;}
+  .final-glow{position:absolute;width:520px;height:520px;border-radius:50%;background:radial-gradient(circle,rgba(234,161,95,.24) 0%,rgba(234,161,95,0) 68%);left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none;}
+  .final-cta-inner{position:relative;max-width:640px;margin:0 auto;}
+  .final-cta h2{font-family:var(--serif);font-weight:600;color:var(--cream);font-size:clamp(30px,4.4vw,48px);line-height:1.12;}
+  .final-cta p{margin-top:18px;color:var(--cream-70);font-size:16px;}
+  .final-cta .hero-cta{justify-content:center;margin-top:34px;}
+
+  /* ---------- footer ---------- */
+  footer{background:var(--cream-darker);padding:56px 0 30px;}
+  .footer-top{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:32px;padding-bottom:36px;border-bottom:1px solid rgba(14,44,48,.1);}
+  .footer-tag{margin-top:10px;color:var(--ink-soft);font-size:13.5px;max-width:30ch;}
+  .footer-links{display:flex;gap:28px;font-family:var(--sans);font-weight:500;font-size:13.5px;color:var(--ink-soft);}
+  .footer-links a:hover{color:var(--teal);}
+  .footer-bottom{display:flex;justify-content:space-between;align-items:center;padding-top:22px;font-size:12px;color:var(--ink-soft);flex-wrap:wrap;gap:10px;font-family:var(--sans);}
+
+  /* ---------- mobile ---------- */
+  .nav-toggle{display:none;background:none;border:none;padding:6px;color:var(--teal);}
+  .nav-toggle svg{width:22px;height:22px;}
+  @media (max-width:980px){
+    .nav-links{position:fixed;inset:64px 0 0 0;background:var(--cream);flex-direction:column;align-items:flex-start;padding:28px;gap:22px;font-size:16px;transform:translateX(100%);transition:transform .32s var(--ease);z-index:40;}
+    .nav-links.is-open{transform:translateX(0);}
+    .nav-toggle{display:block;z-index:41;}
+    .hero-inner{grid-template-columns:1fr;text-align:center;}
+    .hero-copy{order:1;}
+    .hero-sub{margin-left:auto;margin-right:auto;}
+    .hero-cta,.hero-note{justify-content:center;}
+    .phone-stage{order:2;margin-top:24px;}
+    .feature-row{grid-template-columns:1fr;gap:32px;}
+    .feature-row.reverse .feature-art{order:0;}
+    .grid4{grid-template-columns:repeat(2,1fr);}
+    .how-steps{grid-template-columns:1fr;gap:34px;}
+    .how-step:not(:first-child){padding-left:0;border-left:none;padding-top:28px;border-top:1px solid rgba(253,251,247,.16);}
+    .security-inner{grid-template-columns:1fr;}
+    .security-visual{order:-1;}
+  }
+  @media (max-width:560px){
+    .wrap{padding:0 20px;}
+    .grid4{grid-template-columns:1fr;}
+    .phone{width:240px;}
+    .btn{font-size:13px;padding:12px 20px;}
+  }
+</style>
+</head>
+<body>
+
+<nav class="nav" id="nav">
+  <div class="nav-inner">
+    <a href="#top" class="logo">Hora Certa<span class="logo-ai">AI</span></a>
+    <ul class="nav-links" id="navLinks">
+      <li><a href="#funcionalidades">Funcionalidades</a></li>
+      <li><a href="#como-funciona">Como funciona</a></li>
+      <li><a href="#seguranca">Segurança</a></li>
+      <li><a class="btn btn--coral" href="/app" style="margin-top:6px;">Acessar o app</a></li>
+    </ul>
+    <button class="nav-toggle" id="navToggle" aria-label="Abrir menu" aria-expanded="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+    </button>
+  </div>
+</nav>
+
+<main id="top">
+
+  <!-- HERO -->
+  <header class="hero">
+    <div class="hero-glow"></div>
+    <div class="wrap hero-inner">
+      <div class="hero-copy">
+        <p class="eyebrow eyebrow--cream reveal">SAÚDE DA FAMÍLIA, ORGANIZADA POR IA</p>
+        <h1 class="reveal">Cuidar de quem você ama,<br><em>na hora certa.</em></h1>
+        <p class="hero-sub reveal">Hora Certa AI reúne remédios, receitas e consultas de toda a família em um só lugar — com leitura de receitas por inteligência artificial e lembretes que chegam no minuto certo.</p>
+        <div class="hero-cta reveal">
+          <a class="btn btn--coral" href="/app">
+            Acessar o aplicativo
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </a>
+          <a class="btn btn--ghost-cream" href="#funcionalidades">Ver como funciona</a>
+        </div>
+        <div class="hero-note reveal">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+          Cada conta enxerga só os próprios dados. Sincronização segura na nuvem — funciona até offline.
+        </div>
+      </div>
+
+      <div class="phone-stage reveal">
+        <div class="phone">
+          <div class="phone-notch"></div>
+          <div class="phone-screen">
+            <div class="app-topbar">
+              <span class="app-wordmark">HORACERTAAI</span>
+              <span class="app-heart"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8Z"/></svg></span>
+            </div>
+            <div class="app-greet">Olá, <span>Antonio</span></div>
+            <div class="app-greet-sub">Sua saúde guiada por inteligência artificial.</div>
+
+            <div class="plan-card">
+              <div>
+                <div class="plan-card-label">PLANO DE HOJE</div>
+                <div class="plan-card-title">Seu dia está sob controle.</div>
+                <div class="plan-card-sub">6 de 7 doses tomadas no horário certo.</div>
+                <span class="plan-card-btn">Ver Agenda</span>
+              </div>
+              <div class="ring-wrap">
+                <svg width="58" height="58" viewBox="0 0 58 58">
+                  <circle cx="29" cy="29" r="25" fill="none" stroke="rgba(253,251,247,.18)" stroke-width="5"/>
+                  <circle class="ring-anim" cx="29" cy="29" r="25" fill="none" stroke="#FDFBF7" stroke-width="5" stroke-linecap="round" stroke-dasharray="157" stroke-dashoffset="157" data-target="22"/>
+                </svg>
+                <span class="ring-pct">86%</span>
+              </div>
+            </div>
+
+            <div class="sec-row"><h4>Pacientes Monitorados</h4><span class="sec-pill">+ Adicionar</span></div>
+            <div class="patients-row">
+              <div class="patient-card">
+                <div class="avatar avatar--a">LB</div>
+                <div class="patient-name">Lívia Barreto</div>
+                <span class="tag">Filha</span>
+              </div>
+              <div class="patient-card">
+                <div class="avatar avatar--b">SC</div>
+                <div class="patient-name">Seu Carlos</div>
+                <span class="tag">Pai</span>
+              </div>
+            </div>
+
+            <div class="sec-row"><h4>Programação do dia</h4></div>
+            <div class="schedule-card">
+              <div class="avatar avatar--a" style="width:30px;height:30px;font-size:9px;">LB</div>
+              <div>
+                <span class="tag">FILHA</span>
+                <div class="schedule-med">Amoxicilina Xarope</div>
+                <div class="schedule-dose">5 ml</div>
+                <div class="schedule-time">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+                  03:19 · 11:19 · 19:19
+                </div>
+              </div>
+            </div>
+
+            <div class="bottom-nav">
+              <div class="bn-item bn-item--active">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v9h14v-9"/></svg>
+                <span>Início</span>
+              </div>
+              <div class="bn-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M8 3v4M16 3v4"/></svg>
+                <span>Agenda</span>
+              </div>
+              <div class="bn-fab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></div>
+              <div class="bn-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10l1-5h14l1 5"/><rect x="4" y="10" width="16" height="9" rx="1"/><path d="M9 19v-5h6v5"/></svg>
+                <span>Farmácias</span>
+              </div>
+              <div class="bn-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c1.5-4 4-6 7-6s5.5 2 7 6"/></svg>
+                <span>Perfil</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- EMPATHY -->
+  <section class="empathy">
+    <div class="wrap empathy-inner reveal">
+      <p class="eyebrow eyebrow--coral">O QUE MOTIVOU O HORA CERTA</p>
+      <h2>Cuidar de várias pessoas ao mesmo tempo não devia ser tão difícil.</h2>
+      <div class="pain-chips">
+        <span class="pain-chip">Esquecer uma dose às 15h</span>
+        <span class="pain-chip">Receita amassada no fundo da bolsa</span>
+        <span class="pain-chip">Qual farmácia tinha o menor preço mesmo?</span>
+      </div>
+      <p class="empathy-resolve">É exatamente para isso que o Hora Certa existe.</p>
+    </div>
+  </section>
+
+  <!-- FLAGSHIP FEATURES -->
+  <section id="funcionalidades">
+    <div class="wrap">
+
+      <div class="feature-row">
+        <div class="feature-art reveal">
+          <div class="art-scan">
+            <div class="scan-frame">
+              <div class="scan-doc-line" style="top:24px;width:70%;"></div>
+              <div class="scan-doc-line" style="top:38px;width:50%;"></div>
+              <div class="scan-doc-line" style="top:56px;width:60%;"></div>
+              <div class="scan-doc-line" style="top:70px;width:40%;"></div>
+            </div>
+            <div class="scan-corner tl"></div><div class="scan-corner tr"></div>
+            <div class="scan-corner bl"></div><div class="scan-corner br"></div>
+            <div class="scan-line"></div>
+            <div class="scan-chip" style="bottom:14px;left:10px;animation-delay:.2s;">Amoxicilina</div>
+            <div class="scan-chip" style="bottom:14px;left:120px;animation-delay:.5s;">5 ml</div>
+            <div class="scan-chip" style="bottom:-16px;left:60px;animation-delay:.8s;">8/8h</div>
+          </div>
+        </div>
+        <div class="feature-copy reveal">
+          <p class="eyebrow eyebrow--coral">LEITURA INTELIGENTE DE RECEITAS</p>
+          <h3>Fotografe a receita. A inteligência artificial faz o resto.</h3>
+          <p>Aponte a câmera para a receita médica e o Hora Certa identifica automaticamente o medicamento, a dosagem, o intervalo entre doses e a duração do tratamento — pronto para entrar na agenda em segundos.</p>
+        </div>
+      </div>
+
+      <div class="feature-row reverse">
+        <div class="feature-copy reveal">
+          <p class="eyebrow eyebrow--coral">TODA A FAMÍLIA, UMA SÓ CONTA</p>
+          <h3>Um cuidador. Quantos pacientes precisar.</h3>
+          <p>Cadastre filhos, pais ou qualquer pessoa sob seus cuidados — cada um com seu próprio histórico de remédios, receitas e consultas, tudo organizado dentro da sua conta.</p>
+        </div>
+        <div class="feature-art reveal">
+          <div class="art-patients">
+            <div class="pat-line" style="width:70px;top:50px;left:70px;transform:rotate(-28deg);"></div>
+            <div class="pat-line" style="width:70px;top:95px;left:70px;transform:rotate(18deg);"></div>
+            <div class="pat-line" style="width:70px;top:130px;left:70px;transform:rotate(52deg);"></div>
+            <div class="pat-hub"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v9h14v-9"/></svg></div>
+            <div class="pat-node avatar--a" style="top:16px;left:20px;">LB</div>
+            <div class="pat-node avatar--b" style="top:70px;left:0;">SC</div>
+            <div class="pat-node" style="top:126px;left:24px;background:linear-gradient(135deg,var(--ink-soft),var(--teal));">+</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-row">
+        <div class="feature-art reveal">
+          <div class="art-remind">
+            <div class="remind-track"><div class="remind-fill"></div></div>
+            <div class="remind-dots">
+              <div class="remind-dot on"></div><div class="remind-dot on"></div><div class="remind-dot on"></div>
+              <div class="remind-dot on"></div><div class="remind-dot"></div><div class="remind-dot"></div><div class="remind-dot"></div>
+            </div>
+            <div class="remind-ring-row">
+              <div class="ring-wrap">
+                <svg width="52" height="52" viewBox="0 0 52 52">
+                  <circle cx="26" cy="26" r="22" fill="none" stroke="var(--cream-darker)" stroke-width="5"/>
+                  <circle class="ring-anim" cx="26" cy="26" r="22" fill="none" stroke="var(--coral)" stroke-width="5" stroke-linecap="round" stroke-dasharray="138" stroke-dashoffset="138" data-target="20"/>
+                </svg>
+                <span class="ring-pct">86%</span>
+              </div>
+              <div class="remind-ring-text">Adesão da semana<small>4 de 7 doses no horário exato</small></div>
+            </div>
+          </div>
+        </div>
+        <div class="feature-copy reveal">
+          <p class="eyebrow eyebrow--coral">NUNCA MAIS NA HORA ERRADA</p>
+          <h3>Lembretes que chegam no minuto certo — mesmo com o app fechado.</h3>
+          <p>As notificações continuam funcionando em segundo plano, e cada dose tomada (ou esquecida) fica registrada no histórico de adesão de cada paciente.</p>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- SECONDARY FEATURES -->
+  <section class="secondary">
+    <div class="wrap">
+      <div class="secondary-head reveal">
+        <p class="eyebrow eyebrow--coral">E TEM MAIS</p>
+        <h2>Tudo o que envolve o cuidado, em um só lugar.</h2>
+      </div>
+      <div class="grid4 reveal-stagger">
+        <div class="sec-card">
+          <div class="sec-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 3v3M16 3v3M8 12h8M8 16h5"/></svg></div>
+          <h4>Consultas Médicas</h4>
+          <p>Agende e acompanhe as consultas de cada paciente, com médico, especialidade e local.</p>
+        </div>
+        <div class="sec-card">
+          <div class="sec-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-4.6-9.4-9A5.4 5.4 0 0 1 12 6a5.4 5.4 0 0 1 9.4 6c-2.4 4.4-9.4 9-9.4 9Z"/></svg></div>
+          <h4>Farmácias Favoritas</h4>
+          <p>Salve as farmácias mais próximas e de confiança para cada tratamento.</p>
+        </div>
+        <div class="sec-card">
+          <div class="sec-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l3 3v15l-3-2-3 2-3-2-3 2V3Z"/><path d="M9 9h6M9 13h6"/></svg></div>
+          <h4>Cupons Fiscais</h4>
+          <p>Fotografe a nota da farmácia e acompanhe quanto sua família gasta com saúde.</p>
+        </div>
+        <div class="sec-card">
+          <div class="sec-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l4 2"/></svg></div>
+          <h4>Histórico Completo</h4>
+          <p>Veja o que foi tomado, quando, e compare com o horário planejado.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section class="how" id="como-funciona">
+    <div class="wrap">
+      <div class="how-head reveal">
+        <p class="eyebrow eyebrow--cream">COMO FUNCIONA</p>
+        <h2>Da receita ao lembrete, em três passos.</h2>
+      </div>
+      <div class="how-steps reveal-stagger">
+        <div class="how-step">
+          <span class="how-num">01</span>
+          <h4>Cadastre seus pacientes</h4>
+          <p>Filhos, pais, ou você mesmo — em poucos segundos, sob a mesma conta.</p>
+        </div>
+        <div class="how-step">
+          <span class="how-num">02</span>
+          <h4>Escaneie a receita</h4>
+          <p>Ou cadastre o medicamento manualmente, com dosagem e intervalo.</p>
+        </div>
+        <div class="how-step">
+          <span class="how-num">03</span>
+          <h4>Receba os lembretes</h4>
+          <p>E acompanhe a adesão de cada paciente em tempo real.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECURITY -->
+  <section class="security" id="seguranca">
+    <div class="wrap security-inner">
+      <div class="reveal">
+        <p class="eyebrow eyebrow--coral">PRIVACIDADE, NÃO SÓ PROMESSA</p>
+        <h2>Seus dados, isolados e protegidos.</h2>
+        <p>Cada conta só acessa seus próprios registros — nunca os de outra família. Os dados ficam sincronizados com segurança na nuvem, e o app continua funcionando mesmo sem internet.</p>
+        <div class="trust-list">
+          <div class="trust-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg> Isolamento por conta</div>
+          <div class="trust-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.6-1.7A4 4 0 0 0 6.5 16"/></svg> Sincronização segura na nuvem</div>
+          <div class="trust-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M5.6 6l2.1 2.1M3 13h3M18 13h3M16.3 8.1 18.4 6M12 21a5 5 0 0 0 5-5H7a5 5 0 0 0 5 5Z"/></svg> Funciona offline</div>
+        </div>
+      </div>
+      <div class="security-visual reveal">
+        <div class="lock-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FINAL CTA -->
+  <section class="final-cta">
+    <div class="final-glow"></div>
+    <div class="wrap final-cta-inner reveal">
+      <h2>Comece a cuidar com a hora certa.</h2>
+      <p>Leva menos de dois minutos para cadastrar o primeiro paciente.</p>
+      <div class="hero-cta">
+        <a class="btn btn--coral" href="/app">
+          Acessar o aplicativo agora
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="footer-top">
+      <div>
+        <a href="#top" class="logo">Hora Certa<span class="logo-ai">AI</span></a>
+        <p class="footer-tag">Saúde guiada por inteligência artificial — para toda a família.</p>
+      </div>
+      <ul class="footer-links">
+        <li><a href="#funcionalidades">Funcionalidades</a></li>
+        <li><a href="#como-funciona">Como funciona</a></li>
+        <li><a href="#seguranca">Segurança</a></li>
+        <li><a href="/app">Acessar o app</a></li>
+      </ul>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Hora Certa AI. Todos os direitos reservados.</span>
+      <span>Feito para quem cuida.</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // Sticky nav shadow
+  var nav = document.getElementById('nav');
+  window.addEventListener('scroll', function(){
+    nav.classList.toggle('is-scrolled', window.scrollY > 12);
+  }, { passive: true });
+
+  // Mobile menu
+  var toggle = document.getElementById('navToggle');
+  var links = document.getElementById('navLinks');
+  toggle.addEventListener('click', function(){
+    var open = links.classList.toggle('is-open');
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  links.querySelectorAll('a').forEach(function(a){
+    a.addEventListener('click', function(){ links.classList.remove('is-open'); });
+  });
+
+  // Reveal on scroll
+  var revealEls = document.querySelectorAll('.reveal, .reveal-stagger');
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(entry){
+        if (entry.isIntersecting) {
+          entry.target.classList.add('is-visible');
+          io.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.15, rootMargin: '0px 0px -40px 0px' });
+    revealEls.forEach(function(el){ io.observe(el); });
+  } else {
+    revealEls.forEach(function(el){ el.classList.add('is-visible'); });
+  }
+
+  // Animate progress rings once visible
+  var rings = document.querySelectorAll('.ring-anim');
+  if ('IntersectionObserver' in window) {
+    var ringIo = new IntersectionObserver(function(entries){
+      entries.forEach(function(entry){
+        if (entry.isIntersecting) {
+          var el = entry.target;
+          requestAnimationFrame(function(){
+            el.style.transition = 'stroke-dashoffset 1.4s cubic-bezier(.16,.8,.24,1)';
+            el.setAttribute('stroke-dashoffset', el.getAttribute('data-target'));
+          });
+          ringIo.unobserve(el);
+        }
+      });
+    }, { threshold: 0.4 });
+    rings.forEach(function(el){ ringIo.observe(el); });
+  }
+</script>
+</body>
+</html>

@@ -2,7 +2,6 @@ export interface User {
   userId: string;
   name: string;
   email: string;
-  password?: string;
   role: 'user' | 'admin';
   status: 'active' | 'suspended';
   createdAt: string;

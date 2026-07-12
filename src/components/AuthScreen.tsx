@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { User } from "../types";
 import { dbLocal } from "../dbLocalFallback";
 import { auth, dbFirebase } from "../firebase";
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification } from "firebase/auth";
 import { 
   Mail, 
   Lock, 
@@ -52,65 +52,27 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
 
     try {
       if (isLogin) {
-        // LOGIN LOGIC
+        // LOGIN LOGIC — relies exclusively on the Firebase Auth SDK/session.
         let firebaseUser: any = null;
         let userProfile: User | null = null;
 
         try {
-          // 1. Try to authenticate via Firebase Auth
+          // 1. Authenticate via Firebase Auth
           const userCredential = await signInWithEmailAndPassword(auth, trimmedEmail, password);
           firebaseUser = userCredential.user;
-          
+
           // 2. Load user profile from Firestore
           userProfile = await dbFirebase.getUser(firebaseUser.uid);
         } catch (authErr: any) {
-          // If the auth error is user-not-found or wrong-password, check if they exist in localStorage seeds!
-          console.log("Firebase Auth failed, checking local seed database...", authErr);
-          const users = dbLocal.getUsers();
-          const seedUser = users.find(u => u.email.toLowerCase() === trimmedEmail);
-
-          if (seedUser) {
-            // Validate local password
-            const expectedPassword = seedUser.password || `${seedUser.userId.replace("user_", "")}123`;
-            if (password !== expectedPassword) {
-              setError("Senha incorreta para esta conta.");
-              return;
-            }
-            if (seedUser.status === "suspended") {
-              setError("Sua conta está suspensa pelo Administrador.");
-              return;
-            }
-
-            // 3. Auto-migrate: Account exists in local seed but not Firebase Auth. Let's register them!
-            try {
-              const registerCred = await createUserWithEmailAndPassword(auth, trimmedEmail, password);
-              firebaseUser = registerCred.user;
-              
-              // Copy seed profile but update the userId to match their Firebase UID!
-              userProfile = {
-                ...seedUser,
-                userId: firebaseUser.uid,
-                createdAt: new Date().toISOString()
-              };
-
-              // Write to Firestore and local storage
-              dbLocal.updateUser(userProfile);
-            } catch (createErr: any) {
-              console.error("Auto-migration to Firebase Auth failed:", createErr);
-              // Fallback to local profile if registration fails (e.g. invalid email domain in sandbox, offline)
-              userProfile = seedUser;
-            }
-          } else {
-            // standard Firebase error mappings
-            let msg = "E-mail ou senha incorretos.";
-            if (authErr.code === "auth/invalid-email") msg = "E-mail inválido.";
-            if (authErr.code === "auth/user-disabled") msg = "Esta conta foi desativada.";
-            setError(msg);
-            return;
-          }
+          let msg = "E-mail ou senha incorretos.";
+          if (authErr.code === "auth/invalid-email") msg = "E-mail inválido.";
+          if (authErr.code === "auth/user-disabled") msg = "Esta conta foi desativada.";
+          if (authErr.code === "auth/too-many-requests") msg = "Muitas tentativas. Tente novamente mais tarde.";
+          setError(msg);
+          return;
         }
 
-        // 4. Handle Profile Creation fallback if authenticated but profile document is missing in Firestore
+        // 3. Handle Profile Creation fallback if authenticated but profile document is missing in Firestore
         if (firebaseUser && !userProfile) {
           userProfile = {
             userId: firebaseUser.uid,
@@ -153,6 +115,15 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
         const userCredential = await createUserWithEmailAndPassword(auth, trimmedEmail, password);
         const firebaseUser = userCredential.user;
 
+        // Send the verification e-mail immediately — firestore.rules requires
+        // email_verified == true for essentially every write, so the user
+        // can't meaningfully use the app until this is confirmed.
+        try {
+          await sendEmailVerification(firebaseUser);
+        } catch (verifyErr) {
+          console.warn("Falha ao enviar e-mail de verificação:", verifyErr);
+        }
+
         // Create Firestore Profile Document
         const newUser: User = {
           userId: firebaseUser.uid,
@@ -166,10 +137,12 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
         // Write both locally and to Firestore
         dbLocal.updateUser(newUser);
 
-        setSuccess("Conta criada com sucesso! Redirecionando...");
+        setSuccess(
+          `Conta criada com sucesso! Enviamos um e-mail de confirmação para ${trimmedEmail}. Verifique sua caixa de entrada (e o spam) antes de usar o aplicativo.`
+        );
         setTimeout(() => {
           onLoginSuccess(newUser);
-        }, 1500);
+        }, 2500);
       }
     } catch (err: any) {
       console.error("Auth submit error:", err);
@@ -179,13 +152,6 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
       if (err.code === "auth/invalid-email") errMsg = "O e-mail informado é inválido.";
       setError(errMsg);
     }
-  };
-
-  const handleDemoLogin = (demoEmail: string, demoPass: string) => {
-    setEmail(demoEmail);
-    setPassword(demoPass);
-    setIsLogin(true);
-    setError(null);
   };
 
   return (
@@ -397,7 +363,7 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
       </div>
       <div className="mt-6 text-center relative z-10">
         <a
-          href="/admin"
+          href="/app/admin"
           onClick={(e) => {
             e.preventDefault();
             window.location.hash = "#/admin";

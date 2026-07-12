@@ -1,4 +1,5 @@
 import React, { useState, useRef } from "react";
+import { auth } from "../firebase";
 import { Medicado, Medicamento, MedicineCategory } from "../types";
 import { Upload, Camera, FileText, Sparkles, Check, ArrowRight, Loader2, Calendar, User, Edit2, AlertCircle } from "lucide-react";
 
@@ -142,9 +143,16 @@ export default function PrescriptionScanner({
 
     try {
       const base64Data = await convertToBase64(file);
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) {
+        throw new Error("Sessão expirada. Faça login novamente.");
+      }
       const response = await fetch("/api/gemini/extract", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`,
+        },
         body: JSON.stringify({
           imageBase64: base64Data,
           mimeType: file.type || "image/jpeg",

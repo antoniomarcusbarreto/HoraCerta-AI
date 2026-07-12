@@ -83,7 +83,7 @@ export const dbFirebase = {
   async createUserProfile(user: User): Promise<void> {
     const docRef = doc(db, "users", user.userId);
     // Align with firestore.rules expected properties and server-side timestamp
-    const firestoreUser = {
+    const firestoreUser: any = {
       userId: user.userId,
       name: user.name,
       email: user.email.toLowerCase().trim(),
@@ -91,17 +91,26 @@ export const dbFirebase = {
       status: user.status || "active",
       createdAt: serverTimestamp() // Set server time
     };
+    if (user.freeTrialUntil) firestoreUser.freeTrialUntil = user.freeTrialUntil;
+    if (user.subscriptionStatus) firestoreUser.subscriptionStatus = user.subscriptionStatus;
+    if (user.subscriptionPlan) firestoreUser.subscriptionPlan = user.subscriptionPlan;
+    if (user.avatarUrl) firestoreUser.avatarUrl = user.avatarUrl;
     await setDoc(docRef, firestoreUser);
   },
 
   async updateUserProfile(user: User): Promise<void> {
     const docRef = doc(db, "users", user.userId);
-    await updateDoc(docRef, {
+    const payload: any = {
       name: user.name,
       email: user.email.toLowerCase().trim(),
       role: user.role,
       status: user.status
-    });
+    };
+    if (user.freeTrialUntil !== undefined) payload.freeTrialUntil = user.freeTrialUntil;
+    if (user.subscriptionStatus !== undefined) payload.subscriptionStatus = user.subscriptionStatus;
+    if (user.subscriptionPlan !== undefined) payload.subscriptionPlan = user.subscriptionPlan;
+    if (user.avatarUrl !== undefined) payload.avatarUrl = user.avatarUrl;
+    await updateDoc(docRef, payload);
   },
 
   async deleteUserProfile(userId: string): Promise<void> {

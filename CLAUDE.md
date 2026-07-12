@@ -1,0 +1,52 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Commands
+
+- `npm install` — install dependencies
+- `npm run dev` — start the app (`tsx server.ts`, single Express process serving Vite middleware + API routes) on `http://localhost:3000`
+- `npm run lint` — type-check only (`tsc --noEmit`); there is no separate linter configured
+- `npm run build` — Vite build of the frontend + esbuild bundle of `server.ts` into `dist/server.cjs`
+- `npm run start` — run the production build (`node dist/server.cjs`)
+- `npm run clean` — remove `dist/` and `server.js`
+
+There is no test suite/framework in this repo (`security_spec.md` contains a *placeholder* Firestore rules test schema only — it is not wired to a runner).
+
+Requires `GEMINI_API_KEY` in `.env.local` for the AI prescription/receipt scanning endpoints to work (see `.env.example`); the Gemini client in `server.ts` initializes lazily so the server still boots without it.
+
+## Architecture
+
+This is a Google AI Studio applet (see `metadata.json`, `firebase-applet-config.json`, `firebase-blueprint.json`): a single Express server (`server.ts`) both mounts the Vite dev middleware (or serves `dist/` in production) and exposes the backend API — there is no separate API server/process.
+
+**No router, no global state library.** `src/App.tsx` is a single ~1300-line component holding all top-level state (active user, all seven data collections, active tab, PWA/notification state) and passing handlers down as props. Navigation between "screens" is a manual `activeTab` string switch plus a hand-rolled admin route detected by checking `window.location.pathname`/`hash` in a `useEffect` with `popstate`/`hashchange` listeners (`/admin` or `#/admin`) — not React Router.
+
+### Offline-first data layer
+
+- `src/dbLocalFallback.ts` (`dbLocal`) is the **source of truth for rendering**: every collection is read from/written to `localStorage` (keys prefixed `horacerta_`) synchronously, seeded with `SEED_*` fixtures (demo users `user_antonio`/`user_maria`/`user_joao`) the first time a key is missing.
+- `src/firebase.ts` (`dbFirebase`) wraps Firestore CRUD. Every `dbLocal.add*`/`update*`/`delete*` method fire-and-forgets a matching `dbFirebase` call to push the change to Firestore (errors are only `console.warn`'d, never surfaced to the UI).
+- `dbLocal.syncFromFirebase(userId)` pulls the full Firestore tree for a user back down into `localStorage` — called on login (`AuthScreen.tsx`) and again from `App.tsx`'s effect when `activeUser` changes, so the UI renders instantly from cache then silently reconciles with the cloud.
+- Firestore layout: `users/{userId}/medicados/{medicadoId}/receitas|medicamentos/{id}/doseLogs/{id}`, plus flat `users/{userId}/consultas`, `farmacias`, `cupons`. Types for all entities live in `src/types.ts`.
+- Deleting a `Receita` must cascade to its `Medicamento`s and their `DoseLog`s — see `dbLocalFallback.ts`'s `deleteReceita` for the pattern to replicate if adding similar cascades.
+
+### Auth
+
+`AuthScreen.tsx` handles both login and registration against Firebase Auth. On login, if `signInWithEmailAndPassword` fails, it falls back to checking the local `SEED_USERS` fixtures; if a match is found, it transparently calls `createUserWithEmailAndPassword` to register that seed account in Firebase Auth for the first time and migrates the profile's `userId` to the new Firebase UID (auto-migration flow — see `security_spec.md` §4 business rule). Registration requires password ≥6 chars with at least one letter and one number.
+
+There's a fully separate admin portal (not just a role-gated tab) reachable at `/admin` or `#/admin`, with its own login state (`activeAdminUser`) independent of the main `activeUser` session, rendered as an early return in `App.tsx`.
+
+### Firestore security rules
+
+`firestore.rules` is default-deny (`match /{document=**} { allow read, write: if false; }` at the top) with per-entity `isValid*(data, ...)` functions enforcing: exact key-set allowlists (blocks "ghost field" injection), `userId`/path ownership matching `request.auth.uid`, immutable identity fields, `createdAt == request.time`, string size caps, and an `isAdmin()` check hardcoded to one email. `security_spec.md` documents the "Dirty Dozen" adversarial payloads the rules are designed to reject — read it before modifying `firestore.rules` to understand what must keep failing.
+
+### AI extraction endpoints
+
+`server.ts` exposes `/api/gemini/extract` (prescription photo → structured medicines list) and `/api/gemini/extract-receipt` (fiscal receipt photo → establishment/items/total) using `@google/genai` against `gemini-3.5-flash` with a `responseSchema` for structured JSON output. Both take `{ imageBase64, mimeType }` and are consumed by `PrescriptionScanner.tsx` / `ReceiptScanner.tsx` respectively.
+
+### PWA / notifications
+
+Service worker registration, install-prompt handling (`beforeinstallprompt`), and a client-side dose-reminder poller (checks every 20s whether any active medicine's next dose time matches "now", using `localStorage` flags to dedupe) all live inline in `App.tsx` rather than in a separate module.
+
+### Styling
+
+Tailwind v4 via `@tailwindcss/vite` (no `tailwind.config.js` — v4 uses CSS-based config, check `src/index.css`). Custom brand tokens used throughout components: `brand-teal`, `brand-coral`, `brand-cream`, `brand-peach` (plus `-light`/`-dark`/`-darker` variants), `font-display` for headings and `font-sans` for body text.

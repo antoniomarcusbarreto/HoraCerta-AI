@@ -1,7 +1,7 @@
-const CACHE_NAME = "horacerta-cache-v1";
+const CACHE_NAME = "horacerta-cache-v2";
 const ASSETS = [
-  "/",
-  "/index.html",
+  "/app",
+  "/app/index.html",
   "/manifest.json"
 ];
 
@@ -74,7 +74,7 @@ self.addEventListener("notificationclick", (event) => {
         }
         return client.focus();
       }
-      return clients.openWindow("/");
+      return clients.openWindow("/app");
     })
   );
 });
