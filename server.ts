@@ -7,6 +7,9 @@ import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { initializeApp, getApps, getApp, type App } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 
+// dotenv.config() alone only reads ".env" — this project's docs/README tell
+// users to put secrets in ".env.local" (Vite convention), so load that first.
+dotenv.config({ path: ".env.local" });
 dotenv.config();
 
 // Lazily initialize Gemini to prevent crashes on startup if key is missing

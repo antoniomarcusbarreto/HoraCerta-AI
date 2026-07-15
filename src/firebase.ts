@@ -56,6 +56,21 @@ const db = firebaseConfig.firestoreDatabaseId
 
 export { app, auth, db };
 
+// Firestore returns `createdAt` as a Timestamp instance (server-set via
+// serverTimestamp()), but every entity type declares it as `string` (ISO) —
+// and once that Timestamp round-trips through dbLocalFallback's
+// JSON.stringify into localStorage it becomes a plain {seconds,nanoseconds}
+// object forever, silently breaking any `new Date(entity.createdAt)` call
+// downstream (e.g. Schedule.tsx's active-date-range math). Normalize on read
+// so every entity leaving this module always has a real ISO string.
+function normalizeCreatedAt<T extends { createdAt?: any }>(data: T): T {
+  const raw = data.createdAt;
+  if (raw && typeof raw === "object" && typeof raw.toDate === "function") {
+    return { ...data, createdAt: raw.toDate().toISOString() };
+  }
+  return data;
+}
+
 // ==========================================
 // FIRESTORE CRUD SERVICES
 // ==========================================
@@ -66,7 +81,7 @@ export const dbFirebase = {
     const docRef = doc(db, "users", userId);
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
-      return docSnap.data() as User;
+      return normalizeCreatedAt(docSnap.data()) as User;
     }
     return null;
   },
@@ -75,7 +90,7 @@ export const dbFirebase = {
     const querySnapshot = await getDocs(collection(db, "users"));
     const list: User[] = [];
     querySnapshot.forEach((doc) => {
-      list.push(doc.data() as User);
+      list.push(normalizeCreatedAt(doc.data()) as User);
     });
     return list;
   },
@@ -124,7 +139,7 @@ export const dbFirebase = {
     const querySnapshot = await getDocs(collRef);
     const list: Medicado[] = [];
     querySnapshot.forEach((doc) => {
-      list.push(doc.data() as Medicado);
+      list.push(normalizeCreatedAt(doc.data()) as Medicado);
     });
     return list;
   },
@@ -167,7 +182,7 @@ export const dbFirebase = {
     const querySnapshot = await getDocs(collRef);
     const list: Receita[] = [];
     querySnapshot.forEach((doc) => {
-      list.push(doc.data() as Receita);
+      list.push(normalizeCreatedAt(doc.data()) as Receita);
     });
     return list;
   },
@@ -213,7 +228,7 @@ export const dbFirebase = {
     const querySnapshot = await getDocs(collRef);
     const list: Medicamento[] = [];
     querySnapshot.forEach((doc) => {
-      list.push(doc.data() as Medicamento);
+      list.push(normalizeCreatedAt(doc.data()) as Medicamento);
     });
     return list;
   },
@@ -307,7 +322,7 @@ export const dbFirebase = {
     const querySnapshot = await getDocs(collRef);
     const list: Consulta[] = [];
     querySnapshot.forEach((doc) => {
-      list.push(doc.data() as Consulta);
+      list.push(normalizeCreatedAt(doc.data()) as Consulta);
     });
     return list;
   },
@@ -396,7 +411,7 @@ export const dbFirebase = {
     const querySnapshot = await getDocs(collRef);
     const list: CupomFiscal[] = [];
     querySnapshot.forEach((doc) => {
-      list.push(doc.data() as CupomFiscal);
+      list.push(normalizeCreatedAt(doc.data()) as CupomFiscal);
     });
     return list;
   },

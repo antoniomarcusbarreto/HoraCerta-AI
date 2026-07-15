@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Medicado, Medicamento, DoseLog } from "../types";
-import { 
+import { getDoseTimesForMedOnDate, isMedActiveOnDay, isDoseTaken } from "../utils/doseSchedule";
+import ConfirmDialog from "./ConfirmDialog";
+import {
   Plus, 
   Users, 
   Heart, 
@@ -27,6 +29,7 @@ interface DashboardProps {
   onDeletePatient: (patientId: string) => void;
   onToggleDose: (medId: string, plannedTime: string) => void;
   onViewSchedule: (date: Date, patientId?: string) => void;
+  onNotify: (message: string) => void;
 }
 
 export default function Dashboard({
@@ -36,11 +39,13 @@ export default function Dashboard({
   onAddPatient,
   onUpdatePatient,
   onDeletePatient,
+  onNotify,
   onToggleDose,
   onViewSchedule,
 }: DashboardProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingPatient, setEditingPatient] = useState<Medicado | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
 
   // Form states for Medicados
   const [patientName, setPatientName] = useState("");
@@ -76,7 +81,7 @@ export default function Dashboard({
       }
     } catch (err) {
       console.error("Erro ao acessar a câmera:", err);
-      alert("Não foi possível acessar a câmera. Por favor, certifique-se de que deu permissões de câmera.");
+      onNotify("Não foi possível acessar a câmera. Por favor, certifique-se de que deu permissões de câmera.");
       setCameraActive(false);
     }
   };
@@ -187,56 +192,8 @@ export default function Dashboard({
     return times.join(" • ") || "08:00";
   };
 
-  const getDoseTimesForMedOnDate = (med: Medicamento, targetDate: Date): string[] => {
-    const times: string[] = [];
-    const createdAt = new Date(med.createdAt || new Date().toISOString());
-    const intervalHours = med.intervalHours || 8;
-    const durationDays = med.durationDays || 7;
-    
-    // Total duration in milliseconds
-    const durationMs = durationDays * 24 * 60 * 60 * 1000;
-    const startMs = createdAt.getTime();
-    const endMs = startMs + durationMs;
-
-    const targetYear = targetDate.getFullYear();
-    const targetMonth = targetDate.getMonth();
-    const targetDay = targetDate.getDate();
-
-    // Generate dose times starting from createdAt, adding intervalHours
-    let currentMs = startMs;
-    while (currentMs < endMs) {
-      const d = new Date(currentMs);
-      if (
-        d.getFullYear() === targetYear &&
-        d.getMonth() === targetMonth &&
-        d.getDate() === targetDay
-      ) {
-        const hr = String(d.getHours()).padStart(2, "0");
-        const min = String(d.getMinutes()).padStart(2, "0");
-        times.push(`${hr}:${min}`);
-      }
-      currentMs += intervalHours * 60 * 60 * 1000;
-    }
-    return times;
-  };
-
-  const isMedActiveToday = (med: Medicamento) => {
-    if (med.status !== "active") return false;
-
-    const createdDate = new Date(med.createdAt || new Date().toISOString());
-    const startDate = new Date(createdDate.getFullYear(), createdDate.getMonth(), createdDate.getDate());
-    
-    const endDate = new Date(startDate);
-    endDate.setDate(startDate.getDate() + (med.durationDays || 7));
-
-    const today = new Date();
-    const targetDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-
-    return targetDate >= startDate && targetDate <= endDate;
-  };
-
   // Filter active medications
-  const activeMedicamentos = medicamentos.filter(m => isMedActiveToday(m));
+  const activeMedicamentos = medicamentos.filter(m => isMedActiveOnDay(m, new Date()));
 
   // Dynamically calculate today's planned doses from active medications
   const todayDosePlans = activeMedicamentos.flatMap((med) => {
@@ -301,11 +258,11 @@ export default function Dashboard({
   const todayPatientSchedules = getTodayPatientSchedule();
 
   return (
-    <div className="pb-32 px-4 max-w-md mx-auto pt-6 animate-fade-in">
+    <div className="pb-32 px-4 max-w-md lg:max-w-5xl lg:px-8 mx-auto pt-6 animate-fade-in">
       {/* Top Header Section */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6 bg-white border border-brand-cream-darker rounded-3xl p-5 shadow-xs">
         <div>
-          <span className="text-xs font-mono text-brand-coral font-bold tracking-widest uppercase">HoraCertaAI</span>
+          <span className="text-xs font-mono text-brand-coral font-bold tracking-widest">HoraCerta AI</span>
           <h1 className="text-3xl font-display font-bold text-brand-teal mt-0.5 tracking-tight">
             Olá, <span className="text-brand-coral">Antonio</span>
           </h1>
@@ -332,7 +289,7 @@ export default function Dashboard({
             </p>
             <button
               id="btn-view-schedule"
-              onClick={onViewSchedule}
+              onClick={() => onViewSchedule(new Date())}
               className="mt-4 bg-brand-coral hover:bg-brand-coral-light active:scale-95 text-brand-cream text-xs font-semibold px-4 py-2 rounded-xl transition-all shadow-sm"
             >
               Ver Agenda
@@ -367,7 +324,7 @@ export default function Dashboard({
 
       {/* Dependents Section (CRUD interface) */}
       <div className="mb-8">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 bg-white/60 border border-brand-cream-darker rounded-2xl px-4 py-3">
           <h2 className="text-lg font-display font-bold text-brand-teal flex items-center gap-2">
             <Users className="w-5 h-5 text-brand-coral" /> Pacientes Monitorados
           </h2>
@@ -381,7 +338,7 @@ export default function Dashboard({
         </div>
 
         {medicados.length === 0 ? (
-          <div className="bg-brand-cream-dark border border-dashed border-brand-cream-darker rounded-2xl p-6 text-center">
+          <div className="bg-white border border-dashed border-brand-cream-darker rounded-2xl p-6 text-center">
             <Users className="w-8 h-8 text-gray-400 mx-auto mb-2" />
             <p className="text-sm text-gray-500">Nenhum paciente cadastrado ainda.</p>
             <button
@@ -392,12 +349,12 @@ export default function Dashboard({
             </button>
           </div>
         ) : (
-          <div className="flex space-x-3 overflow-x-auto pb-2 scrollbar-none">
+          <div className="flex space-x-3 overflow-x-auto pb-2 scrollbar-none lg:flex-wrap lg:overflow-visible lg:gap-4 lg:space-x-0">
             {medicados.map(p => (
               <div
                 key={p.medicadoId}
                 id={`patient-card-${p.medicadoId}`}
-                className="flex-shrink-0 bg-brand-cream-dark border border-brand-cream-darker rounded-2xl p-3 w-36 relative hover:shadow-sm transition-all"
+                className="flex-shrink-0 bg-white border border-brand-cream-darker rounded-2xl p-3 w-36 relative shadow-xs hover:shadow-md transition-all"
               >
                 {/* CRUD Controls overlay */}
                 <div className="absolute top-2 right-2 flex space-x-1">
@@ -411,7 +368,14 @@ export default function Dashboard({
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (confirm(`Excluir o paciente ${p.name}?`)) onDeletePatient(p.medicadoId);
+                      setConfirmDialog({
+                        title: "Excluir paciente",
+                        message: `Tem certeza que deseja excluir ${p.name}? Essa ação não pode ser desfeita.`,
+                        onConfirm: () => {
+                          onDeletePatient(p.medicadoId);
+                          setConfirmDialog(null);
+                        },
+                      });
                     }}
                     className="p-1 rounded bg-white/80 hover:bg-white text-red-500 hover:text-red-700 transition-all"
                     title="Excluir"
@@ -440,11 +404,11 @@ export default function Dashboard({
 
       {/* Today's Schedule Grid (Grouped by Patient - "Programação do dia") */}
       <div className="mb-8">
-        <h2 className="text-lg font-display font-bold text-brand-teal flex items-center gap-2 mb-4">
+        <h2 className="text-lg font-display font-bold text-brand-teal flex items-center gap-2 mb-4 bg-white/60 border border-brand-cream-darker rounded-2xl px-4 py-3">
           <Clock className="w-5 h-5 text-brand-coral" /> Programação do dia
         </h2>
 
-        <div className="grid grid-cols-1 gap-4">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
           {todayPatientSchedules.length === 0 ? (
             /* Placeholder Card when no medicines are active */
             <div className="bg-brand-peach border border-brand-coral/10 rounded-3xl p-6 flex flex-col justify-center items-center text-center h-44 shadow-sm hover:scale-[1.02] transition-transform w-full">
@@ -457,7 +421,7 @@ export default function Dashboard({
               const patientPhoto = patient.photoUrl || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop";
               
               // Cycle through 3 different premium styling themes to keep the design highly polished and distinct
-              let cardBgClass = "bg-brand-peach border border-brand-coral/10";
+              let cardBgClass = "bg-brand-peach border border-brand-coral/10 shadow-xs";
               let textTitleClass = "text-brand-teal";
               let textSubClass = "text-gray-500";
               let pillBgClass = "bg-brand-coral/15 text-brand-teal/80";
@@ -525,10 +489,30 @@ export default function Dashboard({
                           </p>
                         </div>
                         
-                        {/* Times badge */}
-                        <div className={`flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded-lg shrink-0 ${pillBgClass}`}>
-                          <Clock className="w-3 h-3 shrink-0" />
-                          <span className="truncate">{times.join(" • ")}</span>
+                        {/* Times badges */}
+                        <div className="flex flex-wrap items-center gap-1 justify-end shrink-0">
+                          {times.map((time) => {
+                            const now = new Date();
+                            const taken = isDoseTaken(doseLogs, med.medicamentoId, now, time);
+                            const [doseHour, doseMinute] = time.split(":").map(Number);
+                            const doseDateTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), doseHour, doseMinute);
+                            const isOverdue = !taken && doseDateTime <= now;
+                            return (
+                              <span
+                                key={time}
+                                className={`flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded-lg shrink-0 ${
+                                  taken
+                                    ? "bg-emerald-500 text-white"
+                                    : isOverdue
+                                    ? "bg-red-500 text-white ring-2 ring-red-300 animate-pulse"
+                                    : pillBgClass
+                                }`}
+                              >
+                                {taken ? <Check className="w-3 h-3 shrink-0 stroke-[3]" /> : isOverdue ? <AlertCircle className="w-3 h-3 shrink-0" /> : <Clock className="w-3 h-3 shrink-0" />}
+                                {time}
+                              </span>
+                            );
+                          })}
                         </div>
                       </div>
                     ))}
@@ -543,7 +527,7 @@ export default function Dashboard({
       {/* Add / Edit Patient Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="bg-brand-cream rounded-3xl max-w-sm w-full p-6 shadow-xl border border-brand-cream-darker animate-scale-up">
+          <div className="bg-brand-cream rounded-3xl max-w-sm lg:max-w-md w-full p-6 shadow-xl border border-brand-cream-darker animate-scale-up">
             <h3 className="text-lg font-display font-bold text-brand-teal mb-4">
               {editingPatient ? "Editar Paciente" : "Novo Paciente Monitorado"}
             </h3>
@@ -703,6 +687,16 @@ export default function Dashboard({
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!confirmDialog}
+        title={confirmDialog?.title || ""}
+        message={confirmDialog?.message || ""}
+        danger
+        confirmLabel="Excluir"
+        onConfirm={() => confirmDialog?.onConfirm()}
+        onCancel={() => setConfirmDialog(null)}
+      />
     </div>
   );
 }

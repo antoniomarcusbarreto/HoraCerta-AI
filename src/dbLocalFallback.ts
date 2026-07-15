@@ -12,7 +12,7 @@ const SEED_USERS: User[] = [
   {
     userId: "user_antonio",
     name: "Antonio Marcus",
-    email: "antonio.marcus.barreto@gmail.com",
+    email: "demo.antonio@example.com",
     role: "admin", // Let's make him admin so he can test the admin module!
     status: "active",
     createdAt: new Date().toISOString(),
@@ -228,53 +228,85 @@ class DBLocalFallback {
     localStorage.setItem(`horacerta_${key}`, JSON.stringify(value));
   }
 
+  // Merges a Firestore snapshot into the local cache for one user without
+  // discarding local records that haven't reached Firestore yet: writes to
+  // Firestore are fire-and-forget (see add*/update* methods below), so a sync
+  // that runs while one is still in flight (e.g. a page reload right after
+  // saving) must not treat "missing from Firestore" as "was deleted" — it
+  // preserves any local record of that id/user pair Firestore doesn't have
+  // yet, and otherwise defers to Firestore as the source of truth.
+  private mergeUserCollection<T extends { userId: string }>(
+    local: T[],
+    remote: T[],
+    userId: string,
+    idKey: keyof T
+  ): T[] {
+    const others = local.filter(item => item.userId !== userId);
+    const remoteIds = new Set(remote.map(item => item[idKey]));
+    const localOnly = local.filter(
+      item => item.userId === userId && !remoteIds.has(item[idKey])
+    );
+    return [...others, ...remote, ...localOnly];
+  }
+
   // Live Firebase Synchronizer
   async syncFromFirebase(userId: string): Promise<boolean> {
     try {
       console.log(`[Firebase Sync] Carregando coleções para o usuário: ${userId}...`);
-      
+
       // 1. Get medicados
       const firebaseMedicados = await dbFirebase.getMedicados(userId);
-      const allMedicados = this.get<Medicado>("medicados", SEED_MEDICADOS).filter(m => m.userId !== userId);
-      allMedicados.push(...firebaseMedicados);
+      const localMedicados = this.get<Medicado>("medicados", SEED_MEDICADOS);
+      const allMedicados = this.mergeUserCollection(localMedicados, firebaseMedicados, userId, "medicadoId");
       this.set("medicados", allMedicados);
 
-      // 2. Fetch subcollections for each medicado
-      const allReceitas = this.get<Receita>("receitas", SEED_RECEITAS).filter(r => r.userId !== userId);
-      const allMedicamentos = this.get<Medicamento>("medicamentos", SEED_MEDICAMENTOS).filter(m => m.userId !== userId);
-      const allDoseLogs = this.get<DoseLog>("dose_logs", SEED_DOSE_LOGS).filter(d => d.userId !== userId);
+      // The medicados this user actually has after the merge (Firestore's +
+      // any still-local-only ones) — subcollections must be fetched for all
+      // of them, not just the ones Firestore already knows about.
+      const userMedicados = allMedicados.filter(m => m.userId === userId);
 
-      for (const m of firebaseMedicados) {
+      // 2. Fetch subcollections for each medicado
+      const firebaseReceitas: Receita[] = [];
+      const firebaseMedicamentos: Medicamento[] = [];
+      const firebaseDoseLogs: DoseLog[] = [];
+
+      for (const m of userMedicados) {
         const receitas = await dbFirebase.getReceitas(userId, m.medicadoId);
-        allReceitas.push(...receitas);
+        firebaseReceitas.push(...receitas);
 
         const medicamentos = await dbFirebase.getMedicamentos(userId, m.medicadoId);
-        allMedicamentos.push(...medicamentos);
+        firebaseMedicamentos.push(...medicamentos);
 
         for (const med of medicamentos) {
           const logs = await dbFirebase.getDoseLogs(userId, m.medicadoId, med.medicamentoId);
-          allDoseLogs.push(...logs);
+          firebaseDoseLogs.push(...logs);
         }
       }
-      this.set("receitas", allReceitas);
-      this.set("medicamentos", allMedicamentos);
-      this.set("dose_logs", allDoseLogs);
+      this.set("receitas", this.mergeUserCollection(
+        this.get<Receita>("receitas", SEED_RECEITAS), firebaseReceitas, userId, "receitaId"
+      ));
+      this.set("medicamentos", this.mergeUserCollection(
+        this.get<Medicamento>("medicamentos", SEED_MEDICAMENTOS), firebaseMedicamentos, userId, "medicamentoId"
+      ));
+      this.set("dose_logs", this.mergeUserCollection(
+        this.get<DoseLog>("dose_logs", SEED_DOSE_LOGS), firebaseDoseLogs, userId, "logId"
+      ));
 
       // 3. Fetch flat collections
       const consultas = await dbFirebase.getConsultas(userId);
-      const allConsultas = this.get<Consulta>("consultas", SEED_CONSULTAS).filter(c => c.userId !== userId);
-      allConsultas.push(...consultas);
-      this.set("consultas", allConsultas);
+      this.set("consultas", this.mergeUserCollection(
+        this.get<Consulta>("consultas", SEED_CONSULTAS), consultas, userId, "consultaId"
+      ));
 
       const farmacias = await dbFirebase.getFarmacias(userId);
-      const allFarmacias = this.get<Farmacia>("farmacias", SEED_FARMACIAS).filter(f => f.userId !== userId);
-      allFarmacias.push(...farmacias);
-      this.set("farmacias", allFarmacias);
+      this.set("farmacias", this.mergeUserCollection(
+        this.get<Farmacia>("farmacias", SEED_FARMACIAS), farmacias, userId, "farmaciaId"
+      ));
 
       const cupons = await dbFirebase.getCupons(userId);
-      const allCupons = this.get<CupomFiscal>("cupons", SEED_CUPONS).filter(c => c.userId !== userId);
-      allCupons.push(...cupons);
-      this.set("cupons", allCupons);
+      this.set("cupons", this.mergeUserCollection(
+        this.get<CupomFiscal>("cupons", SEED_CUPONS), cupons, userId, "cupomId"
+      ));
 
       console.log(`[Firebase Sync] Sincronização offline concluída com sucesso!`);
       return true;

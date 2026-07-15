@@ -1,20 +1,22 @@
 import React, { useState } from "react";
 import { Medicado, Medicamento, DoseLog, MedicineCategory } from "../types";
+import { getDoseTimesForMedOnDate, isMedActiveOnDay, isDoseTaken } from "../utils/doseSchedule";
+import ConfirmDialog from "./ConfirmDialog";
 import { ChevronLeft, ChevronRight, Bell, Check, Clock, Plus, Trash2, Edit2, ShieldAlert } from "lucide-react";
 
 interface ScheduleProps {
   medicados: Medicado[];
   medicamentos: Medicamento[];
   doseLogs: DoseLog[];
-  onAddMedicine: (med: Omit<Medicamento, "medicamentoId" | "createdAt"> & { createdAt?: string }) => void;
+  onAddMedicine: (med: Omit<Medicamento, "medicamentoId" | "createdAt" | "userId"> & { createdAt?: string }) => void;
   onUpdateMedicine: (med: Medicamento) => void;
   onDeleteMedicine: (medId: string) => void;
-  onAddDoseLog: (log: DoseLog) => void;
-  onDeleteDoseLog: (logId: string) => void;
+  onAddDoseLog: (log: Omit<DoseLog, "userId">) => void;
   selectedDate?: Date;
   setSelectedDate?: (date: Date) => void;
   selectedPatientFilterId?: string;
   setSelectedPatientFilterId?: (id: string) => void;
+  onNotify: (message: string) => void;
 }
 
 export default function Schedule({
@@ -25,11 +27,11 @@ export default function Schedule({
   onUpdateMedicine,
   onDeleteMedicine,
   onAddDoseLog,
-  onDeleteDoseLog,
   selectedDate: propSelectedDate,
   setSelectedDate: propSetSelectedDate,
   selectedPatientFilterId: propSelectedPatientFilterId,
   setSelectedPatientFilterId: propSetSelectedPatientFilterId,
+  onNotify,
 }: ScheduleProps) {
   // Calendar States (Defaults to today)
   const [localSelectedDate, setLocalSelectedDate] = useState<Date>(() => new Date());
@@ -45,6 +47,7 @@ export default function Schedule({
   const [showReminderModal, setShowReminderModal] = useState(false);
   const [reminderConfigured, setReminderConfigured] = useState<number | null>(10); // Default 10 min
   const [showAddMedModal, setShowAddMedModal] = useState(false);
+  const [confirmDeleteMed, setConfirmDeleteMed] = useState<{ medId: string; medName: string; slotTime: string } | null>(null);
 
   // Form states for Medicine CRUD
   const [medName, setMedName] = useState("");
@@ -121,53 +124,6 @@ export default function Schedule({
     return days;
   };
 
-  const getDoseTimesForMedOnDate = (med: Medicamento, targetDate: Date): string[] => {
-    const times: string[] = [];
-    const createdAt = new Date(med.createdAt || new Date().toISOString());
-    const intervalHours = med.intervalHours || 8;
-    const durationDays = med.durationDays || 7;
-    
-    // Total duration in milliseconds
-    const durationMs = durationDays * 24 * 60 * 60 * 1000;
-    const startMs = createdAt.getTime();
-    const endMs = startMs + durationMs;
-
-    const targetYear = targetDate.getFullYear();
-    const targetMonth = targetDate.getMonth();
-    const targetDay = targetDate.getDate();
-
-    // Generate dose times starting from createdAt, adding intervalHours
-    let currentMs = startMs;
-    while (currentMs < endMs) {
-      const d = new Date(currentMs);
-      if (
-        d.getFullYear() === targetYear &&
-        d.getMonth() === targetMonth &&
-        d.getDate() === targetDay
-      ) {
-        const hr = String(d.getHours()).padStart(2, "0");
-        const min = String(d.getMinutes()).padStart(2, "0");
-        times.push(`${hr}:${min}`);
-      }
-      currentMs += intervalHours * 60 * 60 * 1000;
-    }
-    return times;
-  };
-
-  const isMedActiveOnDay = (med: Medicamento, date: Date) => {
-    if (med.status !== "active") return false;
-
-    const createdDate = new Date(med.createdAt || new Date().toISOString());
-    const startDate = new Date(createdDate.getFullYear(), createdDate.getMonth(), createdDate.getDate());
-    
-    const endDate = new Date(startDate);
-    endDate.setDate(startDate.getDate() + (med.durationDays || 7));
-
-    const targetDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-
-    return targetDate >= startDate && targetDate <= endDate;
-  };
-
   // Weekly navigation
   const handlePrevWeek = () => {
     const d = new Date(selectedDate);
@@ -230,6 +186,7 @@ export default function Schedule({
     setCategory("pill");
     setSelectedPatientId(medicados[0]?.medicadoId || "");
     setInstructions("");
+    setReminderConfigured(10);
     
     const today = new Date();
     const yyyy = today.getFullYear();
@@ -265,7 +222,6 @@ export default function Schedule({
       durationDays: Number(durationDays),
       category,
       medicadoId: selectedPatientId,
-      userId: "user_antonio",
       receitaId: "rec_manual",
       instructions: instructions || undefined,
       status: "active",
@@ -276,7 +232,7 @@ export default function Schedule({
     setShowAddMedModal(false);
   };
 
-  // Toggle dose taken log
+  // Open the dose confirmation modal (only reachable for doses not yet taken)
   const toggleDoseTaken = (medId: string, slotTime: string) => {
     const yyyy = selectedDate.getFullYear();
     const mm = String(selectedDate.getMonth() + 1).padStart(2, "0");
@@ -284,36 +240,25 @@ export default function Schedule({
     const datePrefix = `${yyyy}-${mm}-${dd}`;
     const plannedISO = `${datePrefix}T${slotTime}:00.000Z`;
 
-    // Check if log exists
-    const existingLog = doseLogs.find(
-      l => l.medicamentoId === medId && l.plannedTime.includes(`${datePrefix}T${slotTime}`)
-    );
+    const med = medicamentos.find(m => m.medicamentoId === medId);
+    const patient = medicados.find(p => p.medicadoId === med?.medicadoId);
+    const patientName = patient ? patient.name : "Paciente";
+    const avatar = patient?.photoUrl || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop";
 
-    if (existingLog) {
-      if (confirm(`Deseja desfazer o registro de que este medicamento foi ministrado?`)) {
-        onDeleteDoseLog(existingLog.logId);
-      }
-    } else {
-      const med = medicamentos.find(m => m.medicamentoId === medId);
-      const patient = medicados.find(p => p.medicadoId === med?.medicadoId);
-      const patientName = patient ? patient.name : "Paciente";
-      const avatar = patient?.photoUrl || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop";
+    const now = new Date();
+    const currentHr = String(now.getHours()).padStart(2, "0");
+    const currentMin = String(now.getMinutes()).padStart(2, "0");
 
-      const now = new Date();
-      const currentHr = String(now.getHours()).padStart(2, "0");
-      const currentMin = String(now.getMinutes()).padStart(2, "0");
-
-      setDoseToConfirm({
-        medId,
-        slotTime,
-        medName: med?.name || "",
-        patientName,
-        dosage: med?.dosage || "",
-        avatar,
-        plannedISO,
-      });
-      setConfirmTime(`${currentHr}:${currentMin}`);
-    }
+    setDoseToConfirm({
+      medId,
+      slotTime,
+      medName: med?.name || "",
+      patientName,
+      dosage: med?.dosage || "",
+      avatar,
+      plannedISO,
+    });
+    setConfirmTime(`${currentHr}:${currentMin}`);
   };
 
   const handleConfirmDose = (e: React.FormEvent) => {
@@ -333,7 +278,6 @@ export default function Schedule({
       logId: `log_${Date.now()}`,
       medicamentoId: doseToConfirm.medId,
       medicadoId: medicamentos.find(m => m.medicamentoId === doseToConfirm.medId)?.medicadoId || "unknown",
-      userId: "user_antonio",
       plannedTime: doseToConfirm.plannedISO,
       takenTime: takenDate.toISOString(),
       status: "taken",
@@ -343,7 +287,7 @@ export default function Schedule({
   };
 
   return (
-    <div className="pb-32 px-3 sm:px-4 max-w-md mx-auto pt-6 animate-fade-in">
+    <div className="pb-32 px-3 sm:px-4 lg:px-8 max-w-md lg:max-w-3xl mx-auto pt-6 animate-fade-in">
       {/* Month Header Grid */}
       <div className="bg-brand-teal text-brand-cream rounded-3xl p-4 sm:p-6 shadow-md mb-6 relative overflow-hidden">
         {/* Header month & arrows */}
@@ -487,15 +431,7 @@ export default function Schedule({
             const med = medicamentos.find(m => m.medicamentoId === slot.medId);
             if (!med) return null;
             
-            const yyyy = selectedDate.getFullYear();
-            const mm = String(selectedDate.getMonth() + 1).padStart(2, "0");
-            const dd = String(selectedDate.getDate()).padStart(2, "0");
-            const datePrefix = `${yyyy}-${mm}-${dd}`;
-            
-            const isTaken = doseLogs.some(l => 
-              l.medicamentoId === slot.medId && 
-              l.plannedTime.includes(`${datePrefix}T${slot.time}`)
-            );
+            const isTaken = isDoseTaken(doseLogs, slot.medId, selectedDate, slot.time);
 
             return (
               <div key={index} className="flex items-start gap-2 sm:gap-4 relative z-10 animate-fade-in">
@@ -549,13 +485,14 @@ export default function Schedule({
                     {/* Checkbox / Action button */}
                     <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0">
                       <button
-                        onClick={() => toggleDoseTaken(med.medicamentoId, slot.time)}
+                        onClick={() => !isTaken && toggleDoseTaken(med.medicamentoId, slot.time)}
+                        disabled={isTaken}
                         className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center transition-all ${
                           isTaken
-                            ? "bg-brand-coral text-brand-cream shadow-xs"
+                            ? "bg-emerald-500 text-white shadow-xs cursor-not-allowed"
                             : "border border-brand-cream-darker text-gray-300 hover:text-brand-coral hover:border-brand-coral"
                         }`}
-                        title={isTaken ? "Marcar como pendente" : "Marcar como tomado"}
+                        title={isTaken ? "Dose já confirmada" : "Marcar como tomado"}
                       >
                         <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[3]" />
                       </button>
@@ -563,12 +500,13 @@ export default function Schedule({
                       {/* CRUD Delete Button for Medicines */}
                       <button
                         onClick={() => {
-                          if (confirm(`Excluir o medicamento ${med.name}?`)) {
-                            onDeleteMedicine(med.medicamentoId);
-                          }
+                          if (!isTaken) setConfirmDeleteMed({ medId: med.medicamentoId, medName: med.name, slotTime: slot.time });
                         }}
-                        className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-gray-300 hover:text-red-500 transition-colors"
-                        title="Remover medicamento"
+                        disabled={isTaken}
+                        className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center transition-colors ${
+                          isTaken ? "text-gray-200 cursor-not-allowed" : "text-gray-300 hover:text-red-500"
+                        }`}
+                        title={isTaken ? "Não é possível remover uma dose já confirmada" : "Remover medicamento"}
                       >
                         <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                       </button>
@@ -619,7 +557,7 @@ export default function Schedule({
 
             <button
               onClick={() => {
-                alert(`Configurações de notificações do Service Worker atualizadas para lembrete ${reminderConfigured === 0 ? "no horário exato" : `${reminderConfigured} minutos antes`}!`);
+                onNotify(`Configurações de notificações atualizadas para lembrete ${reminderConfigured === 0 ? "no horário exato" : `${reminderConfigured} minutos antes`}!`);
                 setShowReminderModal(false);
               }}
               className="w-full bg-brand-coral hover:bg-brand-coral-light text-brand-cream font-bold py-3.5 rounded-2xl transition-all shadow-md text-xs"
@@ -633,7 +571,7 @@ export default function Schedule({
       {/* Manual Add Medicine Modal */}
       {showAddMedModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="bg-brand-cream rounded-3xl max-w-sm w-full p-6 shadow-xl border border-brand-cream-darker max-h-[85vh] overflow-y-auto animate-scale-up">
+          <div className="bg-brand-cream rounded-3xl max-w-sm lg:max-w-md w-full p-6 shadow-xl border border-brand-cream-darker max-h-[85vh] overflow-y-auto animate-scale-up">
             <h3 className="text-lg font-display font-bold text-brand-teal mb-4">
               Adicionar Medicamento Manualmente
             </h3>
@@ -758,6 +696,29 @@ export default function Schedule({
                 />
               </div>
 
+              <div>
+                <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider flex items-center gap-1">
+                  <Bell className="w-3.5 h-3.5" /> Lembrar antes da dose
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[5, 10].map((minutes) => (
+                    <button
+                      key={minutes}
+                      type="button"
+                      onClick={() => setReminderConfigured(minutes)}
+                      className={`px-3 py-2 rounded-xl border text-sm font-semibold flex items-center justify-center gap-1 transition-all ${
+                        reminderConfigured === minutes
+                          ? "bg-brand-teal text-brand-cream border-brand-teal shadow-xs"
+                          : "bg-white border-brand-cream-darker text-brand-teal hover:bg-brand-peach"
+                      }`}
+                    >
+                      {reminderConfigured === minutes && <Check className="w-4 h-4 stroke-[3]" />}
+                      {minutes} minutos antes
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="flex space-x-2 pt-2">
                 <button
                   type="button"
@@ -864,6 +825,19 @@ export default function Schedule({
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!confirmDeleteMed}
+        title="Excluir medicamento"
+        message={`Excluir permanentemente ${confirmDeleteMed?.medName}? Isso vai remover TODOS os horários deste medicamento — hoje e nos próximos dias — não apenas a dose das ${confirmDeleteMed?.slotTime}. Essa ação não pode ser desfeita.`}
+        danger
+        confirmLabel="Excluir"
+        onConfirm={() => {
+          if (confirmDeleteMed) onDeleteMedicine(confirmDeleteMed.medId);
+          setConfirmDeleteMed(null);
+        }}
+        onCancel={() => setConfirmDeleteMed(null)}
+      />
     </div>
   );
 }

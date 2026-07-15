@@ -1,7 +1,7 @@
 import React, { useState, useRef } from "react";
 import { auth } from "../firebase";
 import { Medicado, Medicamento, MedicineCategory } from "../types";
-import { Upload, Camera, FileText, Sparkles, Check, ArrowRight, Loader2, Calendar, User, Edit2, AlertCircle } from "lucide-react";
+import { Upload, Camera, FileText, Sparkles, Check, ArrowRight, Loader2, Calendar, User, Edit2, AlertCircle, Bell } from "lucide-react";
 
 interface PrescriptionScannerProps {
   medicados: Medicado[];
@@ -66,6 +66,7 @@ export default function PrescriptionScanner({
   } | null>(null);
 
   const [selectedPatientId, setSelectedPatientId] = useState(medicados[0]?.medicadoId || "");
+  const [reminderOffset, setReminderOffset] = useState<number>(10);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
@@ -82,7 +83,7 @@ export default function PrescriptionScanner({
 
   const scanStepsText = [
     "Carregando imagem da receita...",
-    "Conectando à API do Google Gemini (Modelo Visão Multimodal)...",
+    "Conectando aos servidores do HoraCerta AI...",
     "Analisando caligrafia médica e escaneando termos químicos...",
     "Extraindo dosagens, frequências em horas e categorias...",
     "Formatando lista terapêutica estruturada..."
@@ -215,10 +216,11 @@ export default function PrescriptionScanner({
 
   const handleSavePrescription = () => {
     if (!extractedData || !selectedPatientId) return;
+    const medicinesWithReminder = extractedData.medicines.map((m) => ({ ...m, reminderOffset }));
     onScanComplete(
       extractedData.doctorName,
       extractedData.date,
-      extractedData.medicines,
+      medicinesWithReminder,
       selectedPatientId
     );
   };
@@ -234,7 +236,7 @@ export default function PrescriptionScanner({
             </div>
             <h2 className="text-xl font-display font-bold text-brand-teal">Leitor de Receitas com IA</h2>
             <p className="text-xs text-gray-500 mt-1 max-w-[85%] mx-auto font-sans">
-              Envie uma foto legível da sua receita médica. Nossa Inteligência Artificial (Google Gemini) irá extrair as dosagens e horários automaticamente.
+              Envie uma foto legível da sua receita médica. HoraCerta AI irá extrair as dosagens e horários automaticamente.
             </p>
           </div>
 
@@ -247,7 +249,7 @@ export default function PrescriptionScanner({
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-duration-1000"></span>
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                   </span>
-                  Inteligência Artificial Ativa (Google Gemini)
+                  HoraCerta AI Ativo e Pronto
                 </div>
               ) : (
                 <div className="bg-amber-50 text-amber-900 border border-amber-200/60 rounded-2xl p-4 text-xs text-left">
@@ -441,6 +443,29 @@ export default function PrescriptionScanner({
                   onChange={(e) => setExtractedData({ ...extractedData, date: e.target.value })}
                   className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-1.5 text-xs text-brand-teal focus:outline-hidden"
                 />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold text-brand-teal uppercase tracking-wider mb-1 flex items-center gap-1">
+                <Bell className="w-3 h-3" /> Lembrar antes da dose
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {[5, 10].map((minutes) => (
+                  <button
+                    key={minutes}
+                    type="button"
+                    onClick={() => setReminderOffset(minutes)}
+                    className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1 transition-all ${
+                      reminderOffset === minutes
+                        ? "bg-brand-teal text-brand-cream border-brand-teal shadow-xs"
+                        : "bg-white border-brand-cream-darker text-brand-teal hover:bg-brand-peach"
+                    }`}
+                  >
+                    {reminderOffset === minutes && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                    {minutes} minutos antes
+                  </button>
+                ))}
               </div>
             </div>
           </div>

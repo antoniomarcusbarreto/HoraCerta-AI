@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Farmacia, Medicamento, CupomFiscal } from "../types";
 import ReceiptScanner from "./ReceiptScanner";
+import ConfirmDialog from "./ConfirmDialog";
 import { Sparkles, Trash2, Receipt, ChevronDown, ChevronUp, Calendar } from "lucide-react";
 
 interface PharmaciesProps {
@@ -21,6 +22,7 @@ export default function Pharmacies({
 }: PharmaciesProps) {
   const [showReceiptScan, setShowReceiptScan] = useState(false);
   const [expandedCupomId, setExpandedCupomId] = useState<string | null>(null);
+  const [confirmCupomId, setConfirmCupomId] = useState<{ id: string; establishment: string } | null>(null);
 
   // Calculate total spent in all receipts
   const totalSpent = cupons.reduce((sum, c) => sum + (c.totalPrice || 0), 0);
@@ -39,7 +41,7 @@ export default function Pharmacies({
   }
 
   return (
-    <div className="pb-32 px-4 max-w-md mx-auto pt-6 animate-fade-in">
+    <div className="pb-32 px-4 max-w-md lg:max-w-4xl mx-auto pt-6 animate-fade-in">
       {/* Title Card */}
       <div className="bg-brand-teal text-brand-cream rounded-3xl p-6 shadow-md mb-6 flex items-center justify-between">
         <div>
@@ -94,7 +96,8 @@ export default function Pharmacies({
               </button>
             </div>
           ) : (
-            cupons.map((cupom) => {
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {cupons.map((cupom) => {
               const isExpanded = expandedCupomId === cupom.cupomId;
               return (
                 <div
@@ -112,11 +115,7 @@ export default function Pharmacies({
                     </div>
 
                     <button
-                      onClick={() => {
-                        if (confirm(`Remover comprovante fiscal da "${cupom.establishment}"?`)) {
-                          onDeleteCupom(cupom.cupomId);
-                        }
-                      }}
+                      onClick={() => setConfirmCupomId({ id: cupom.cupomId, establishment: cupom.establishment })}
                       className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all absolute top-4 right-4"
                       title="Remover comprovante"
                     >
@@ -168,10 +167,24 @@ export default function Pharmacies({
                   )}
                 </div>
               );
-            })
+            })}
+            </div>
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={!!confirmCupomId}
+        title="Remover comprovante"
+        message={`Remover o comprovante fiscal da "${confirmCupomId?.establishment}"?`}
+        danger
+        confirmLabel="Remover"
+        onConfirm={() => {
+          if (confirmCupomId) onDeleteCupom(confirmCupomId.id);
+          setConfirmCupomId(null);
+        }}
+        onCancel={() => setConfirmCupomId(null)}
+      />
     </div>
   );
 }

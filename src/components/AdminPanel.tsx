@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { User } from "../types";
 import { auth } from "../firebase";
+import ConfirmDialog from "./ConfirmDialog";
 import {
   Shield,
   ShieldAlert,
@@ -48,6 +49,7 @@ export default function AdminPanel({
 }: AdminPanelProps) {
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
 
   // Add User states
   const [userName, setUserName] = useState("");
@@ -237,7 +239,7 @@ export default function AdminPanel({
   const subscribedCount = users.filter(u => u.subscriptionStatus === "active").length;
 
   return (
-    <div className="pb-32 px-4 max-w-md mx-auto pt-6 animate-fade-in space-y-6">
+    <div className="pb-32 px-4 pt-6 animate-fade-in space-y-6">
       {/* Segmented Switcher for Admin Session */}
       {setActiveTab && activeTab && (
         <div className="flex bg-brand-cream-dark/50 border border-brand-cream-darker p-1 rounded-2xl">
@@ -275,7 +277,7 @@ export default function AdminPanel({
       </div>
 
       {/* Stats Board */}
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-3 gap-2 lg:gap-4">
         <div className="bg-white border border-brand-cream-darker rounded-2xl p-3 text-center">
           <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider block">Cadastrados</span>
           <span className="text-lg font-display font-bold text-brand-teal">{users.length}</span>
@@ -345,7 +347,7 @@ export default function AdminPanel({
                     type="button"
                     onClick={() => {
                       if (isSuspended) {
-                        alert(`Sessão Negada: O usuário ${u.name} está bloqueado pelo administrador. Ative-o novamente no Painel Administrativo usando a conta do Antonio Marcus!`);
+                        onNotify(`Sessão Negada: O usuário ${u.name} está bloqueado pelo administrador. Ative-o novamente no Painel Administrativo usando a conta do Antonio Marcus!`);
                         return;
                       }
                       onSimulateUser(u);
@@ -394,7 +396,7 @@ export default function AdminPanel({
         </div>
 
         {/* Registered Users List */}
-        <div className="space-y-3">
+        <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
           {filteredUsers.length === 0 ? (
             <div className="bg-white border border-brand-cream-darker rounded-3xl p-8 text-center text-gray-400">
               <AlertCircle className="w-8 h-8 mx-auto mb-2 text-gray-300" />
@@ -455,14 +457,19 @@ export default function AdminPanel({
 
                       {/* Delete user */}
                       <button
-                        onClick={async () => {
-                          if (u.email === "antonio.marcus.barreto@gmail.com") {
-                            alert("Não é possível remover o administrador principal bootstrapped!");
+                        onClick={() => {
+                          if (u.email === "antonio.marcus.barreto@gmail.com" && u.userId !== "user_antonio") {
+                            onNotify("Não é possível remover o administrador principal bootstrapped!");
                             return;
                           }
-                          if (confirm(`Remover permanentemente o usuário ${u.name}?`)) {
-                            await onDeleteUser(u.userId);
-                          }
+                          setConfirmDialog({
+                            title: "Remover usuário",
+                            message: `Remover permanentemente o usuário ${u.name}? Essa ação não pode ser desfeita.`,
+                            onConfirm: async () => {
+                              await onDeleteUser(u.userId);
+                              setConfirmDialog(null);
+                            },
+                          });
                         }}
                         className="p-1 rounded-md border border-red-100 bg-red-50 text-red-500 hover:bg-red-600 hover:text-white transition-all"
                         title="Excluir Usuário"
@@ -825,6 +832,16 @@ export default function AdminPanel({
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!confirmDialog}
+        title={confirmDialog?.title || ""}
+        message={confirmDialog?.message || ""}
+        danger
+        confirmLabel="Remover"
+        onConfirm={() => confirmDialog?.onConfirm()}
+        onCancel={() => setConfirmDialog(null)}
+      />
     </div>
   );
 }

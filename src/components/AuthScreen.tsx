@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { User } from "../types";
 import { dbLocal } from "../dbLocalFallback";
 import { auth, dbFirebase } from "../firebase";
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification } from "firebase/auth";
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
 import { 
   Mail, 
   Lock, 
@@ -115,15 +115,6 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
         const userCredential = await createUserWithEmailAndPassword(auth, trimmedEmail, password);
         const firebaseUser = userCredential.user;
 
-        // Send the verification e-mail immediately — firestore.rules requires
-        // email_verified == true for essentially every write, so the user
-        // can't meaningfully use the app until this is confirmed.
-        try {
-          await sendEmailVerification(firebaseUser);
-        } catch (verifyErr) {
-          console.warn("Falha ao enviar e-mail de verificação:", verifyErr);
-        }
-
         // Create Firestore Profile Document
         const newUser: User = {
           userId: firebaseUser.uid,
@@ -137,9 +128,7 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
         // Write both locally and to Firestore
         dbLocal.updateUser(newUser);
 
-        setSuccess(
-          `Conta criada com sucesso! Enviamos um e-mail de confirmação para ${trimmedEmail}. Verifique sua caixa de entrada (e o spam) antes de usar o aplicativo.`
-        );
+        setSuccess("Conta criada com sucesso! Carregando painel...");
         setTimeout(() => {
           onLoginSuccess(newUser);
         }, 2500);
@@ -156,7 +145,7 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
 
   return (
     <div className="min-h-screen bg-brand-cream text-brand-teal flex flex-col justify-center items-center px-4 py-8 select-none font-sans">
-      <div className="w-full max-w-md bg-white border border-brand-cream-darker rounded-[2.5rem] p-8 shadow-xl relative overflow-hidden">
+      <div className="w-full max-w-md lg:max-w-lg bg-white border border-brand-cream-darker rounded-[2.5rem] p-8 lg:p-10 shadow-xl relative overflow-hidden">
         {/* Subtle background circles for branding */}
         <div className="absolute top-0 right-0 w-32 h-32 bg-brand-peach/35 rounded-full translate-x-12 -translate-y-12" />
         <div className="absolute bottom-0 left-0 w-24 h-24 bg-brand-cream rounded-full -translate-x-8 translate-y-8" />

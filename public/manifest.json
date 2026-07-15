@@ -1,6 +1,6 @@
 {
-  "name": "HoraCertaAI - Gerenciador de Medicamentos",
-  "short_name": "HoraCertaAI",
+  "name": "HoraCerta AI - Gerenciador de Medicamentos",
+  "short_name": "HoraCerta AI",
   "description": "Seu gerenciador inteligente de medicamentos e receitas com IA.",
   "start_url": "/app",
   "display": "standalone",

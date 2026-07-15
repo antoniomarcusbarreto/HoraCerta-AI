@@ -1,25 +1,32 @@
 import React, { useState, useEffect } from "react";
 import { dbLocal } from "./dbLocalFallback";
 import { auth, dbFirebase } from "./firebase";
-import { signInWithEmailAndPassword, signOut as firebaseSignOut, updatePassword, onAuthStateChanged, sendEmailVerification, User as FirebaseUser } from "firebase/auth";
+import { signInWithEmailAndPassword, signOut as firebaseSignOut, updatePassword, User as FirebaseUser } from "firebase/auth";
 import { User, Medicado, Receita, Medicamento, DoseLog, Consulta, Farmacia, MedicineCategory, CupomFiscal } from "./types";
 import BottomNavBar from "./components/BottomNavBar";
 import Dashboard from "./components/Dashboard";
 import Schedule from "./components/Schedule";
-import PrescriptionScanner from "./components/PrescriptionScanner";
 import AdminPanel from "./components/AdminPanel";
 import Appointments from "./components/Appointments";
 import Pharmacies from "./components/Pharmacies";
 import AuthScreen from "./components/AuthScreen";
+import { useIsDesktop } from "./hooks/useIsDesktop";
 import { Shield, Sparkles, Heart, HelpCircle, LogOut, ShieldAlert, CheckCircle2, User as UserIcon, Camera, Key, Upload, Eye, EyeOff, Save, Smartphone, Bell, Download, Gift, CreditCard, Lock, Mail, ArrowRight } from "lucide-react";
 
+// Set by the CTAs on the static landing page (root index.html) right before
+// navigating to /app, so a desktop user who explicitly chose to enter the
+// app isn't bounced straight back to the landing page below.
+const DESKTOP_ENTER_FLAG = "horacerta_desktop_enter";
+
 export default function App() {
+  const isDesktop = useIsDesktop();
+  // Read once: the landing page CTA sets this flag right before a full page
+  // navigation to /app, so there is no in-app moment where it needs to change.
+  const desktopEntered = typeof window !== "undefined" && sessionStorage.getItem(DESKTOP_ENTER_FLAG) === "1";
   // 1. Authentication State
   const [activeUser, setActiveUser] = useState<User | null>(null);
   const [activeAdminUser, setActiveAdminUser] = useState<User | null>(null);
-  const [firebaseAuthUser, setFirebaseAuthUser] = useState<FirebaseUser | null>(null);
-  const [resendCooldown, setResendCooldown] = useState(0);
-  
+
   // 2. Global Database States
   const [users, setUsers] = useState<User[]>([]);
   const [medicados, setMedicados] = useState<Medicado[]>([]);
@@ -32,7 +39,6 @@ export default function App() {
 
   // 3. Navigation State
   const [activeTab, setActiveTab] = useState<string>("home");
-  const [showScanFlow, setShowScanFlow] = useState(false);
   const [successToast, setSuccessToast] = useState<string | null>(null);
   const [scheduleDate, setScheduleDate] = useState<Date>(new Date());
   const [schedulePatientId, setSchedulePatientId] = useState<string>("");
@@ -76,44 +82,6 @@ export default function App() {
       }
     }
   }, []);
-
-  // Track the live Firebase Auth session (needed for emailVerified gating —
-  // the Firestore-backed `activeUser` profile has no such field).
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
-      setFirebaseAuthUser(fbUser);
-    });
-    return unsubscribe;
-  }, []);
-
-  // Cooldown timer for the "resend verification email" button.
-  useEffect(() => {
-    if (resendCooldown <= 0) return;
-    const timer = setTimeout(() => setResendCooldown((s) => s - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [resendCooldown]);
-
-  const handleResendVerification = async () => {
-    if (!firebaseAuthUser || resendCooldown > 0) return;
-    try {
-      await sendEmailVerification(firebaseAuthUser);
-      showToast("E-mail de verificação reenviado!");
-      setResendCooldown(60);
-    } catch {
-      showToast("Não foi possível reenviar o e-mail agora. Tente novamente em instantes.");
-    }
-  };
-
-  const handleCheckVerification = async () => {
-    if (!firebaseAuthUser) return;
-    await firebaseAuthUser.reload();
-    if (firebaseAuthUser.emailVerified) {
-      setFirebaseAuthUser(auth.currentUser);
-      showToast("E-mail verificado com sucesso!");
-    } else {
-      showToast("Ainda não detectamos a verificação. Confira sua caixa de entrada.");
-    }
-  };
 
   // Sync data whenever active user shifts (isolated queries per tenant)
   useEffect(() => {
@@ -195,6 +163,15 @@ export default function App() {
     };
   }, []);
 
+  // Desktop visitors land on /app only if they explicitly chose to (via the
+  // landing page CTA, which sets DESKTOP_ENTER_FLAG). Otherwise send them to
+  // the marketing landing page instead of the raw mobile-first UI.
+  useEffect(() => {
+    if (isDesktop && !desktopEntered && !isAdminRoute) {
+      window.location.href = "/";
+    }
+  }, [isDesktop, desktopEntered, isAdminRoute]);
+
   // Background check for scheduled medicine doses
   useEffect(() => {
     if (!activeUser || medicamentos.length === 0) return;
@@ -247,23 +224,35 @@ export default function App() {
         const times = getDoseTimesForMedOnDate(med, now);
         
         times.forEach((slotTime) => {
-          if (slotTime === currentTimeStr) {
+          // Notify `reminderOffset` minutes before the dose, not at the exact dose time.
+          const [slotHr, slotMin] = slotTime.split(":").map(Number);
+          const doseDateTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), slotHr, slotMin);
+          const offsetMin = med.reminderOffset || 0;
+          const notifyDateTime = new Date(doseDateTime.getTime() - offsetMin * 60000);
+          const notifyTimeStr = `${String(notifyDateTime.getHours()).padStart(2, "0")}:${String(notifyDateTime.getMinutes()).padStart(2, "0")}`;
+
+          if (notifyTimeStr === currentTimeStr) {
             const isTaken = doseLogs.some(
               (log) => log.medicamentoId === med.medicamentoId && log.plannedTime.includes(`${todayISOStr}T${slotTime}`)
             );
 
             if (!isTaken) {
+              // Dedupe key stays tied to the dose slot itself, not the (earlier) notify time.
               const notifiedKey = `notified_${med.medicamentoId}_${todayISOStr}_${slotTime}`;
               const alreadyNotified = localStorage.getItem(notifiedKey);
-              
+
               if (!alreadyNotified) {
                 // Notification text is intentionally generic — no patient name,
                 // medicine name or dosage (PHI) on the lock screen. Details are
                 // only shown after the user unlocks the device and opens the app.
+                const body = offsetMin > 0
+                  ? `Sua próxima dose é em ${offsetMin} minutos. Abra o aplicativo para verificar os detalhes.`
+                  : "Você tem uma nova dose pendente. Abra o aplicativo para verificar os detalhes.";
+
                 if ("serviceWorker" in navigator && Notification.permission === "granted") {
                   navigator.serviceWorker.ready.then((reg) => {
                     reg.showNotification("Lembrete de Medicamento", {
-                      body: "Você tem uma nova dose pendente. Abra o aplicativo para verificar os detalhes.",
+                      body,
                       icon: "https://images.unsplash.com/photo-1584017911766-d451b3d0e843?w=192&h=192&fit=crop&auto=format",
                       badge: "https://images.unsplash.com/photo-1584017911766-d451b3d0e843?w=192&h=192&fit=crop&auto=format",
                       vibrate: [300, 100, 300],
@@ -273,7 +262,7 @@ export default function App() {
                   });
                 } else if (Notification.permission === "granted") {
                   new Notification("Lembrete de Medicamento", {
-                    body: "Você tem uma nova dose pendente. Abra o aplicativo para verificar os detalhes.",
+                    body,
                   });
                 }
 
@@ -303,7 +292,7 @@ export default function App() {
         showToast("Excelente! Notificações de Alerta ativadas!");
         if ("serviceWorker" in navigator) {
           navigator.serviceWorker.ready.then((reg) => {
-            reg.showNotification("HoraCertaAI - Alertas Ativados", {
+            reg.showNotification("HoraCerta AI - Alertas Ativados", {
               body: "Você começará a receber lembretes de seus remédios diretamente no celular!",
               icon: "https://images.unsplash.com/photo-1584017911766-d451b3d0e843?w=192&h=192&fit=crop&auto=format",
             });
@@ -355,7 +344,7 @@ export default function App() {
       const { outcome } = await deferredPrompt.userChoice;
       if (outcome === "accepted") {
         setIsPWAInstalled(true);
-        showToast("HoraCertaAI instalado com sucesso!");
+        showToast("HoraCerta AI instalado com sucesso!");
       }
       setDeferredPrompt(null);
     } catch (err) {
@@ -546,11 +535,12 @@ export default function App() {
   // ==========================================
   // MEDICINES (MEDICAMENTOS) CRUD HANDLERS
   // ==========================================
-  const handleAddMedicine = (medData: Omit<Medicamento, "medicamentoId" | "createdAt"> & { createdAt?: string }) => {
+  const handleAddMedicine = (medData: Omit<Medicamento, "medicamentoId" | "createdAt" | "userId"> & { createdAt?: string }) => {
     if (!activeUser) return;
     const newMed: Medicamento = {
       ...medData,
       medicamentoId: `med_${Date.now()}`,
+      userId: activeUser.userId,
       createdAt: medData.createdAt || new Date().toISOString(),
     };
     dbLocal.addMedicamento(newMed);
@@ -574,18 +564,11 @@ export default function App() {
   // ==========================================
   // DOSE LOGS HANDLERS
   // ==========================================
-  const handleAddDoseLog = (log: DoseLog) => {
+  const handleAddDoseLog = (log: Omit<DoseLog, "userId">) => {
     if (!activeUser) return;
-    dbLocal.addDoseLog(log);
+    dbLocal.addDoseLog({ ...log, userId: activeUser.userId });
     setDoseLogs(dbLocal.getDoseLogs(activeUser.userId));
     showToast("Medicamento marcado como TOMADO! Saúde garantida.");
-  };
-
-  const handleDeleteDoseLog = (logId: string) => {
-    if (!activeUser) return;
-    dbLocal.deleteDoseLog(logId);
-    setDoseLogs(dbLocal.getDoseLogs(activeUser.userId));
-    showToast("Status retornado para pendente.");
   };
 
   // ==========================================
@@ -726,7 +709,7 @@ export default function App() {
   // ==========================================
   // AI prescription scanner registration callback
   // ==========================================
-  const handleScanComplete = (
+  const handleAddReceita = (
     doctorName: string,
     date: string,
     extractedMedicines: any[],
@@ -761,6 +744,7 @@ export default function App() {
         instructions: med.instructions || "",
         category: med.category || "pill",
         status: "active",
+        reminderOffset: med.reminderOffset ?? 10,
         pricePlaceholder: Math.floor(Math.random() * 40) + 15.90, // Generate low cost pricing
         createdAt: new Date().toISOString(),
       };
@@ -771,8 +755,6 @@ export default function App() {
     setReceitas(dbLocal.getReceitas(activeUser.userId));
     setMedicamentos(dbLocal.getMedicamentos(activeUser.userId));
 
-    setShowScanFlow(false);
-    setActiveTab("schedule");
     showToast(`Receita de ${doctorName} lida e agendada com sucesso por Inteligência Artificial!`);
   };
 
@@ -788,7 +770,7 @@ export default function App() {
   // Switch between Admin Antonio (full control) and Normal User Maria (tenant isolated)
   const handleSwitchUserSession = (user: User) => {
     if (user.status === "suspended") {
-      alert("Acesso negado: Sua conta está marcada como SUSPENSA pelo Administrador no Painel RBAC.");
+      showToast("Acesso negado: Sua conta está marcada como SUSPENSA pelo Administrador no Painel RBAC.");
       return;
     }
     setActiveUser(user);
@@ -881,6 +863,12 @@ export default function App() {
   // Check if session has admin role privileges
   const isAdminSession = activeUser?.role === "admin";
 
+  // Redirect to the landing page is in flight (see effect above) — render
+  // nothing so the raw mobile UI never flashes on desktop screens.
+  if (isDesktop && !desktopEntered && !isAdminRoute) {
+    return null;
+  }
+
   if (isAdminRoute) {
     return (
       <div className="min-h-screen bg-brand-cream text-brand-teal relative selection:bg-brand-coral/20 select-none pb-12 font-sans">
@@ -923,7 +911,7 @@ export default function App() {
                   try {
                     await handleAdminLogin(target.email.value, target.password.value);
                   } catch (err: any) {
-                    alert(err.message);
+                    showToast(err.message);
                   }
                 }}
                 className="space-y-4 relative z-10"
@@ -997,7 +985,7 @@ export default function App() {
                 </div>
                 <div>
                   <h1 className="text-lg font-display font-bold text-brand-teal leading-tight">
-                    HoraCertaAI - Portal Admin
+                    HoraCerta AI - Portal Admin
                   </h1>
                   <p className="text-xs text-gray-400">
                     Sessão ativa: <strong className="text-brand-coral">{activeAdminUser.name}</strong>
@@ -1040,9 +1028,9 @@ export default function App() {
     );
   }
 
-  return (
-    <div className="min-h-screen bg-brand-cream text-brand-teal relative selection:bg-brand-coral/20 select-none pb-20">
-      
+  const appShell = (
+    <div className="min-h-screen bg-brand-cream text-brand-teal relative selection:bg-brand-coral/20 select-none pb-20 lg:pb-8 lg:pl-24">
+
       {/* Visual Floating Toast */}
       {successToast && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[90%] bg-brand-teal border-2 border-brand-coral-light/30 text-brand-cream rounded-2xl px-4 py-3.5 shadow-xl flex items-start gap-3 animate-slide-down">
@@ -1057,55 +1045,6 @@ export default function App() {
       {/* Main app navigation switcher */}
       {!activeUser ? (
         <AuthScreen onLoginSuccess={handleLoginSuccess} />
-      ) : firebaseAuthUser && !firebaseAuthUser.emailVerified ? (
-        /* Blocked until the user confirms their e-mail — firestore.rules
-           requires email_verified == true for essentially every write, so
-           nothing in the app would actually persist for this session anyway. */
-        <div className="min-h-screen flex flex-col justify-center items-center px-4 py-8 select-none font-sans">
-          <div className="w-full max-w-md bg-white border border-brand-cream-darker rounded-[2.5rem] p-8 shadow-xl text-center relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-brand-peach/35 rounded-full translate-x-12 -translate-y-12" />
-            <div className="w-14 h-14 bg-brand-peach text-brand-coral rounded-3xl flex items-center justify-center mx-auto mb-4 border border-brand-coral/15 shadow-sm relative z-10">
-              <Mail className="w-7 h-7" />
-            </div>
-            <h1 className="text-xl font-display font-bold text-brand-teal tracking-tight relative z-10">
-              Verifique seu e-mail
-            </h1>
-            <p className="text-xs text-gray-500 font-sans mt-2 mb-6 leading-relaxed relative z-10">
-              Enviamos um link de confirmação para{" "}
-              <strong className="text-brand-teal">{firebaseAuthUser.email}</strong>. Por segurança, você precisa
-              confirmar seu e-mail antes de usar o HoraCertaAI.
-            </p>
-            <div className="space-y-2 relative z-10">
-              <button
-                onClick={handleResendVerification}
-                disabled={resendCooldown > 0}
-                className="w-full font-display font-semibold text-xs py-3 bg-brand-teal text-brand-cream rounded-xl hover:bg-brand-teal-light disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-              >
-                {resendCooldown > 0 ? `Reenviar e-mail (${resendCooldown}s)` : "Reenviar e-mail de verificação"}
-              </button>
-              <button
-                onClick={handleCheckVerification}
-                className="w-full font-display font-semibold text-xs py-3 bg-brand-cream border border-brand-cream-darker text-brand-teal rounded-xl hover:bg-brand-peach transition-all"
-              >
-                Já verifiquei, atualizar
-              </button>
-              <button
-                onClick={handleLogout}
-                className="w-full text-xs font-bold text-brand-teal/50 hover:text-brand-teal py-2 transition-all"
-              >
-                Sair
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : showScanFlow ? (
-        <div className="pt-4">
-          <PrescriptionScanner
-            medicados={medicados}
-            onScanComplete={handleScanComplete}
-            onCancel={() => setShowScanFlow(false)}
-          />
-        </div>
       ) : (
         <div>
           {activeTab === "home" && (
@@ -1122,6 +1061,7 @@ export default function App() {
                 setSchedulePatientId(patientId || "");
                 setActiveTab("schedule");
               }}
+              onNotify={showToast}
             />
           )}
 
@@ -1134,11 +1074,11 @@ export default function App() {
               onUpdateMedicine={handleUpdateMedicine}
               onDeleteMedicine={handleDeleteMedicine}
               onAddDoseLog={handleAddDoseLog}
-              onDeleteDoseLog={handleDeleteDoseLog}
               selectedDate={scheduleDate}
               setSelectedDate={setScheduleDate}
               selectedPatientFilterId={schedulePatientId}
               setSelectedPatientFilterId={setSchedulePatientId}
+              onNotify={showToast}
             />
           )}
 
@@ -1155,9 +1095,19 @@ export default function App() {
             />
           )}
 
+          {activeTab === "receitas" && (
+            <Appointments
+              medicados={medicados}
+              receitas={receitas}
+              medicamentos={medicamentos}
+              onAddReceita={handleAddReceita}
+              onDeleteReceita={handleDeleteReceita}
+            />
+          )}
+
           {/* Profile Tab */}
           {activeTab === "profile" && (
-            <div className="pb-32 px-4 max-w-md mx-auto pt-6 animate-fade-in space-y-6">
+            <div className="pb-32 px-4 max-w-md lg:max-w-3xl mx-auto pt-6 animate-fade-in space-y-6">
               {/* User Identity Header Card */}
               <div className="bg-brand-teal text-brand-cream rounded-3xl p-6 shadow-md text-center relative overflow-hidden">
                 {/* Profile Image Container */}
@@ -1489,27 +1439,20 @@ export default function App() {
                   </p>
                 </div>
               </div>
-
-              {/* Saved recipes list inside user panel */}
-              <Appointments
-                medicados={medicados}
-                receitas={receitas}
-                medicamentos={medicamentos}
-                onDeleteReceita={handleDeleteReceita}
-              />
             </div>
           )}
         </div>
       )}
 
       {/* Persistent Elegant Bottom Navigation */}
-      {activeUser && !showScanFlow && (
+      {activeUser && (
         <BottomNavBar
           activeTab={activeTab}
           setActiveTab={setActiveTab}
-          onAddClick={() => setShowScanFlow(true)}
         />
       )}
     </div>
   );
+
+  return appShell;
 }

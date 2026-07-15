@@ -1,5 +1,5 @@
 {
-  "name": "HoraCertaAI",
+  "name": "HoraCerta AI",
   "description": "Gestão Inteligente de Medicamentos e Receitas Médicas com leitura por Inteligência Artificial (Google Gemini).",
   "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

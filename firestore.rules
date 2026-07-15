@@ -76,39 +76,53 @@ service cloud.firestore {
 
     function isValidMedicado(data, userId) {
       return data.keys().hasAll(['medicadoId', 'userId', 'name', 'relationship', 'createdAt']) &&
-             (data.keys().size() == 5 || (data.keys().size() == 6 && data.keys().hasAny(['photoUrl', 'birthDate']))) &&
+             data.keys().hasOnly(['medicadoId', 'userId', 'name', 'relationship', 'createdAt', 'photoUrl', 'birthDate']) &&
              data.userId == userId &&
              data.medicadoId is string && data.medicadoId.size() <= 128 &&
              data.name is string && data.name.size() <= 128 &&
              data.relationship is string && data.relationship.size() <= 64 &&
-             data.createdAt == request.time;
+             data.createdAt == request.time &&
+             (!('birthDate' in data) || (data.birthDate is string && data.birthDate.size() <= 32)) &&
+             (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() <= 900000));
     }
 
     function isValidReceita(data, userId, medicadoId) {
       return data.keys().hasAll(['receitaId', 'medicadoId', 'userId', 'date', 'extracted', 'createdAt']) &&
+             data.keys().hasOnly(['receitaId', 'medicadoId', 'userId', 'date', 'extracted', 'createdAt', 'doctorName', 'imageUrl', 'notes']) &&
              data.userId == userId &&
              data.medicadoId == medicadoId &&
              data.receitaId is string && data.receitaId.size() <= 128 &&
              data.date is string && data.date.size() <= 32 &&
              data.extracted is bool &&
-             data.createdAt == request.time;
+             data.createdAt == request.time &&
+             (!('doctorName' in data) || (data.doctorName is string && data.doctorName.size() <= 128)) &&
+             (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 900000)) &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 2000));
     }
 
     function isValidMedicamento(data, userId, medicadoId) {
-      return data.keys().hasAll(['medicamentoId', 'medicadoId', 'userId', 'name', 'dosage', 'intervalHours', 'durationDays', 'status', 'createdAt']) &&
+      return data.keys().hasAll(['medicamentoId', 'receitaId', 'medicadoId', 'userId', 'name', 'dosage', 'intervalHours', 'durationDays', 'category', 'status', 'createdAt']) &&
+             data.keys().hasOnly(['medicamentoId', 'receitaId', 'medicadoId', 'userId', 'name', 'dosage', 'intervalHours', 'durationDays', 'category', 'status', 'createdAt', 'instructions', 'pharmacyId', 'reminderOffset', 'pricePlaceholder']) &&
              data.userId == userId &&
              data.medicadoId == medicadoId &&
              data.medicamentoId is string && data.medicamentoId.size() <= 128 &&
+             data.receitaId is string && data.receitaId.size() <= 128 &&
              data.name is string && data.name.size() <= 128 &&
              data.dosage is string && data.dosage.size() <= 64 &&
              data.intervalHours is int && data.intervalHours > 0 && data.intervalHours <= 168 &&
              data.durationDays is int && data.durationDays > 0 && data.durationDays <= 365 &&
+             data.category in ['pill', 'syrup', 'drop', 'cream', 'injection', 'other'] &&
              data.status in ['active', 'completed', 'paused'] &&
-             data.createdAt == request.time;
+             data.createdAt == request.time &&
+             (!('instructions' in data) || (data.instructions is string && data.instructions.size() <= 2000)) &&
+             (!('pharmacyId' in data) || (data.pharmacyId is string && data.pharmacyId.size() <= 128)) &&
+             (!('reminderOffset' in data) || (data.reminderOffset is int && data.reminderOffset >= 0 && data.reminderOffset <= 1440)) &&
+             (!('pricePlaceholder' in data) || (data.pricePlaceholder is number && data.pricePlaceholder >= 0));
     }
 
     function isValidDoseLog(data, userId, medicadoId, medicamentoId) {
       return data.keys().hasAll(['logId', 'medicamentoId', 'medicadoId', 'userId', 'plannedTime', 'takenTime', 'status']) &&
+             data.keys().hasOnly(['logId', 'medicamentoId', 'medicadoId', 'userId', 'plannedTime', 'takenTime', 'status']) &&
              data.userId == userId &&
              data.medicadoId == medicadoId &&
              data.medicamentoId == medicamentoId &&
@@ -120,28 +134,38 @@ service cloud.firestore {
 
     function isValidConsulta(data, userId) {
       return data.keys().hasAll(['consultaId', 'userId', 'medicadoId', 'doctorName', 'dateTime', 'createdAt']) &&
+             data.keys().hasOnly(['consultaId', 'userId', 'medicadoId', 'doctorName', 'dateTime', 'createdAt', 'specialty', 'location', 'notes']) &&
              data.userId == userId &&
              data.consultaId is string && data.consultaId.size() <= 128 &&
              data.medicadoId is string && data.medicadoId.size() <= 128 &&
              data.doctorName is string && data.doctorName.size() <= 128 &&
              data.dateTime is string && data.dateTime.size() <= 64 &&
-             data.createdAt == request.time;
+             data.createdAt == request.time &&
+             (!('specialty' in data) || (data.specialty is string && data.specialty.size() <= 128)) &&
+             (!('location' in data) || (data.location is string && data.location.size() <= 256)) &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 2000));
     }
 
     function isValidFarmacia(data, userId) {
       return data.keys().hasAll(['farmaciaId', 'userId', 'name']) &&
+             data.keys().hasOnly(['farmaciaId', 'userId', 'name', 'address', 'phone', 'isFavorite']) &&
              data.userId == userId &&
              data.farmaciaId is string && data.farmaciaId.size() <= 128 &&
-             data.name is string && data.name.size() <= 128;
+             data.name is string && data.name.size() <= 128 &&
+             (!('address' in data) || (data.address is string && data.address.size() <= 256)) &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() <= 32)) &&
+             (!('isFavorite' in data) || data.isFavorite is bool);
     }
 
     function isValidCupom(data, userId) {
-      return data.keys().hasAll(['cupomId', 'userId', 'establishment', 'date', 'totalPrice', 'createdAt']) &&
+      return data.keys().hasAll(['cupomId', 'userId', 'establishment', 'date', 'items', 'totalPrice', 'createdAt']) &&
+             data.keys().hasOnly(['cupomId', 'userId', 'establishment', 'date', 'items', 'totalPrice', 'createdAt']) &&
              data.userId == userId &&
              data.cupomId is string && data.cupomId.size() <= 128 &&
              data.establishment is string && data.establishment.size() <= 128 &&
              data.date is string && data.date.size() <= 64 &&
-             data.totalPrice is number &&
+             data.items is list && data.items.size() <= 100 &&
+             data.totalPrice is number && data.totalPrice >= 0 &&
              data.createdAt == request.time;
     }
 
@@ -157,7 +181,6 @@ service cloud.firestore {
 
       // Creating a user profile
       allow create: if isSignedIn() &&
-                       isEmailVerified() &&
                        request.auth.uid == userId &&
                        isValidUser(incoming(), userId) &&
                        incoming().createdAt == request.time &&
@@ -167,7 +190,6 @@ service cloud.firestore {
 
       // Updating a user profile
       allow update: if isSignedIn() &&
-                       isEmailVerified() &&
                        isValidUser(incoming(), userId) &&
                        incoming().createdAt == existing().createdAt &&
                        (
@@ -192,14 +214,12 @@ service cloud.firestore {
         allow list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
 
         allow create: if isSignedIn() && 
-                         isEmailVerified() && 
                          request.auth.uid == userId && 
                          isUserActive(userId) &&
                          isValidId(medicadoId) && 
                          isValidMedicado(incoming(), userId);
 
         allow update: if isSignedIn() && 
-                         isEmailVerified() && 
                          request.auth.uid == userId && 
                          isUserActive(userId) &&
                          isValidId(medicadoId) && 
@@ -215,7 +235,6 @@ service cloud.firestore {
           allow list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
 
           allow create: if isSignedIn() && 
-                           isEmailVerified() && 
                            request.auth.uid == userId && 
                            isUserActive(userId) &&
                            isValidId(receitaId) && 
@@ -223,7 +242,6 @@ service cloud.firestore {
                            exists(/databases/$(database)/documents/users/$(userId)/medicados/$(medicadoId));
 
           allow update: if isSignedIn() && 
-                           isEmailVerified() && 
                            request.auth.uid == userId && 
                            isUserActive(userId) &&
                            isValidId(receitaId) && 
@@ -240,7 +258,6 @@ service cloud.firestore {
           allow list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
 
           allow create: if isSignedIn() && 
-                           isEmailVerified() && 
                            request.auth.uid == userId && 
                            isUserActive(userId) &&
                            isValidId(medicamentoId) && 
@@ -248,7 +265,6 @@ service cloud.firestore {
                            exists(/databases/$(database)/documents/users/$(userId)/medicados/$(medicadoId));
 
           allow update: if isSignedIn() && 
-                           isEmailVerified() && 
                            request.auth.uid == userId && 
                            isUserActive(userId) &&
                            isValidId(medicamentoId) && 
@@ -264,7 +280,6 @@ service cloud.firestore {
             allow list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
 
             allow create: if isSignedIn() && 
-                             isEmailVerified() && 
                              request.auth.uid == userId && 
                              isUserActive(userId) &&
                              isValidId(logId) && 
@@ -272,7 +287,6 @@ service cloud.firestore {
                              exists(/databases/$(database)/documents/users/$(userId)/medicados/$(medicadoId)/medicamentos/$(medicamentoId));
 
             allow update: if isSignedIn() && 
-                             isEmailVerified() && 
                              request.auth.uid == userId && 
                              isUserActive(userId) &&
                              isValidId(logId) && 
@@ -290,14 +304,12 @@ service cloud.firestore {
         allow list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
 
         allow create: if isSignedIn() && 
-                         isEmailVerified() && 
                          request.auth.uid == userId && 
                          isUserActive(userId) &&
                          isValidId(consultaId) && 
                          isValidConsulta(incoming(), userId);
 
         allow update: if isSignedIn() && 
-                         isEmailVerified() && 
                          request.auth.uid == userId && 
                          isUserActive(userId) &&
                          isValidId(consultaId) && 
@@ -314,14 +326,12 @@ service cloud.firestore {
         allow list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
 
         allow create: if isSignedIn() && 
-                         isEmailVerified() && 
                          request.auth.uid == userId && 
                          isUserActive(userId) &&
                          isValidId(farmaciaId) && 
                          isValidFarmacia(incoming(), userId);
 
         allow update: if isSignedIn() && 
-                         isEmailVerified() && 
                          request.auth.uid == userId && 
                          isUserActive(userId) &&
                          isValidId(farmaciaId) && 
@@ -337,7 +347,6 @@ service cloud.firestore {
         allow list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
 
         allow create: if isSignedIn() && 
-                         isEmailVerified() && 
                          request.auth.uid == userId && 
                          isUserActive(userId) &&
                          isValidId(cupomId) && 

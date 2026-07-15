@@ -60,7 +60,7 @@ export default function ReceiptScanner({
 
   const scanStepsText = [
     "Carregando foto do cupom fiscal...",
-    "Conectando à API do Google Gemini (Visão Computacional)...",
+    "Conectando aos servidores do HoraCerta AI...",
     "Extraindo estabelecimento e data da compra...",
     "Lendo lista de itens, quantidades e valores individuais...",
     "Calculando integridade dos preços e totalização..."
@@ -238,7 +238,7 @@ export default function ReceiptScanner({
             </div>
             <h2 className="text-xl font-display font-bold text-brand-teal">Leitor de Nota Fiscal com IA</h2>
             <p className="text-xs text-gray-500 mt-1 max-w-[85%] mx-auto font-sans">
-              Envie uma foto da nota ou cupom fiscal de compra da farmácia. Nossa Inteligência Artificial lerá o local, os itens comprados, os preços e a data para seu controle de gastos.
+              Envie uma foto da nota ou cupom fiscal de compra da farmácia. HoraCerta AI lerá o local, os itens comprados, os preços e a data para seu controle de gastos.
             </p>
           </div>
 
@@ -251,7 +251,7 @@ export default function ReceiptScanner({
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                   </span>
-                  Leitor de Nota Fiscal Ativo (Gemini 3.5)
+                  HoraCerta AI Ativo e Pronto
                 </div>
               ) : (
                 <div className="bg-amber-50 text-amber-900 border border-amber-200/60 rounded-2xl p-4 text-xs text-left">
