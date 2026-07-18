@@ -1,4 +1,4 @@
-import { Medicamento, DoseLog } from "../types";
+import { Medicamento, DoseLog } from "../types.js";
 
 export const getDoseTimesForMedOnDate = (med: Medicamento, targetDate: Date): string[] => {
   const times: string[] = [];
