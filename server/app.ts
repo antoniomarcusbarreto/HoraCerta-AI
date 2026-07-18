@@ -636,6 +636,68 @@ export function createApiApp(): express.Express {
     }
   });
 
+  // Hard-deletes a user: the whole Firestore tree AND the Firebase Auth
+  // account. This is the "apague meus dados" (LGPD) path — the client-side
+  // delete only removed the profile doc, leaving the login working and every
+  // subcollection (prontuário, receitas, doses) orphaned but intact.
+  //
+  // Only the Admin SDK can delete an Auth account, so this must live server-side.
+  app.delete("/api/admin/users/:uid", requireAdmin, adminActionRateLimiter, async (req, res) => {
+    const targetUid = req.params.uid;
+    const actorUid = (req as any).uid as string;
+
+    try {
+      if (!targetUid || typeof targetUid !== "string") {
+        res.status(400).json({ error: "Parâmetro 'uid' ausente ou inválido." });
+        return;
+      }
+      // Deleting yourself would destroy the only admin account and lock the
+      // portal out permanently — there is no UI to grant the claim back.
+      if (targetUid === actorUid) {
+        res.status(400).json({ error: "Não é possível excluir a própria conta de administrador." });
+        return;
+      }
+
+      // Refuse to delete another admin: recovering one requires shell access to
+      // setAdminClaim.js, so this must never be a one-click mistake.
+      try {
+        const target = await getAuth(getAdminApp()).getUser(targetUid);
+        if (target.customClaims?.admin === true) {
+          res.status(403).json({ error: "Não é possível excluir uma conta de administrador." });
+          return;
+        }
+      } catch (err: any) {
+        // Auth record already gone: still allow the Firestore cleanup below so
+        // orphaned data can be purged.
+        if (err?.code !== "auth/user-not-found") throw err;
+      }
+
+      // recursiveDelete walks every subcollection (medicados -> receitas /
+      // medicamentos -> doseLogs, consultas, farmacias, cupons,
+      // pushSubscriptions, payments, pushDispatches). A plain delete() on the
+      // doc would leave all of it behind, invisible but stored.
+      const db = getDb();
+      await db.recursiveDelete(db.collection("users").doc(targetUid));
+
+      let authDeleted = false;
+      try {
+        await getAuth(getAdminApp()).deleteUser(targetUid);
+        authDeleted = true;
+      } catch (err: any) {
+        if (err?.code !== "auth/user-not-found") throw err;
+      }
+
+      res.json({ success: true, authDeleted });
+    } catch (error: any) {
+      console.error("Admin delete-user error:", error);
+      await logServerError("DELETE /api/admin/users/:uid", error, actorUid);
+      res.status(500).json({
+        error: "Falha ao excluir o usuário.",
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
   // AI Prescription Reading Endpoint
   app.post("/api/gemini/extract", requireAuth, requireActiveSubscription, geminiRateLimiter, async (req, res) => {
     try {

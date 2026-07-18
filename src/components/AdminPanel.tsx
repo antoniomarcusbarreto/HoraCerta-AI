@@ -364,8 +364,8 @@ export default function AdminPanel({
                             return;
                           }
                           setConfirmDialog({
-                            title: "Remover usuário",
-                            message: `Remover permanentemente o usuário ${u.name}? Essa ação não pode ser desfeita.`,
+                            title: "Excluir usuário definitivamente",
+                            message: `Excluir ${u.name} (${u.email})? Isso apaga a conta de login e TODOS os dados: pacientes monitorados, receitas, medicamentos, histórico de doses, consultas, farmácias e cupons. Essa ação não pode ser desfeita.`,
                             onConfirm: async () => {
                               await onDeleteUser(u.userId);
                               setConfirmDialog(null);

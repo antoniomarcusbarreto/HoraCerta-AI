@@ -759,11 +759,29 @@ export default function App() {
       return false;
     }
 
+    // Hard delete via the Admin SDK endpoint: wipes the whole Firestore tree
+    // (prontuário, receitas, doses, cupons…) AND the Auth account. Deleting
+    // only the profile doc from the client left the login working and every
+    // subcollection orphaned — no good for an LGPD erasure request.
     try {
-      await dbFirebase.deleteUserProfile(userId);
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) {
+        showToast("Sessão expirada. Faça login novamente no portal.");
+        return false;
+      }
+
+      const response = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        throw new Error(errJson.error || "Falha ao excluir o usuário no servidor.");
+      }
     } catch (err: any) {
-      console.error("Erro ao remover usuário no Firestore:", err);
-      showToast("Erro: permissão negada no servidor ao remover o usuário.");
+      console.error("Erro ao excluir usuário:", err);
+      showToast(err.message || "Não foi possível excluir o usuário.");
       return false;
     }
 
@@ -774,9 +792,7 @@ export default function App() {
       setUsers(dbLocal.getUsers());
     }
     logAction("delete", "User", userId, targetUser ? `${targetUser.name} (${targetUser.email})` : userId, "Painel Admin", activeAdminUser ?? activeUser);
-    // The Firebase Auth login still exists — be explicit rather than implying
-    // the person lost access.
-    showToast("Perfil removido do diretório. A conta de login continua existindo.");
+    showToast("Usuário excluído: dados, login e histórico removidos definitivamente.");
     return true;
   };
 
