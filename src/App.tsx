@@ -94,6 +94,30 @@ export default function App() {
     }
   }, []);
 
+  // The admin panel must list REAL registered users, which live in Firestore —
+  // `dbLocal.getUsers()` only ever holds accounts this browser touched (plus the
+  // dev seed fixtures), so without this the panel showed demo data and never the
+  // people who actually signed up. Listing `users` is admin-only in the rules,
+  // so this runs only once an admin session is active. Covers both a fresh login
+  // and a session restored from localStorage on reload.
+  useEffect(() => {
+    if (!activeAdminUser) return;
+    let cancelled = false;
+    dbFirebase
+      .getAllUsers()
+      .then((cloudUsers) => {
+        // Keep the local cache as-is on an empty result: an admin with a valid
+        // session should never see the panel blank out due to a transient read.
+        if (!cancelled && cloudUsers.length > 0) setUsers(cloudUsers);
+      })
+      .catch((err) => {
+        console.warn("Admin: falha ao listar usuários do Firestore.", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeAdminUser]);
+
   // Sync data whenever active user shifts (isolated queries per tenant)
   useEffect(() => {
     if (!activeUser) return;

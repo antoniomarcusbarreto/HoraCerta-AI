@@ -215,12 +215,74 @@ const SEED_CUPONS: CupomFiscal[] = [
   }
 ];
 
+// The SEED_* fixtures above are a DEVELOPMENT aid (demo accounts + sample
+// prescriptions to work against without signing up). In production they are
+// actively harmful: the admin panel listed them as if they were real customers,
+// and one of them carries role "admin". Production must start from an empty
+// cache and only ever hold data the signed-in user actually owns.
+// Cast matches how src/firebase.ts reads import.meta (no vite/client types here).
+const SEEDS_ENABLED = !!(import.meta as any).env?.DEV;
+
+// Ids owned by the fixtures, needed to clean browsers that already cached them
+// (gating the seed only helps a first-time visitor).
+const SEED_USER_IDS = ["user_antonio", "user_maria", "user_joao"];
+const SEED_PURGED_FLAG = "horacerta_seed_purged_v1";
+const USER_SCOPED_KEYS = [
+  "medicados",
+  "receitas",
+  "medicamentos",
+  "dose_logs",
+  "consultas",
+  "farmacias",
+  "cupons",
+];
+
+// One-time cleanup: drops the demo accounts and everything hanging off them
+// from a cache seeded before SEEDS_ENABLED existed. Real records are keyed by
+// the Firebase uid, never by these ids, so nothing genuine matches.
+function purgeSeedDataOnce() {
+  if (SEEDS_ENABLED) return;
+  if (typeof localStorage === "undefined") return;
+  if (localStorage.getItem(SEED_PURGED_FLAG)) return;
+
+  try {
+    const rawUsers = localStorage.getItem("horacerta_users");
+    if (rawUsers) {
+      const kept = (JSON.parse(rawUsers) as User[]).filter(
+        (u) => !SEED_USER_IDS.includes(u.userId)
+      );
+      localStorage.setItem("horacerta_users", JSON.stringify(kept));
+    }
+
+    for (const key of USER_SCOPED_KEYS) {
+      const raw = localStorage.getItem(`horacerta_${key}`);
+      if (!raw) continue;
+      const kept = (JSON.parse(raw) as { userId?: string }[]).filter(
+        (item) => !item.userId || !SEED_USER_IDS.includes(item.userId)
+      );
+      localStorage.setItem(`horacerta_${key}`, JSON.stringify(kept));
+    }
+
+    // A session pinned to a demo account would otherwise survive the purge.
+    for (const sessionKey of ["horacerta_active_user_id", "horacerta_active_admin_id"]) {
+      const active = localStorage.getItem(sessionKey);
+      if (active && SEED_USER_IDS.includes(active)) localStorage.removeItem(sessionKey);
+    }
+
+    localStorage.setItem(SEED_PURGED_FLAG, new Date().toISOString());
+  } catch (err) {
+    console.warn("Falha ao limpar dados de demonstração do cache local.", err);
+  }
+}
+
 class DBLocalFallback {
   private get<T>(key: string, defaults: T[]): T[] {
     const data = localStorage.getItem(`horacerta_${key}`);
     if (!data) {
-      this.set(key, defaults);
-      return defaults;
+      // Never seed demo data in production — start empty instead.
+      const initial = SEEDS_ENABLED ? defaults : ([] as T[]);
+      this.set(key, initial);
+      return initial;
     }
     return JSON.parse(data);
   }
@@ -709,6 +771,10 @@ class DBLocalFallback {
     this.set("cupons", filtered);
   }
 }
+
+// Runs before any consumer reads the cache, so a browser carrying old demo
+// data is cleaned on the first load after this ships.
+purgeSeedDataOnce();
 
 export const dbLocal = new DBLocalFallback();
 export const currentUserAntonioId = "user_antonio";
