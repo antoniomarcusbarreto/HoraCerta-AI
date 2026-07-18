@@ -118,6 +118,18 @@ export default function App() {
     };
   }, [activeAdminUser]);
 
+  // Re-reads the directory from Firestore after an admin mutation. Using
+  // dbLocal.getUsers() here instead would swap the full directory for this
+  // browser's local cache — which is why deleting one account appeared to wipe
+  // every other account from the list.
+  const refreshUsersFromFirestore = async () => {
+    try {
+      setUsers(await dbFirebase.getAllUsers());
+    } catch (err) {
+      console.warn("Admin: falha ao recarregar usuários do Firestore.", err);
+    }
+  };
+
   // Sync data whenever active user shifts (isolated queries per tenant)
   useEffect(() => {
     if (!activeUser) return;
@@ -721,7 +733,11 @@ export default function App() {
     }
 
     dbLocal.setUserCache(updatedUser);
-    setUsers(dbLocal.getUsers());
+    if (activeAdminUser) {
+      await refreshUsersFromFirestore();
+    } else {
+      setUsers(dbLocal.getUsers());
+    }
     logAction("update", "User", updatedUser.userId, `${updatedUser.name} (${updatedUser.email})`, "Painel Admin", activeAdminUser ?? activeUser);
     showToast(`Cadastro de ${updatedUser.name} atualizado no diretório.`);
 
@@ -734,6 +750,15 @@ export default function App() {
 
   const handleDeleteUser = async (userId: string): Promise<boolean> => {
     const targetUser = users.find((u) => u.userId === userId);
+
+    // Deleting your own profile is a footgun: the Auth account survives (only
+    // the Admin SDK can remove it), so the next admin login just recreates the
+    // doc — it looks like the deletion silently "undid" itself.
+    if (activeAdminUser && activeAdminUser.userId === userId) {
+      showToast("Você não pode remover o próprio cadastro de administrador.");
+      return false;
+    }
+
     try {
       await dbFirebase.deleteUserProfile(userId);
     } catch (err: any) {
@@ -743,9 +768,15 @@ export default function App() {
     }
 
     dbLocal.removeUserCache(userId);
-    setUsers(dbLocal.getUsers());
+    if (activeAdminUser) {
+      await refreshUsersFromFirestore();
+    } else {
+      setUsers(dbLocal.getUsers());
+    }
     logAction("delete", "User", userId, targetUser ? `${targetUser.name} (${targetUser.email})` : userId, "Painel Admin", activeAdminUser ?? activeUser);
-    showToast("Cadastro de usuário removido com sucesso.");
+    // The Firebase Auth login still exists — be explicit rather than implying
+    // the person lost access.
+    showToast("Perfil removido do diretório. A conta de login continua existindo.");
     return true;
   };
 
