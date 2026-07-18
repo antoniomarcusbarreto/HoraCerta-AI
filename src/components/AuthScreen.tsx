@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { User } from "../types";
 import { dbLocal } from "../dbLocalFallback";
 import { auth, dbFirebase } from "../firebase";
+import { TRIAL_DAYS } from "../subscription";
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
 import { 
   Mail, 
@@ -74,13 +75,18 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
 
         // 3. Handle Profile Creation fallback if authenticated but profile document is missing in Firestore
         if (firebaseUser && !userProfile) {
+          const now = new Date();
           userProfile = {
             userId: firebaseUser.uid,
             name: firebaseUser.displayName || trimmedEmail.split("@")[0],
             email: trimmedEmail,
             role: "user",
             status: "active",
-            createdAt: new Date().toISOString()
+            createdAt: now.toISOString(),
+            // Concede o mesmo trial de novos cadastros a perfis sem documento.
+            freeTrialUntil: new Date(now.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000).toISOString(),
+            subscriptionStatus: "inactive",
+            subscriptionPlan: "none",
           };
           dbLocal.updateUser(userProfile);
         }
@@ -115,14 +121,18 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
         const userCredential = await createUserWithEmailAndPassword(auth, trimmedEmail, password);
         const firebaseUser = userCredential.user;
 
-        // Create Firestore Profile Document
+        // Create Firestore Profile Document — inicia o período de 7 dias grátis.
+        const now = new Date();
         const newUser: User = {
           userId: firebaseUser.uid,
           name: trimmedName,
           email: trimmedEmail,
           role: "user",
           status: "active",
-          createdAt: new Date().toISOString(),
+          createdAt: now.toISOString(),
+          freeTrialUntil: new Date(now.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000).toISOString(),
+          subscriptionStatus: "inactive",
+          subscriptionPlan: "none",
         };
 
         // Write both locally and to Firestore

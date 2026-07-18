@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Medicado, Medicamento, DoseLog } from "../types";
 import { getDoseTimesForMedOnDate, isMedActiveOnDay, isDoseTaken } from "../utils/doseSchedule";
+import { processImageFile, IMAGE_MAX_DIMENSION } from "../imageUtils";
 import ConfirmDialog from "./ConfirmDialog";
 import {
   Plus, 
@@ -96,15 +97,18 @@ export default function Dashboard({
 
   const capturePhoto = () => {
     if (videoRef.current) {
+      // Cap the captured square at IMAGE_MAX_DIMENSION so the stored base64 stays
+      // small (patient photos live inside the Firestore doc / localStorage).
+      const srcSize = Math.min(videoRef.current.videoWidth, videoRef.current.videoHeight) || 300;
+      const outSize = Math.min(srcSize, IMAGE_MAX_DIMENSION);
       const canvas = document.createElement("canvas");
-      const size = Math.min(videoRef.current.videoWidth, videoRef.current.videoHeight) || 300;
-      canvas.width = size;
-      canvas.height = size;
+      canvas.width = outSize;
+      canvas.height = outSize;
       const ctx = canvas.getContext("2d");
       if (ctx) {
-        const sx = (videoRef.current.videoWidth - size) / 2;
-        const sy = (videoRef.current.videoHeight - size) / 2;
-        ctx.drawImage(videoRef.current, sx, sy, size, size, 0, 0, size, size);
+        const sx = (videoRef.current.videoWidth - srcSize) / 2;
+        const sy = (videoRef.current.videoHeight - srcSize) / 2;
+        ctx.drawImage(videoRef.current, sx, sy, srcSize, srcSize, 0, 0, outSize, outSize);
         const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
         setPhotoUrl(dataUrl);
       }
@@ -112,15 +116,18 @@ export default function Dashboard({
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPhotoUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+    e.target.value = ""; // allow re-selecting the same file later
+    if (!file) return;
+    // Validate type/size and downscale before storing (patient photos are
+    // persisted as base64 in the Firestore doc + localStorage).
+    const result = await processImageFile(file);
+    if (!result.ok || !result.dataUrl) {
+      onNotify(result.error || "Não foi possível processar a imagem.");
+      return;
     }
+    setPhotoUrl(result.dataUrl);
   };
 
   const triggerFileSelect = () => {
@@ -258,7 +265,7 @@ export default function Dashboard({
   const todayPatientSchedules = getTodayPatientSchedule();
 
   return (
-    <div className="pb-32 px-4 max-w-md lg:max-w-5xl lg:px-8 mx-auto pt-6 animate-fade-in">
+    <div className="pb-32 px-4 max-w-md lg:max-w-none mx-auto lg:mx-0 pt-6 lg:pt-0 lg:px-0 animate-fade-in">
       {/* Top Header Section */}
       <div className="flex items-center justify-between mb-6 bg-white border border-brand-cream-darker rounded-3xl p-5 shadow-xs">
         <div>
@@ -322,10 +329,12 @@ export default function Dashboard({
         </div>
       </div>
 
+      {/* Início two-column layout: patients (left) / today's schedule (right) */}
+      <div className="lg:grid lg:grid-cols-[1.5fr_1fr] lg:gap-5 lg:items-start">
       {/* Dependents Section (CRUD interface) */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between mb-4 bg-white/60 border border-brand-cream-darker rounded-2xl px-4 py-3">
-          <h2 className="text-lg font-display font-bold text-brand-teal flex items-center gap-2">
+      <div className="mb-8 lg:mb-0 lg:bg-white lg:border lg:border-brand-cream-darker lg:rounded-3xl lg:shadow-xs lg:p-6">
+        <div className="flex items-center justify-between mb-4 bg-white/60 border border-brand-cream-darker rounded-2xl px-4 py-3 lg:bg-transparent lg:border-0 lg:px-0 lg:py-0 lg:rounded-none">
+          <h2 className="text-lg font-display font-bold text-brand-teal flex items-center gap-2 whitespace-nowrap">
             <Users className="w-5 h-5 text-brand-coral" /> Pacientes Monitorados
           </h2>
           <button
@@ -349,12 +358,12 @@ export default function Dashboard({
             </button>
           </div>
         ) : (
-          <div className="flex space-x-3 overflow-x-auto pb-2 scrollbar-none lg:flex-wrap lg:overflow-visible lg:gap-4 lg:space-x-0">
+          <div className="flex space-x-3 overflow-x-auto pb-2 scrollbar-none lg:grid lg:grid-cols-[repeat(auto-fill,minmax(150px,190px))] lg:justify-start lg:gap-3.5 lg:overflow-visible lg:space-x-0">
             {medicados.map(p => (
               <div
                 key={p.medicadoId}
                 id={`patient-card-${p.medicadoId}`}
-                className="flex-shrink-0 bg-white border border-brand-cream-darker rounded-2xl p-3 w-36 relative shadow-xs hover:shadow-md transition-all"
+                className="flex-shrink-0 lg:w-auto bg-white border border-brand-cream-darker rounded-2xl p-3 w-36 relative shadow-xs hover:shadow-md transition-all"
               >
                 {/* CRUD Controls overlay */}
                 <div className="absolute top-2 right-2 flex space-x-1">
@@ -403,12 +412,12 @@ export default function Dashboard({
       </div>
 
       {/* Today's Schedule Grid (Grouped by Patient - "Programação do dia") */}
-      <div className="mb-8">
-        <h2 className="text-lg font-display font-bold text-brand-teal flex items-center gap-2 mb-4 bg-white/60 border border-brand-cream-darker rounded-2xl px-4 py-3">
+      <div className="mb-8 lg:mb-0 lg:bg-white lg:border lg:border-brand-cream-darker lg:rounded-3xl lg:shadow-xs lg:p-6">
+        <h2 className="text-lg font-display font-bold text-brand-teal flex items-center gap-2 mb-4 bg-white/60 border border-brand-cream-darker rounded-2xl px-4 py-3 lg:bg-transparent lg:border-0 lg:px-0 lg:py-0 lg:rounded-none whitespace-nowrap">
           <Clock className="w-5 h-5 text-brand-coral" /> Programação do dia
         </h2>
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 lg:flex lg:flex-col lg:gap-3.5">
           {todayPatientSchedules.length === 0 ? (
             /* Placeholder Card when no medicines are active */
             <div className="bg-brand-peach border border-brand-coral/10 rounded-3xl p-6 flex flex-col justify-center items-center text-center h-44 shadow-sm hover:scale-[1.02] transition-transform w-full">
@@ -522,6 +531,7 @@ export default function Dashboard({
             })
           )}
         </div>
+      </div>
       </div>
 
       {/* Add / Edit Patient Modal */}

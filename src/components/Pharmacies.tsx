@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Farmacia, Medicamento, CupomFiscal } from "../types";
 import ReceiptScanner from "./ReceiptScanner";
 import ConfirmDialog from "./ConfirmDialog";
-import { Sparkles, Trash2, Receipt, ChevronDown, ChevronUp, Calendar } from "lucide-react";
+import { Sparkles, Trash2, Receipt, ChevronDown, ChevronUp, Calendar, Lock } from "lucide-react";
 
 interface PharmaciesProps {
   farmacias?: Farmacia[];
@@ -13,12 +13,18 @@ interface PharmaciesProps {
   onDeleteFarmacia?: (id: string) => void;
   onAddCupom: (establishment: string, date: string, items: { name: string; price: number }[], totalPrice: number) => void;
   onDeleteCupom: (id: string) => void;
+  /** Quando false, o scanner fica bloqueado (assinatura expirada). */
+  canScan?: boolean;
+  /** Abre a tela de assinatura quando o recurso está bloqueado. */
+  onSubscribe?: () => void;
 }
 
 export default function Pharmacies({
   cupons = [],
   onAddCupom,
   onDeleteCupom,
+  canScan = true,
+  onSubscribe,
 }: PharmaciesProps) {
   const [showReceiptScan, setShowReceiptScan] = useState(false);
   const [expandedCupomId, setExpandedCupomId] = useState<string | null>(null);
@@ -27,8 +33,14 @@ export default function Pharmacies({
   // Calculate total spent in all receipts
   const totalSpent = cupons.reduce((sum, c) => sum + (c.totalPrice || 0), 0);
 
+  // Bloqueio de assinatura: se não pode escanear, o gatilho abre o paywall.
+  const triggerScan = () => {
+    if (canScan) setShowReceiptScan(true);
+    else onSubscribe?.();
+  };
+
   // If the scanner interface is triggered, render it in place
-  if (showReceiptScan) {
+  if (showReceiptScan && canScan) {
     return (
       <ReceiptScanner
         onScanComplete={(est, dt, items, total) => {
@@ -41,7 +53,7 @@ export default function Pharmacies({
   }
 
   return (
-    <div className="pb-32 px-4 max-w-md lg:max-w-4xl mx-auto pt-6 animate-fade-in">
+    <div className="pb-32 px-4 max-w-md lg:max-w-none mx-auto lg:mx-0 pt-6 lg:pt-0 lg:px-0 animate-fade-in">
       {/* Title Card */}
       <div className="bg-brand-teal text-brand-cream rounded-3xl p-6 shadow-md mb-6 flex items-center justify-between">
         <div>
@@ -70,11 +82,13 @@ export default function Pharmacies({
           </div>
           
           <button
-            onClick={() => setShowReceiptScan(true)}
-            className="px-4 py-3 bg-brand-coral hover:bg-brand-coral-light hover:scale-[1.02] active:scale-[0.98] transition-all text-brand-cream text-xs font-bold rounded-2xl flex items-center gap-1.5 shadow-md animate-pulse"
+            onClick={triggerScan}
+            className={`px-4 py-3 hover:scale-[1.02] active:scale-[0.98] transition-all text-brand-cream text-xs font-bold rounded-2xl flex items-center gap-1.5 shadow-md ${
+              canScan ? "bg-brand-coral hover:bg-brand-coral-light animate-pulse" : "bg-brand-teal-light hover:bg-brand-teal"
+            }`}
           >
-            <Sparkles className="w-4 h-4 fill-brand-cream/10" />
-            Escanear Nota
+            {canScan ? <Sparkles className="w-4 h-4 fill-brand-cream/10" /> : <Lock className="w-4 h-4" />}
+            {canScan ? "Escanear Nota" : "Assine para escanear"}
           </button>
         </div>
 
@@ -89,10 +103,10 @@ export default function Pharmacies({
               <Receipt className="w-8 h-8 mx-auto mb-2 text-brand-teal-pale" />
               Nenhuma nota fiscal escaneada.<br />
               <button
-                onClick={() => setShowReceiptScan(true)}
+                onClick={triggerScan}
                 className="mt-3 text-xs font-bold text-brand-teal underline hover:text-brand-coral"
               >
-                Escanear nota agora
+                {canScan ? "Escanear nota agora" : "Assine para escanear"}
               </button>
             </div>
           ) : (

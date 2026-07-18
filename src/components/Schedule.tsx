@@ -287,7 +287,7 @@ export default function Schedule({
   };
 
   return (
-    <div className="pb-32 px-3 sm:px-4 lg:px-8 max-w-md lg:max-w-3xl mx-auto pt-6 animate-fade-in">
+    <div className="pb-32 px-3 sm:px-4 lg:px-0 max-w-md lg:max-w-none mx-auto lg:mx-0 pt-6 lg:pt-0 animate-fade-in">
       {/* Month Header Grid */}
       <div className="bg-brand-teal text-brand-cream rounded-3xl p-4 sm:p-6 shadow-md mb-6 relative overflow-hidden">
         {/* Header month & arrows */}

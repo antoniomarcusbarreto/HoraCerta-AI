@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Medicado, Receita, Medicamento } from "../types";
 import PrescriptionScanner from "./PrescriptionScanner";
 import ConfirmDialog from "./ConfirmDialog";
-import { FileText, Calendar, Trash2, User, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
+import { FileText, Calendar, Trash2, User, Sparkles, ChevronDown, ChevronUp, Lock } from "lucide-react";
 
 interface AppointmentsProps {
   medicados: Medicado[];
@@ -15,6 +15,10 @@ interface AppointmentsProps {
     medicadoId: string
   ) => void;
   onDeleteReceita: (receitaId: string) => void;
+  /** Quando false, o scanner fica bloqueado (assinatura expirada). */
+  canScan?: boolean;
+  /** Abre a tela de assinatura quando o recurso está bloqueado. */
+  onSubscribe?: () => void;
 }
 
 export default function Appointments({
@@ -23,6 +27,8 @@ export default function Appointments({
   medicamentos,
   onAddReceita,
   onDeleteReceita,
+  canScan = true,
+  onSubscribe,
 }: AppointmentsProps) {
   const [showPrescriptionScan, setShowPrescriptionScan] = useState(false);
   const [expandedReceitaId, setExpandedReceitaId] = useState<string | null>(null);
@@ -33,8 +39,14 @@ export default function Appointments({
     receitas.some(r => r.receitaId === m.receitaId)
   ).length;
 
+  // Bloqueio de assinatura: se não pode escanear, o gatilho abre o paywall.
+  const triggerScan = () => {
+    if (canScan) setShowPrescriptionScan(true);
+    else onSubscribe?.();
+  };
+
   // If the scanner interface is triggered, render it in place
-  if (showPrescriptionScan) {
+  if (showPrescriptionScan && canScan) {
     return (
       <PrescriptionScanner
         medicados={medicados}
@@ -48,7 +60,7 @@ export default function Appointments({
   }
 
   return (
-    <div className="pb-32 px-4 max-w-md lg:max-w-4xl mx-auto pt-6 animate-fade-in">
+    <div className="pb-32 px-4 max-w-md lg:max-w-none mx-auto lg:mx-0 pt-6 lg:pt-0 lg:px-0 animate-fade-in">
       {/* Title Card */}
       <div className="bg-brand-teal text-brand-cream rounded-3xl p-6 shadow-md mb-6 flex items-center justify-between">
         <div>
@@ -79,11 +91,13 @@ export default function Appointments({
           </div>
 
           <button
-            onClick={() => setShowPrescriptionScan(true)}
-            className="px-4 py-3 bg-brand-coral hover:bg-brand-coral-light hover:scale-[1.02] active:scale-[0.98] transition-all text-brand-cream text-xs font-bold rounded-2xl flex items-center gap-1.5 shadow-md animate-pulse"
+            onClick={triggerScan}
+            className={`px-4 py-3 hover:scale-[1.02] active:scale-[0.98] transition-all text-brand-cream text-xs font-bold rounded-2xl flex items-center gap-1.5 shadow-md ${
+              canScan ? "bg-brand-coral hover:bg-brand-coral-light animate-pulse" : "bg-brand-teal-light hover:bg-brand-teal"
+            }`}
           >
-            <Sparkles className="w-4 h-4 fill-brand-cream/10" />
-            Escanear Receita
+            {canScan ? <Sparkles className="w-4 h-4 fill-brand-cream/10" /> : <Lock className="w-4 h-4" />}
+            {canScan ? "Escanear Receita" : "Assine para escanear"}
           </button>
         </div>
 
@@ -98,10 +112,10 @@ export default function Appointments({
               <FileText className="w-8 h-8 mx-auto mb-2 text-brand-teal-pale" />
               Nenhuma receita escaneada.<br />
               <button
-                onClick={() => setShowPrescriptionScan(true)}
+                onClick={triggerScan}
                 className="mt-3 text-xs font-bold text-brand-teal underline hover:text-brand-coral"
               >
-                Escanear receita agora
+                {canScan ? "Escanear receita agora" : "Assine para escanear"}
               </button>
             </div>
           ) : (

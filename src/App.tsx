@@ -1,6 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { dbLocal } from "./dbLocalFallback";
 import { auth, dbFirebase } from "./firebase";
+import { subscribeToPush, unsubscribeFromPush } from "./push";
+import { isScanAllowed, getAccessState, daysRemaining } from "./subscription";
+import { dueDoseMs } from "./utils/doseSchedule";
+import { processImageFile } from "./imageUtils";
 import { signInWithEmailAndPassword, signOut as firebaseSignOut, updatePassword, User as FirebaseUser } from "firebase/auth";
 import { User, Medicado, Receita, Medicamento, DoseLog, Consulta, Farmacia, MedicineCategory, CupomFiscal } from "./types";
 import BottomNavBar from "./components/BottomNavBar";
@@ -10,6 +14,8 @@ import AdminPanel from "./components/AdminPanel";
 import Appointments from "./components/Appointments";
 import Pharmacies from "./components/Pharmacies";
 import AuthScreen from "./components/AuthScreen";
+import PrivacyPolicy from "./components/PrivacyPolicy";
+import SubscriptionScreen from "./components/SubscriptionScreen";
 import { useIsDesktop } from "./hooks/useIsDesktop";
 import { Shield, Sparkles, Heart, HelpCircle, LogOut, ShieldAlert, CheckCircle2, User as UserIcon, Camera, Key, Upload, Eye, EyeOff, Save, Smartphone, Bell, Download, Gift, CreditCard, Lock, Mail, ArrowRight } from "lucide-react";
 
@@ -42,6 +48,8 @@ export default function App() {
   const [successToast, setSuccessToast] = useState<string | null>(null);
   const [scheduleDate, setScheduleDate] = useState<Date>(new Date());
   const [schedulePatientId, setSchedulePatientId] = useState<string>("");
+  const [showPrivacyPage, setShowPrivacyPage] = useState(false);
+  const [showSubscription, setShowSubscription] = useState(false);
 
   // 3.1 Separate Admin Page Route States
   const [isAdminRoute, setIsAdminRoute] = useState(() => {
@@ -109,6 +117,60 @@ export default function App() {
     });
   }, [activeUser]);
 
+  // Reconcile subscription/trial state with the server. Grants the 7-day trial
+  // to legacy users (server-side, since the client can't write freeTrialUntil)
+  // and pulls any status set by the payment webhook. Updates `activeUser` in
+  // place only when something actually changed, so it can't loop.
+  const syncSubscription = useCallback(async () => {
+    const current = auth.currentUser;
+    if (!current) return;
+    try {
+      const token = await current.getIdToken();
+      const res = await fetch("/api/subscription/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setActiveUser((prev) => {
+        if (!prev) return prev;
+        const next: User = {
+          ...prev,
+          freeTrialUntil: data.freeTrialUntil ?? prev.freeTrialUntil,
+          subscriptionStatus: data.subscriptionStatus ?? prev.subscriptionStatus,
+          subscriptionPlan: data.subscriptionPlan ?? prev.subscriptionPlan,
+          subscriptionCurrentPeriodEnd: data.subscriptionCurrentPeriodEnd ?? prev.subscriptionCurrentPeriodEnd,
+        };
+        if (JSON.stringify(next) === JSON.stringify(prev)) return prev;
+        dbLocal.setUserCache(next);
+        return next;
+      });
+    } catch {
+      /* rede offline — o app segue com o estado em cache */
+    }
+  }, []);
+
+  // Sync subscription on login/user change.
+  useEffect(() => {
+    if (!activeUser) return;
+    syncSubscription();
+  }, [activeUser?.userId, syncSubscription]);
+
+  // Returning from the card Checkout Pro (MP redirects to /app?sub=...): refresh
+  // the subscription and clean the query string so it doesn't re-trigger.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const sub = params.get("sub");
+    if (!sub) return;
+    syncSubscription().then(() => {
+      if (sub === "success") showToast("Pagamento recebido! Verificando sua assinatura...");
+    });
+    params.delete("sub");
+    const clean = window.location.pathname + (params.toString() ? `?${params}` : "") + window.location.hash;
+    window.history.replaceState({}, "", clean);
+  }, [syncSubscription]);
+
   // ==========================================
   // PWA & Background Notification Services
   // ==========================================
@@ -146,6 +208,15 @@ export default function App() {
     }
   }, []);
 
+  // Register this browser for server-sent (VAPID) push once a user is signed in
+  // and has granted notification permission — this is what delivers dose
+  // reminders when the app is fully closed. Isolation is enforced server-side:
+  // the subscription is stored under the authenticated uid from the ID token.
+  useEffect(() => {
+    if (!activeUser || notificationPermission !== "granted") return;
+    subscribeToPush(() => auth.currentUser?.getIdToken() ?? Promise.resolve(undefined));
+  }, [activeUser, notificationPermission]);
+
   // Listen for navigation / hash changes to toggle separate Admin Page mode
   useEffect(() => {
     const handleLocationChange = () => {
@@ -172,112 +243,67 @@ export default function App() {
     }
   }, [isDesktop, desktopEntered, isAdminRoute]);
 
-  // Background check for scheduled medicine doses
+  // Background check for scheduled medicine doses. Uses the SAME dueDoseMs the
+  // server-side Web Push dispatcher uses (src/doseSchedule.ts), so both agree on
+  // exactly when a dose is due — no more local-time vs. absolute-instant drift.
   useEffect(() => {
     if (!activeUser || medicamentos.length === 0) return;
 
-    // Helper to get dose times for a medicine on a given date
-    const getDoseTimesForMedOnDate = (med: Medicamento, targetDate: Date): string[] => {
-      const times: string[] = [];
-      const createdAt = new Date(med.createdAt || new Date().toISOString());
-      const intervalHours = med.intervalHours || 8;
-      const durationDays = med.durationDays || 7;
-      
-      const durationMs = durationDays * 24 * 60 * 60 * 1000;
-      const startMs = createdAt.getTime();
-      const endMs = startMs + durationMs;
-
-      const targetYear = targetDate.getFullYear();
-      const targetMonth = targetDate.getMonth();
-      const targetDay = targetDate.getDate();
-
-      let currentMs = startMs;
-      while (currentMs < endMs) {
-        const d = new Date(currentMs);
-        if (
-          d.getFullYear() === targetYear &&
-          d.getMonth() === targetMonth &&
-          d.getDate() === targetDay
-        ) {
-          const hr = String(d.getHours()).padStart(2, "0");
-          const min = String(d.getMinutes()).padStart(2, "0");
-          times.push(`${hr}:${min}`);
-        }
-        currentMs += intervalHours * 60 * 60 * 1000;
-      }
-      return times;
-    };
-
     const checkDosesAndNotify = () => {
-      const now = new Date();
-      const currentHr = String(now.getHours()).padStart(2, "0");
-      const currentMin = String(now.getMinutes()).padStart(2, "0");
-      const currentTimeStr = `${currentHr}:${currentMin}`;
-
-      const yyyy = now.getFullYear();
-      const mm = String(now.getMonth() + 1).padStart(2, "0");
-      const dd = String(now.getDate()).padStart(2, "0");
-      const todayISOStr = `${yyyy}-${mm}-${dd}`;
+      const nowMs = Date.now();
 
       medicamentos.forEach((med) => {
         if (med.status !== "active") return;
-        const times = getDoseTimesForMedOnDate(med, now);
-        
-        times.forEach((slotTime) => {
-          // Notify `reminderOffset` minutes before the dose, not at the exact dose time.
-          const [slotHr, slotMin] = slotTime.split(":").map(Number);
-          const doseDateTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), slotHr, slotMin);
-          const offsetMin = med.reminderOffset || 0;
-          const notifyDateTime = new Date(doseDateTime.getTime() - offsetMin * 60000);
-          const notifyTimeStr = `${String(notifyDateTime.getHours()).padStart(2, "0")}:${String(notifyDateTime.getMinutes()).padStart(2, "0")}`;
 
-          if (notifyTimeStr === currentTimeStr) {
-            const isTaken = doseLogs.some(
-              (log) => log.medicamentoId === med.medicamentoId && log.plannedTime.includes(`${todayISOStr}T${slotTime}`)
-            );
+        const doseMs = dueDoseMs(med, nowMs);
+        if (doseMs == null) return;
 
-            if (!isTaken) {
-              // Dedupe key stays tied to the dose slot itself, not the (earlier) notify time.
-              const notifiedKey = `notified_${med.medicamentoId}_${todayISOStr}_${slotTime}`;
-              const alreadyNotified = localStorage.getItem(notifiedKey);
-
-              if (!alreadyNotified) {
-                // Notification text is intentionally generic — no patient name,
-                // medicine name or dosage (PHI) on the lock screen. Details are
-                // only shown after the user unlocks the device and opens the app.
-                const body = offsetMin > 0
-                  ? `Sua próxima dose é em ${offsetMin} minutos. Abra o aplicativo para verificar os detalhes.`
-                  : "Você tem uma nova dose pendente. Abra o aplicativo para verificar os detalhes.";
-
-                if ("serviceWorker" in navigator && Notification.permission === "granted") {
-                  navigator.serviceWorker.ready.then((reg) => {
-                    reg.showNotification("Lembrete de Medicamento", {
-                      body,
-                      icon: "https://images.unsplash.com/photo-1584017911766-d451b3d0e843?w=192&h=192&fit=crop&auto=format",
-                      badge: "https://images.unsplash.com/photo-1584017911766-d451b3d0e843?w=192&h=192&fit=crop&auto=format",
-                      vibrate: [300, 100, 300],
-                      requireInteraction: true,
-                      tag: `dose_${med.medicamentoId}_${slotTime}`,
-                    } as any);
-                  });
-                } else if (Notification.permission === "granted") {
-                  new Notification("Lembrete de Medicamento", {
-                    body,
-                  });
-                }
-
-                localStorage.setItem(notifiedKey, "true");
-              }
-            }
-          }
+        // Skip if this exact dose was already logged as taken (matched within
+        // the same minute — dose log times are stored as ISO-ish strings).
+        const doseMinute = Math.floor(doseMs / 60000);
+        const isTaken = doseLogs.some((log) => {
+          if (log.medicamentoId !== med.medicamentoId) return false;
+          const t = new Date(log.plannedTime).getTime();
+          return Number.isFinite(t) && Math.floor(t / 60000) === doseMinute;
         });
+        if (isTaken) return;
+
+        // Dedupe: each dose slot notifies at most once per device. Key is tied
+        // to the absolute dose instant, matching the server's tag format.
+        const notifiedKey = `notified_${med.medicamentoId}_${doseMs}`;
+        if (localStorage.getItem(notifiedKey)) return;
+
+        const offsetMin = med.reminderOffset || 0;
+        // Notification text is intentionally generic — no patient name, medicine
+        // name or dosage (PHI) on the lock screen. Details are only shown after
+        // the user unlocks the device and opens the app.
+        const body = offsetMin > 0
+          ? `Sua próxima dose é em ${offsetMin} minutos. Abra o aplicativo para verificar os detalhes.`
+          : "Você tem uma nova dose pendente. Abra o aplicativo para verificar os detalhes.";
+
+        if ("serviceWorker" in navigator && Notification.permission === "granted") {
+          navigator.serviceWorker.ready.then((reg) => {
+            reg.showNotification("Lembrete de Medicamento", {
+              body,
+              icon: "https://images.unsplash.com/photo-1584017911766-d451b3d0e843?w=192&h=192&fit=crop&auto=format",
+              badge: "https://images.unsplash.com/photo-1584017911766-d451b3d0e843?w=192&h=192&fit=crop&auto=format",
+              vibrate: [300, 100, 300],
+              requireInteraction: true,
+              tag: `dose_${med.medicamentoId}_${doseMs}`,
+            } as any);
+          });
+        } else if (Notification.permission === "granted") {
+          new Notification("Lembrete de Medicamento", { body });
+        }
+
+        localStorage.setItem(notifiedKey, "true");
       });
     };
 
     checkDosesAndNotify();
     const interval = setInterval(checkDosesAndNotify, 20000);
     return () => clearInterval(interval);
-  }, [activeUser, medicamentos, doseLogs, medicados]);
+  }, [activeUser, medicamentos, doseLogs]);
 
   const requestNotificationPermission = async () => {
     if (!("Notification" in window)) {
@@ -290,6 +316,8 @@ export default function App() {
       setNotificationPermission(permission);
       if (permission === "granted") {
         showToast("Excelente! Notificações de Alerta ativadas!");
+        // Register for server push right away so reminders arrive with the app closed.
+        subscribeToPush(() => auth.currentUser?.getIdToken() ?? Promise.resolve(undefined));
         if ("serviceWorker" in navigator) {
           navigator.serviceWorker.ready.then((reg) => {
             reg.showNotification("HoraCerta AI - Alertas Ativados", {
@@ -408,67 +436,23 @@ export default function App() {
     setIsCameraActive(false);
   };
 
-  // Avatar upload guardrails: only real images, capped at 500KB, downscaled
-  // client-side before it ever touches localStorage/Firestore — an
-  // unvalidated multi-MB data URL can blow the localStorage quota and stall
-  // the app's synchronous cache reads.
-  const ALLOWED_AVATAR_TYPES = ["image/jpeg", "image/png"];
-  const MAX_AVATAR_BYTES = 500 * 1024;
-  const AVATAR_MAX_DIMENSION = 512;
-
-  const resizeImageDataUrl = (dataUrl: string): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        const scale = Math.min(1, AVATAR_MAX_DIMENSION / Math.max(img.width, img.height));
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.round(img.width * scale);
-        canvas.height = Math.round(img.height * scale);
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          reject(new Error("Canvas indisponível."));
-          return;
-        }
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/jpeg", 0.85));
-      };
-      img.onerror = () => reject(new Error("Não foi possível processar a imagem."));
-      img.src = dataUrl;
-    });
-  };
-
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Avatar upload guardrails live in the shared image util (validate type/size,
+  // downscale) so the profile avatar and the patient photo enforce the same
+  // limits before anything touches localStorage/Firestore.
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = ""; // allow re-selecting the same file later
-    if (!file) return;
+    if (!file || !activeUser) return;
 
-    if (!ALLOWED_AVATAR_TYPES.includes(file.type)) {
-      showToast("Formato inválido. Envie uma imagem JPEG ou PNG.");
+    const result = await processImageFile(file);
+    if (!result.ok || !result.dataUrl) {
+      showToast(result.error || "Não foi possível processar a imagem.");
       return;
     }
-    if (file.size > MAX_AVATAR_BYTES) {
-      showToast("Imagem muito grande. O tamanho máximo permitido é 500KB.");
-      return;
+    const ok = await handleUpdateUser({ ...activeUser, avatarUrl: result.dataUrl });
+    if (ok) {
+      showToast("Sua foto de perfil foi carregada com sucesso!");
     }
-
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const dataUrl = event.target?.result as string;
-      if (!activeUser || !dataUrl) return;
-      try {
-        const resized = await resizeImageDataUrl(dataUrl);
-        const ok = await handleUpdateUser({ ...activeUser, avatarUrl: resized });
-        if (ok) {
-          showToast("Sua foto de perfil foi carregada com sucesso!");
-        }
-      } catch {
-        showToast("Não foi possível processar a imagem selecionada.");
-      }
-    };
-    reader.onerror = () => {
-      showToast("Não foi possível ler o arquivo selecionado.");
-    };
-    reader.readAsDataURL(file);
   };
 
   const handleSavePassword = async () => {
@@ -788,7 +772,28 @@ export default function App() {
     showToast(`Bem-vindo, ${user.name}!`);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // Remove this device's push subscription from the leaving user's tree BEFORE
+    // clearing the session, so their reminders never reach a device that another
+    // account might sign into next (isolation on shared devices).
+    // MUST be awaited: it needs a valid ID token, and the signOut below would
+    // null out auth.currentUser and make the unsubscribe silently no-op,
+    // orphaning this device's subscription on the server.
+    await unsubscribeFromPush(() => auth.currentUser?.getIdToken() ?? Promise.resolve(undefined));
+    // End the real Firebase Auth session too — otherwise auth.currentUser stays
+    // signed in after "logout", so a next user on the same device could still
+    // mint ID tokens for the previous account.
+    await firebaseSignOut(auth).catch(() => {});
+    // Wipe cached health data (PHI) so it never lingers in localStorage for the
+    // next person on a shared device, then drop the in-memory copies.
+    dbLocal.clearLocalData();
+    setMedicados([]);
+    setReceitas([]);
+    setMedicamentos([]);
+    setDoseLogs([]);
+    setConsultas([]);
+    setFarmacias([]);
+    setCupons([]);
     setActiveUser(null);
     localStorage.removeItem("horacerta_active_user_id");
     setActiveTab("home");
@@ -1029,7 +1034,7 @@ export default function App() {
   }
 
   const appShell = (
-    <div className="min-h-screen bg-brand-cream text-brand-teal relative selection:bg-brand-coral/20 select-none pb-20 lg:pb-8 lg:pl-24">
+    <div className="min-h-screen bg-brand-cream text-brand-teal relative selection:bg-brand-coral/20 select-none pb-20 lg:pb-8 lg:pl-24 lg:bg-[#FAF6EC]">
 
       {/* Visual Floating Toast */}
       {successToast && (
@@ -1042,11 +1047,23 @@ export default function App() {
         </div>
       )}
 
+      {/* Privacy / LGPD full-screen page */}
+      {showPrivacyPage && <PrivacyPolicy onBack={() => setShowPrivacyPage(false)} />}
+
+      {/* Subscription / paywall full-screen page */}
+      {showSubscription && activeUser && (
+        <SubscriptionScreen
+          user={activeUser}
+          onBack={() => setShowSubscription(false)}
+          onSubscribed={() => { syncSubscription(); }}
+        />
+      )}
+
       {/* Main app navigation switcher */}
       {!activeUser ? (
         <AuthScreen onLoginSuccess={handleLoginSuccess} />
       ) : (
-        <div>
+        <div className="lg:max-w-[1080px] lg:mx-auto lg:my-8 lg:bg-[#FDFBF5] lg:border lg:border-[#ECE6D8] lg:rounded-[28px] lg:p-8 lg:shadow-[0_2px_10px_rgba(0,0,0,0.03)]">
           {activeTab === "home" && (
             <Dashboard
               medicados={medicados}
@@ -1092,6 +1109,8 @@ export default function App() {
               onDeleteFarmacia={handleDeleteFarmacia}
               onAddCupom={handleAddCupom}
               onDeleteCupom={handleDeleteCupom}
+              canScan={isScanAllowed(activeUser)}
+              onSubscribe={() => setShowSubscription(true)}
             />
           )}
 
@@ -1102,12 +1121,14 @@ export default function App() {
               medicamentos={medicamentos}
               onAddReceita={handleAddReceita}
               onDeleteReceita={handleDeleteReceita}
+              canScan={isScanAllowed(activeUser)}
+              onSubscribe={() => setShowSubscription(true)}
             />
           )}
 
           {/* Profile Tab */}
           {activeTab === "profile" && (
-            <div className="pb-32 px-4 max-w-md lg:max-w-3xl mx-auto pt-6 animate-fade-in space-y-6">
+            <div className="pb-32 px-4 max-w-md lg:max-w-none mx-auto lg:mx-0 pt-6 lg:pt-0 lg:px-0 animate-fade-in space-y-6">
               {/* User Identity Header Card */}
               <div className="bg-brand-teal text-brand-cream rounded-3xl p-6 shadow-md text-center relative overflow-hidden">
                 {/* Profile Image Container */}
@@ -1296,6 +1317,31 @@ export default function App() {
                 )}
               </div>
 
+              {/* Privacy / LGPD Card */}
+              <div className="bg-white border border-brand-cream-darker rounded-3xl p-5 shadow-xs transition-all">
+                <button
+                  onClick={() => setShowPrivacyPage(true)}
+                  className="w-full flex items-center justify-between text-left group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-brand-peach text-brand-coral rounded-xl flex items-center justify-center transition-all group-hover:scale-105">
+                      <Shield className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-brand-teal uppercase tracking-wider">
+                        Privacidade e Proteção de Dados (LGPD)
+                      </h4>
+                      <p className="text-[11px] text-gray-400 font-sans mt-0.5">
+                        Veja como seus dados são coletados e usados
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-bold text-brand-teal/40 group-hover:text-brand-teal transition-all bg-brand-cream px-2.5 py-1 rounded-lg">
+                    Ver
+                  </span>
+                </button>
+              </div>
+
               {/* Subscription & Trial Information Card */}
               <div className="bg-white border border-brand-cream-darker rounded-3xl p-5 shadow-xs space-y-4">
                 <div className="flex items-center justify-between border-b border-brand-cream-darker pb-2">
@@ -1355,13 +1401,44 @@ export default function App() {
                         </span>
                         {activeUser?.subscriptionStatus === "active" && (
                           <span className="text-[10px] text-gray-400">
-                            Plano: <span className="capitalize text-brand-teal font-semibold">{activeUser.subscriptionPlan === "monthly" ? "Mensal Recorrente" : "Anual Premium"}</span>
+                            Plano: <span className="capitalize text-brand-teal font-semibold">{activeUser.subscriptionPlan === "monthly" ? "Mensal" : "Anual"}</span>
+                          </span>
+                        )}
+                        {activeUser?.subscriptionCurrentPeriodEnd && getAccessState(activeUser) !== "blocked" && getAccessState(activeUser) !== "trial" && (
+                          <span className="text-[10px] text-gray-400">
+                            Válida até {new Date(activeUser.subscriptionCurrentPeriodEnd).toLocaleDateString("pt-BR")}
+                            {daysRemaining(activeUser.subscriptionCurrentPeriodEnd) > 0 && ` (${daysRemaining(activeUser.subscriptionCurrentPeriodEnd)} dias)`}
                           </span>
                         )}
                       </div>
                     </div>
                   </div>
                 </div>
+
+                {/* Subscribe / Renew CTA — reflects the live access state */}
+                {(() => {
+                  const st = getAccessState(activeUser);
+                  const label = st === "active"
+                    ? "Renovar assinatura antecipadamente"
+                    : st === "blocked"
+                    ? "Reativar assinatura"
+                    : st === "grace"
+                    ? "Renovar assinatura agora"
+                    : "Assinar Hora Certa Premium";
+                  return (
+                    <button
+                      onClick={() => setShowSubscription(true)}
+                      className={`w-full flex items-center justify-center gap-2 font-display font-semibold text-xs py-3 rounded-xl transition-all active:scale-98 shadow-sm ${
+                        st === "active"
+                          ? "bg-white border border-brand-teal text-brand-teal hover:bg-brand-peach"
+                          : "bg-brand-coral hover:bg-brand-coral-light text-brand-cream"
+                      }`}
+                    >
+                      {st === "blocked" ? <Lock className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
+                      {label}
+                    </button>
+                  );
+                })()}
               </div>
 
               {/* PWA & Background Alerts Card */}

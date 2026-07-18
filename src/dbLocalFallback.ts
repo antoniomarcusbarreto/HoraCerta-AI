@@ -19,6 +19,7 @@ const SEED_USERS: User[] = [
     freeTrialUntil: offsetDate(24 * 15), // 15 days of trial remaining
     subscriptionStatus: "active",
     subscriptionPlan: "yearly",
+    subscriptionCurrentPeriodEnd: offsetDate(24 * 300), // paid period active (~300 days left)
   },
   {
     userId: "user_maria",
@@ -249,13 +250,60 @@ class DBLocalFallback {
     return [...others, ...remote, ...localOnly];
   }
 
+  // Wipes every locally-cached collection (patients, prescriptions, medicines,
+  // dose logs, appointments, pharmacies, receipts) plus the per-dose "already
+  // notified" flags. Called on logout / user switch so a shared device never
+  // leaves one account's health data (PHI) readable in localStorage for the
+  // next person. The session id keys are cleared by the caller (App.tsx).
+  clearLocalData() {
+    const collectionKeys = [
+      "users", "medicados", "receitas", "medicamentos",
+      "dose_logs", "consultas", "farmacias", "cupons",
+    ];
+    for (const key of collectionKeys) {
+      localStorage.removeItem(`horacerta_${key}`);
+    }
+    // Remove the dose-reminder dedupe flags (keys like `notified_<med>_<date>`).
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith("notified_")) localStorage.removeItem(k);
+    }
+  }
+
   // Live Firebase Synchronizer
   async syncFromFirebase(userId: string): Promise<boolean> {
     try {
       console.log(`[Firebase Sync] Carregando coleções para o usuário: ${userId}...`);
 
-      // 1. Get medicados
-      const firebaseMedicados = await dbFirebase.getMedicados(userId);
+      // 1. Get medicados (in parallel with the user's flat collections and
+      //    own profile — none of them depend on each other).
+      //    allSettled, NOT all: one failing collection (e.g. a permission error
+      //    on cupons) must not abort the whole sync and throw away the other
+      //    collections' progress, which is what the original sequential version
+      //    effectively preserved. A failed fetch degrades to "no remote data"
+      //    for that collection, and mergeUserCollection with an empty remote
+      //    list is a no-op that keeps the local cache intact.
+      const settled = await Promise.allSettled([
+        dbFirebase.getMedicados(userId),
+        dbFirebase.getConsultas(userId),
+        dbFirebase.getFarmacias(userId),
+        dbFirebase.getCupons(userId),
+        dbFirebase.getUser(userId),
+      ]);
+      const names = ["medicados", "consultas", "farmacias", "cupons", "perfil"];
+      settled.forEach((r, i) => {
+        if (r.status === "rejected") {
+          console.warn(`[Firebase Sync] Falha ao carregar ${names[i]}:`, r.reason);
+        }
+      });
+      const valueOr = <T,>(i: number, fallback: T): T =>
+        settled[i].status === "fulfilled" ? (settled[i] as PromiseFulfilledResult<T>).value : fallback;
+
+      const firebaseMedicados = valueOr<Medicado[]>(0, []);
+      const consultas = valueOr<Consulta[]>(1, []);
+      const farmacias = valueOr<Farmacia[]>(2, []);
+      const cupons = valueOr<CupomFiscal[]>(3, []);
+      const profile = valueOr<User | null>(4, null);
       const localMedicados = this.get<Medicado>("medicados", SEED_MEDICADOS);
       const allMedicados = this.mergeUserCollection(localMedicados, firebaseMedicados, userId, "medicadoId");
       this.set("medicados", allMedicados);
@@ -265,23 +313,32 @@ class DBLocalFallback {
       // of them, not just the ones Firestore already knows about.
       const userMedicados = allMedicados.filter(m => m.userId === userId);
 
-      // 2. Fetch subcollections for each medicado
+      // 2. Fetch subcollections for every medicado in parallel (was a sequential
+      //    N+1 waterfall — slow login for users with several patients/medicines).
       const firebaseReceitas: Receita[] = [];
       const firebaseMedicamentos: Medicamento[] = [];
       const firebaseDoseLogs: DoseLog[] = [];
 
-      for (const m of userMedicados) {
-        const receitas = await dbFirebase.getReceitas(userId, m.medicadoId);
-        firebaseReceitas.push(...receitas);
+      // Each medicado is isolated in its own try/catch so one failing patient
+      // doesn't discard the subcollections already fetched for the others.
+      await Promise.all(userMedicados.map(async (m) => {
+        try {
+          const [receitas, medicamentos] = await Promise.all([
+            dbFirebase.getReceitas(userId, m.medicadoId),
+            dbFirebase.getMedicamentos(userId, m.medicadoId),
+          ]);
+          firebaseReceitas.push(...receitas);
+          firebaseMedicamentos.push(...medicamentos);
 
-        const medicamentos = await dbFirebase.getMedicamentos(userId, m.medicadoId);
-        firebaseMedicamentos.push(...medicamentos);
-
-        for (const med of medicamentos) {
-          const logs = await dbFirebase.getDoseLogs(userId, m.medicadoId, med.medicamentoId);
-          firebaseDoseLogs.push(...logs);
+          const logsArrays = await Promise.all(
+            medicamentos.map((med) => dbFirebase.getDoseLogs(userId, m.medicadoId, med.medicamentoId))
+          );
+          for (const logs of logsArrays) firebaseDoseLogs.push(...logs);
+        } catch (err) {
+          console.warn(`[Firebase Sync] Falha ao carregar subcoleções de ${m.medicadoId}:`, err);
         }
-      }
+      }));
+
       this.set("receitas", this.mergeUserCollection(
         this.get<Receita>("receitas", SEED_RECEITAS), firebaseReceitas, userId, "receitaId"
       ));
@@ -292,21 +349,27 @@ class DBLocalFallback {
         this.get<DoseLog>("dose_logs", SEED_DOSE_LOGS), firebaseDoseLogs, userId, "logId"
       ));
 
-      // 3. Fetch flat collections
-      const consultas = await dbFirebase.getConsultas(userId);
+      // 3. Store the flat collections fetched above.
       this.set("consultas", this.mergeUserCollection(
         this.get<Consulta>("consultas", SEED_CONSULTAS), consultas, userId, "consultaId"
       ));
-
-      const farmacias = await dbFirebase.getFarmacias(userId);
       this.set("farmacias", this.mergeUserCollection(
         this.get<Farmacia>("farmacias", SEED_FARMACIAS), farmacias, userId, "farmaciaId"
       ));
-
-      const cupons = await dbFirebase.getCupons(userId);
       this.set("cupons", this.mergeUserCollection(
         this.get<CupomFiscal>("cupons", SEED_CUPONS), cupons, userId, "cupomId"
       ));
+
+      // 4. Refresh the user's OWN profile doc (fetched in the parallel batch
+      //    above). Subscription fields (status, period end) are written
+      //    server-side by the Mercado Pago webhook via the Admin SDK, so without
+      //    pulling the doc here the local cache would keep a stale subscription
+      //    state after a payment. Firestore is authoritative for the profile, so
+      //    overwrite the single cached record (cache-only — avoids a redundant
+      //    fire-and-forget write back to Firestore).
+      if (profile) {
+        this.setUserCache(profile);
+      }
 
       console.log(`[Firebase Sync] Sincronização offline concluída com sucesso!`);
       return true;

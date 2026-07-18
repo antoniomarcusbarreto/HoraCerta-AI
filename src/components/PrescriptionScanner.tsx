@@ -174,14 +174,24 @@ export default function PrescriptionScanner({
         medicines: parsedData.medicines || [],
       });
     } catch (err: any) {
-      console.warn("API Error, enabling mock fallback for safe demo:", err);
-      // Fallback to beautiful mock after some loading time to guarantee a smooth sandboxed flow
-      setScanStep(scanStepsText.length - 1);
-      setTimeout(() => {
+      clearInterval(timer);
+      console.warn("Falha na leitura da receita:", err);
+      // Only fall back to the sample prescription in true demo mode (server has
+      // NO Gemini key). A real failure — expired session (401), subscription
+      // required (403) or a server error — must surface honestly and NEVER
+      // inject fake medicines into a patient's health record.
+      if (hasApiKey === false) {
+        setScanStep(scanStepsText.length - 1);
         setExtractedData(MOCK_EXTRACTED_PRESCRIPTION);
-        setIsScanning(false);
-        setScanError("Nota: Como nenhuma chave API ativa foi informada, simulamos o scanner com uma receita de exemplo realista para sua avaliação.");
-      }, 1000);
+        setScanError("Modo demonstração: sem chave de IA ativa, exibimos uma receita de exemplo. Nada foi lido da sua imagem — revise antes de salvar.");
+      } else {
+        const raw = String(err?.message || "");
+        setScanError(
+          /assinatura|subscription/i.test(raw)
+            ? "É necessária uma assinatura ativa para usar o leitor de receitas. Ative um plano e tente novamente."
+            : "Não foi possível ler a receita. Verifique sua conexão e envie uma foto nítida, ou tente novamente em instantes."
+        );
+      }
     } finally {
       setIsScanning(false);
     }
@@ -226,7 +236,7 @@ export default function PrescriptionScanner({
   };
 
   return (
-    <div className="pb-32 px-4 max-w-md mx-auto pt-6 animate-fade-in">
+    <div className="pb-32 px-4 max-w-md lg:max-w-2xl mx-auto pt-6 lg:pt-0 lg:px-0 animate-fade-in">
       {/* 1. INITIAL UPLOAD SCREEN */}
       {!isScanning && !extractedData && (
         <div className="bg-white border border-brand-cream-darker rounded-3xl p-6 shadow-xs">
@@ -239,6 +249,17 @@ export default function PrescriptionScanner({
               Envie uma foto legível da sua receita médica. HoraCerta AI irá extrair as dosagens e horários automaticamente.
             </p>
           </div>
+
+          {/* Real failure feedback (expired session, subscription required,
+              server error). Must live on THIS screen too: on a real error we
+              intentionally do not set extractedData, so the review screen —
+              where the other scanError banner lives — never renders. */}
+          {scanError && (
+            <div className="mb-5 bg-red-50 text-red-800 border border-red-100 rounded-2xl p-3.5 flex items-start gap-2.5 text-xs animate-fade-in">
+              <AlertCircle className="w-4 h-4 shrink-0 text-red-500 mt-0.5" />
+              <span className="leading-snug font-sans">{scanError}</span>
+            </div>
+          )}
 
           {/* AI Key Status Check */}
           {hasApiKey !== null && (

@@ -152,13 +152,23 @@ export default function ReceiptScanner({
         totalPrice: parsedData.totalPrice || 0,
       });
     } catch (err: any) {
-      console.warn("API Error, using fallback simulation:", err);
-      setScanStep(scanStepsText.length - 1);
-      setTimeout(() => {
+      clearInterval(timer);
+      console.warn("Falha na leitura da nota fiscal:", err);
+      // Only simulate in true demo mode (server has NO Gemini key). A real
+      // failure — expired session (401), subscription required (403) or a
+      // server error — must surface honestly and never fabricate a receipt.
+      if (hasApiKey === false) {
+        setScanStep(scanStepsText.length - 1);
         setExtractedData(MOCK_EXTRACTED_RECEIPT);
-        setIsScanning(false);
-        setScanError("Nota: Como nenhuma chave API ativa foi cadastrada, simulamos o scanner de nota fiscal com um exemplo real.");
-      }, 1000);
+        setScanError("Modo demonstração: sem chave de IA ativa, exibimos uma nota de exemplo. Nada foi lido da sua imagem — revise antes de salvar.");
+      } else {
+        const raw = String(err?.message || "");
+        setScanError(
+          /assinatura|subscription/i.test(raw)
+            ? "É necessária uma assinatura ativa para usar o leitor de notas. Ative um plano e tente novamente."
+            : "Não foi possível ler a nota fiscal. Verifique sua conexão e envie uma foto nítida, ou tente novamente em instantes."
+        );
+      }
     } finally {
       setIsScanning(false);
     }
@@ -228,7 +238,7 @@ export default function ReceiptScanner({
   };
 
   return (
-    <div className="pb-32 px-4 max-w-md mx-auto pt-6 animate-fade-in">
+    <div className="pb-32 px-4 max-w-md lg:max-w-2xl mx-auto pt-6 lg:pt-0 lg:px-0 animate-fade-in">
       {/* 1. INITIAL UPLOAD SCREEN */}
       {!isScanning && !extractedData && (
         <div className="bg-white border border-brand-cream-darker rounded-3xl p-6 shadow-xs">
@@ -241,6 +251,17 @@ export default function ReceiptScanner({
               Envie uma foto da nota ou cupom fiscal de compra da farmácia. HoraCerta AI lerá o local, os itens comprados, os preços e a data para seu controle de gastos.
             </p>
           </div>
+
+          {/* Real failure feedback (expired session, subscription required,
+              server error). Must live on THIS screen too: on a real error we
+              intentionally do not set extractedData, so the review screen —
+              where the other scanError banner lives — never renders. */}
+          {scanError && (
+            <div className="mb-5 bg-red-50 text-red-800 border border-red-100 rounded-2xl p-3.5 flex items-start gap-2.5 text-xs animate-fade-in">
+              <AlertCircle className="w-4 h-4 shrink-0 text-red-500 mt-0.5" />
+              <span className="leading-snug font-sans">{scanError}</span>
+            </div>
+          )}
 
           {/* AI Key Status Check */}
           {hasApiKey !== null && (
