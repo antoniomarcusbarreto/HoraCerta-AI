@@ -564,7 +564,7 @@ export function createApiApp(): express.Express {
   // reliable way to tell WHICH deployment is actually answering, since a stale
   // function can keep serving after a new deploy reports "Ready".
   app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", build: "bundled-api-1", time: new Date().toISOString() });
+    res.json({ status: "ok", build: "jose-cjs-2", time: new Date().toISOString() });
   });
 
   // AI Key Status Check
