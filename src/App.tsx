@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { dbLocal } from "./dbLocalFallback";
-import { auth, dbFirebase } from "./firebase";
+import { auth, dbFirebase, isDeadSessionError } from "./firebase";
 import { subscribeToPush, unsubscribeFromPush } from "./push";
 import { isScanAllowed, getAccessState, daysRemaining } from "./subscription";
 import { dueDoseMs } from "./utils/doseSchedule";
 import { processImageFile } from "./imageUtils";
 import { reportLogin } from "./loginLog";
-import { signInWithEmailAndPassword, signOut as firebaseSignOut, updatePassword, User as FirebaseUser } from "firebase/auth";
+import { signInWithEmailAndPassword, signOut as firebaseSignOut, updatePassword, onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
 import { User, Medicado, Receita, Medicamento, DoseLog, Consulta, Farmacia, MedicineCategory, CupomFiscal } from "./types";
 import BottomNavBar from "./components/BottomNavBar";
 import Dashboard from "./components/Dashboard";
@@ -93,6 +93,108 @@ export default function App() {
       }
     }
   }, []);
+
+  // Drops the local session entirely: reused both by the manual "Sair da
+  // Conta" button (handleLogout below) and by the automatic dead-session
+  // detection effect further down, for the case where an admin hard-deletes
+  // (or disables) an account that is still cached/logged-in on this device.
+  // Uses functional setState updates throughout so its identity can stay
+  // stable (empty dependency array) without closing over stale activeUser/
+  // activeAdminUser values from the render that first created it.
+  const forceSessionTeardown = useCallback(async (message: string) => {
+    await unsubscribeFromPush(() => Promise.resolve(undefined)).catch(() => {});
+    await firebaseSignOut(auth).catch(() => {});
+    dbLocal.clearLocalData();
+
+    // clearLocalData() intentionally leaves `horacerta_users` alone (so a
+    // normal logout doesn't wipe the shared-device directory) — explicitly
+    // evict the dead account from that cache so this device never re-offers
+    // it on the next boot, reusing the same helper the admin's own
+    // delete-user flow already relies on.
+    setActiveUser((prev) => {
+      if (prev) dbLocal.removeUserCache(prev.userId);
+      return null;
+    });
+    setActiveAdminUser((prev) => {
+      if (prev) dbLocal.removeUserCache(prev.userId);
+      return null;
+    });
+
+    setMedicados([]);
+    setReceitas([]);
+    setMedicamentos([]);
+    setDoseLogs([]);
+    setConsultas([]);
+    setFarmacias([]);
+    setCupons([]);
+    localStorage.removeItem("horacerta_active_user_id");
+    localStorage.removeItem("horacerta_active_admin_id");
+    setUsers(dbLocal.getUsers());
+    showToast(message);
+  }, []);
+
+  // Boot-time / app-resume validity check. The instant restore effect above
+  // is optimistic (localStorage only) — this is the only place that actually
+  // asks Firebase Auth "does this account still exist / is it still
+  // enabled?" by forcing a token refresh (a real network round-trip). A hard
+  // delete or a disabled account surfaces here as a specific auth error code
+  // (see isDeadSessionError in firebase.ts); anything else — most notably
+  // being offline — is left alone so the cached session keeps working, per
+  // the offline-first design and so a valid session is never forced to
+  // re-login on every open.
+  const verifySessionStillValid = useCallback(async () => {
+    const fbUser = auth.currentUser;
+    if (!fbUser) return;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+
+    const hadAdminSession = !!localStorage.getItem("horacerta_active_admin_id");
+
+    try {
+      await fbUser.getIdToken(true);
+      if (hadAdminSession) {
+        // A revoked admin custom claim doesn't invalidate the token refresh
+        // above (the account itself still exists) — check it explicitly.
+        const tokenResult = await fbUser.getIdTokenResult(true);
+        if (tokenResult.claims.admin !== true) {
+          await forceSessionTeardown("Acesso de administrador revogado. Faça login novamente.");
+        }
+      }
+    } catch (err) {
+      if (isDeadSessionError(err)) {
+        await forceSessionTeardown("Sua sessão não é mais válida. Faça login novamente.");
+      }
+      // Any other error (network-request-failed, timeout, transient) is
+      // ignored — the cached session stays trusted, exactly as before.
+    }
+  }, [forceSessionTeardown]);
+
+  useEffect(() => {
+    // Fires once on mount with whatever Firebase Auth already has persisted
+    // (fast, read from IndexedDB), and again whenever the SDK's own sign-in
+    // state changes (login, logout, or an internal auto-sign-out following a
+    // failed background token refresh).
+    const unsubscribe = onAuthStateChanged(auth, () => {
+      verifySessionStillValid();
+    });
+    return unsubscribe;
+  }, [verifySessionStillValid]);
+
+  useEffect(() => {
+    // A PWA installed on mobile is backgrounded/foregrounded without a full
+    // document reload, so a mount-only check would never run again — re-run
+    // on every foreground, throttled so rapid tab/app switching doesn't
+    // hammer the network with token refreshes.
+    let lastChecked = 0;
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastChecked < 5 * 60 * 1000) return;
+      lastChecked = now;
+      verifySessionStillValid();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [verifySessionStillValid]);
 
   // The admin panel must list REAL registered users, which live in Firestore —
   // `dbLocal.getUsers()` only ever holds accounts this browser touched (plus the
@@ -232,6 +334,17 @@ export default function App() {
           .catch((err) => {
             console.error("Falha ao registrar Service Worker:", err);
           });
+
+        // A new SW version takes over (skipWaiting + clients.claim in sw.js)
+        // without this tab reloading on its own — without this listener, an
+        // already-open tab would keep running the old bundle until the user
+        // manually closes and reopens it. Guarded so it only reloads once.
+        let reloadedForNewWorker = false;
+        navigator.serviceWorker.addEventListener("controllerchange", () => {
+          if (reloadedForNewWorker) return;
+          reloadedForNewWorker = true;
+          window.location.reload();
+        });
       }
 
       const handleBeforeInstallPrompt = (e: Event) => {

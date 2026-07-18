@@ -64,6 +64,25 @@ const db = firebaseConfig.firestoreDatabaseId
 
 export { app, auth, db };
 
+// Auth error codes that mean the underlying account no longer matches this
+// device's persisted session: deleted, disabled, or credentials/tokens were
+// invalidated server-side (password change, revoked refresh tokens). Any of
+// these must trigger a full local teardown. Anything else (offline, timeout,
+// transient 5xx) must NOT — the cached session stays trusted so a legitimately
+// offline user keeps working (offline-first design + no forced re-login).
+const DEAD_SESSION_AUTH_CODES = new Set([
+  "auth/user-disabled",
+  "auth/user-not-found",
+  "auth/user-token-expired",
+  "auth/invalid-user-token",
+  "auth/user-mismatch",
+]);
+
+export function isDeadSessionError(err: unknown): boolean {
+  const code = (err as { code?: unknown })?.code;
+  return typeof code === "string" && DEAD_SESSION_AUTH_CODES.has(code);
+}
+
 // Firestore returns `createdAt` as a Timestamp instance (server-set via
 // serverTimestamp()), but every entity type declares it as `string` (ISO) —
 // and once that Timestamp round-trips through dbLocalFallback's

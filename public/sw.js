@@ -1,4 +1,4 @@
-const CACHE_NAME = "horacerta-cache-v2";
+const CACHE_NAME = "horacerta-cache-v3";
 const ASSETS = [
   "/app",
   "/app/index.html",
@@ -31,7 +31,11 @@ self.addEventListener("activate", (e) => {
   self.clients.claim();
 });
 
-// Fetch Event
+// Fetch Event — network-first so a new deploy's fixed app shell/bundle
+// actually reaches a device promptly, falling back to cache only when
+// offline (the previous cache-first strategy could serve the same stale
+// index.html/bundle forever, since this SW's only invalidation lever is
+// bumping CACHE_NAME above).
 self.addEventListener("fetch", (e) => {
   const url = e.request.url;
   // Ignore API requests, hot reloads, and other dev socket requests
@@ -39,9 +43,13 @@ self.addEventListener("fetch", (e) => {
     return;
   }
   e.respondWith(
-    caches.match(e.request).then((cachedResponse) => {
-      return cachedResponse || fetch(e.request);
-    }).catch(() => fetch(e.request))
+    fetch(e.request)
+      .then((networkResponse) => {
+        const copy = networkResponse.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(e.request, copy)).catch(() => {});
+        return networkResponse;
+      })
+      .catch(() => caches.match(e.request))
   );
 });
 

@@ -284,7 +284,17 @@ class DBLocalFallback {
       this.set(key, initial);
       return initial;
     }
-    return JSON.parse(data);
+    try {
+      return JSON.parse(data);
+    } catch {
+      // Corrupted/incompatible cache value — degrade to the same "nothing
+      // cached yet" path above instead of throwing, since there is no error
+      // boundary above every call site and a stray bad value must not blank
+      // out the whole app.
+      const initial = SEEDS_ENABLED ? defaults : ([] as T[]);
+      this.set(key, initial);
+      return initial;
+    }
   }
 
   private set<T>(key: string, value: T[]) {
