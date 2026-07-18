@@ -560,9 +560,11 @@ export function createApiApp(): express.Express {
   // API ROUTES
   // ==========================================
 
-  // Health check
+  // Health check. `build` is a hand-bumped marker: on serverless it is the only
+  // reliable way to tell WHICH deployment is actually answering, since a stale
+  // function can keep serving after a new deploy reports "Ready".
   app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", time: new Date().toISOString() });
+    res.json({ status: "ok", build: "esm-ext-fix-3", time: new Date().toISOString() });
   });
 
   // AI Key Status Check
