@@ -96,9 +96,18 @@ function getAdminApp(): App {
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || "";
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || "";
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || "mailto:contato@horacerta.ai";
-export const pushEnabled = !!(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
+export let pushEnabled = !!(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
 if (pushEnabled) {
-  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+  try {
+    webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+  } catch (err) {
+    // web-push validates key format synchronously and throws on malformed
+    // keys. This runs at module load, before createApiApp() builds any route
+    // — an uncaught throw here would crash the entire serverless function
+    // (every /api/* route, not just push). Degrade to push-disabled instead.
+    console.warn("VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY inválidas — push desativado.", err);
+    pushEnabled = false;
+  }
 }
 
 // The client talks to a NAMED Firestore database (see firebase-applet-config.json).
