@@ -59,6 +59,63 @@ self.addEventListener("message", (event) => {
   }
 });
 
+// Web Push: fired by the OS/browser even when the app is fully closed. The
+// server (VAPID) delivers a generic, no-PHI payload here; details are only
+// visible after the user opens the app.
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch (e) {
+    payload = {};
+  }
+
+  const title = payload.title || "Lembrete de Medicamento";
+  const options = {
+    body: payload.body || "Você tem uma dose pendente. Abra o aplicativo para verificar os detalhes.",
+    icon: payload.icon || "https://images.unsplash.com/photo-1584017911766-d451b3d0e843?w=192&h=192&fit=crop&auto=format",
+    badge: "https://images.unsplash.com/photo-1584017911766-d451b3d0e843?w=192&h=192&fit=crop&auto=format",
+    vibrate: [300, 100, 300],
+    requireInteraction: true,
+    // Same tag format the in-app poller uses, so the OS collapses duplicates
+    // instead of stacking them when both paths fire on the same device.
+    tag: payload.tag || "dose_reminder",
+    data: payload.data || { url: "/app" },
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+// If the browser rotates/expires the subscription, best-effort resubscribe with
+// the same VAPID key so the device keeps receiving reminders. The client will
+// also re-register on next app open, so this is a resilience layer.
+self.addEventListener("pushsubscriptionchange", (event) => {
+  event.waitUntil(
+    fetch("/api/push/vapid-public-key")
+      .then((res) => res.json())
+      .then((data) => {
+        if (!data || !data.key) return;
+        return self.registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(data.key),
+        });
+      })
+      .catch(() => {})
+  );
+});
+
+// Decode a base64url VAPID public key into the Uint8Array subscribe() expects.
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  const output = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) {
+    output[i] = raw.charCodeAt(i);
+  }
+  return output;
+}
+
 // Listen to notification click
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();

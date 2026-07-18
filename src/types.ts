@@ -9,6 +9,7 @@ export interface User {
   freeTrialUntil?: string; // ISO Date String
   subscriptionStatus?: 'active' | 'inactive' | 'expired';
   subscriptionPlan?: 'monthly' | 'yearly' | 'none';
+  subscriptionCurrentPeriodEnd?: string; // ISO Date String — fim do período pago (assinatura via Mercado Pago)
 }
 
 export interface Medicado {

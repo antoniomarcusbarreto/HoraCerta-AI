@@ -4,5 +4,10 @@
       "database": "ai-studio-horacertaai-02b04239-a29b-4232-b7ae-470abfa91c59",
       "rules": "firestore.rules"
     }
-  ]
+  ],
+  "emulators": {
+    "firestore": { "port": 8080 },
+    "ui": { "enabled": false },
+    "singleProjectMode": true
+  }
 }

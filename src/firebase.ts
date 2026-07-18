@@ -109,6 +109,7 @@ export const dbFirebase = {
     if (user.freeTrialUntil) firestoreUser.freeTrialUntil = user.freeTrialUntil;
     if (user.subscriptionStatus) firestoreUser.subscriptionStatus = user.subscriptionStatus;
     if (user.subscriptionPlan) firestoreUser.subscriptionPlan = user.subscriptionPlan;
+    if (user.subscriptionCurrentPeriodEnd) firestoreUser.subscriptionCurrentPeriodEnd = user.subscriptionCurrentPeriodEnd;
     if (user.avatarUrl) firestoreUser.avatarUrl = user.avatarUrl;
     await setDoc(docRef, firestoreUser);
   },
@@ -124,6 +125,7 @@ export const dbFirebase = {
     if (user.freeTrialUntil !== undefined) payload.freeTrialUntil = user.freeTrialUntil;
     if (user.subscriptionStatus !== undefined) payload.subscriptionStatus = user.subscriptionStatus;
     if (user.subscriptionPlan !== undefined) payload.subscriptionPlan = user.subscriptionPlan;
+    if (user.subscriptionCurrentPeriodEnd !== undefined) payload.subscriptionCurrentPeriodEnd = user.subscriptionCurrentPeriodEnd;
     if (user.avatarUrl !== undefined) payload.avatarUrl = user.avatarUrl;
     await updateDoc(docRef, payload);
   },

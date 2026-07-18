@@ -61,7 +61,7 @@ service cloud.firestore {
     // enforces incoming().createdAt == existing().createdAt (immutability).
     function isValidUser(data, userId) {
       return data.keys().hasAll(['userId', 'name', 'email', 'role', 'status', 'createdAt']) &&
-             data.keys().hasOnly(['userId', 'name', 'email', 'role', 'status', 'createdAt', 'freeTrialUntil', 'subscriptionStatus', 'subscriptionPlan', 'avatarUrl']) &&
+             data.keys().hasOnly(['userId', 'name', 'email', 'role', 'status', 'createdAt', 'freeTrialUntil', 'subscriptionStatus', 'subscriptionPlan', 'subscriptionCurrentPeriodEnd', 'avatarUrl']) &&
              data.userId == userId &&
              data.name is string && data.name.size() <= 128 &&
              data.email is string && data.email.size() <= 128 &&
@@ -71,7 +71,8 @@ service cloud.firestore {
              (!('freeTrialUntil' in data) || (data.freeTrialUntil is string && data.freeTrialUntil.size() <= 64)) &&
              (!('subscriptionStatus' in data) || data.subscriptionStatus in ['active', 'inactive', 'expired']) &&
              (!('subscriptionPlan' in data) || data.subscriptionPlan in ['monthly', 'yearly', 'none']) &&
-             (!('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() <= 900000));
+             (!('subscriptionCurrentPeriodEnd' in data) || (data.subscriptionCurrentPeriodEnd is string && data.subscriptionCurrentPeriodEnd.size() <= 64)) &&
+             (!('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() <= 500000));
     }
 
     function isValidMedicado(data, userId) {
@@ -83,7 +84,7 @@ service cloud.firestore {
              data.relationship is string && data.relationship.size() <= 64 &&
              data.createdAt == request.time &&
              (!('birthDate' in data) || (data.birthDate is string && data.birthDate.size() <= 32)) &&
-             (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() <= 900000));
+             (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() <= 500000));
     }
 
     function isValidReceita(data, userId, medicadoId) {
@@ -96,7 +97,7 @@ service cloud.firestore {
              data.extracted is bool &&
              data.createdAt == request.time &&
              (!('doctorName' in data) || (data.doctorName is string && data.doctorName.size() <= 128)) &&
-             (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 900000)) &&
+             (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 500000)) &&
              (!('notes' in data) || (data.notes is string && data.notes.size() <= 2000));
     }
 
@@ -346,13 +347,35 @@ service cloud.firestore {
         allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(cupomId);
         allow list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
 
-        allow create: if isSignedIn() && 
-                         request.auth.uid == userId && 
+        allow create: if isSignedIn() &&
+                         request.auth.uid == userId &&
                          isUserActive(userId) &&
-                         isValidId(cupomId) && 
+                         isValidId(cupomId) &&
                          isValidCupom(incoming(), userId);
 
         allow delete: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(cupomId);
+      }
+
+      // 9. Push Subscriptions Subcollection (Web Push / VAPID endpoints)
+      // Written EXCLUSIVELY server-side via the Admin SDK (which bypasses these
+      // rules) using the authenticated uid — see /api/push/subscribe in
+      // server.ts. Clients get zero write access so a browser can never forge,
+      // move, or tamper with a subscription; the owner may read/delete their own
+      // (e.g. to audit or clear devices). This preserves per-user isolation:
+      // one user's push endpoints are never readable or writable by another.
+      match /pushSubscriptions/{subId} {
+        allow get, list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+        allow delete: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+        allow create, update: if false;
+      }
+
+      // 10. Push Dispatch Markers (per-dose dedupe for the Web Push dispatcher).
+      // Written and read EXCLUSIVELY server-side via the Admin SDK (which
+      // bypasses these rules) so a serverless cold start / second instance can't
+      // re-send a reminder already sent. Clients get zero access. (The global
+      // default-deny already blocks this; the explicit rule documents intent.)
+      match /pushDispatches/{dispatchId} {
+        allow read, write: if false;
       }
     }
   }

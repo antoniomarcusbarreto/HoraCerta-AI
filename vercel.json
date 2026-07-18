@@ -1,6 +1,10 @@
 {
   "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api" },
     { "source": "/app", "destination": "/app/index.html" },
     { "source": "/app/(.*)", "destination": "/app/index.html" }
+  ],
+  "crons": [
+    { "path": "/api/push/dispatch", "schedule": "* * * * *" }
   ]
 }

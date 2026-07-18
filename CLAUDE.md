@@ -9,7 +9,7 @@ Always respond to the user in Brazilian Portuguese (português do Brasil).
 ## Commands
 
 - `npm install` — install dependencies
-- `npm run dev` — start the app (`tsx server.ts`, single Express process serving Vite middleware + API routes) on `http://localhost:3000`
+- `npm run dev` — start the app (`tsx server.ts`: `createApiApp()` + Vite middleware) on `http://localhost:3000`
 - `npm run lint` — type-check only (`tsc --noEmit`); there is no separate linter configured
 - `npm run build` — Vite build of the frontend + esbuild bundle of `server.ts` into `dist/server.cjs`
 - `npm run start` — run the production build (`node dist/server.cjs`)
@@ -21,7 +21,11 @@ Requires `GEMINI_API_KEY` in `.env.local` for the AI prescription/receipt scanni
 
 ## Architecture
 
-This is a Google AI Studio applet (see `metadata.json`, `firebase-applet-config.json`, `firebase-blueprint.json`): a single Express server (`server.ts`) both mounts the Vite dev middleware (or serves `dist/` in production) and exposes the backend API — there is no separate API server/process.
+This is a Google AI Studio applet (see `metadata.json`, `firebase-applet-config.json`, `firebase-blueprint.json`). The backend API lives in **`server/app.ts`**, whose `createApiApp()` builds an Express app with every `/api/*` route (no `listen()`, no frontend serving). Two thin entry points reuse that same app:
+- **`server.ts`** (dev / Cloud Run, `tsx server.ts` / `npm start`): calls `createApiApp()`, then adds Vite dev middleware (or static `dist/` in prod), binds `0.0.0.0:$PORT`, and runs the in-process push scheduler (`setInterval`).
+- **`api/index.ts`** (Vercel serverless): `export default createApiApp()`. `vercel.json` rewrites `/api/(.*)` to it; the frontend is served by Vercel's static CDN from `dist/`.
+
+Deployment target is **Vercel (serverless)**. Consequences to keep in mind: no long-running process, so the push scheduler is driven by **Vercel Cron** hitting `/api/push/dispatch` (see `crons` in `vercel.json`, guarded by `CRON_SECRET`); Firebase Admin is initialized from the **`FIREBASE_SERVICE_ACCOUNT`** env JSON (no ADC on Vercel — see `getAdminApp()` in `server/app.ts`); and the push dedupe is persisted in Firestore (`pushDispatches` subcollection) rather than an in-memory Map. In-memory `express-rate-limit` is best-effort only across serverless invocations.
 
 ### Two Vite entry points: landing page vs. app
 
@@ -47,11 +51,11 @@ The `isAdmin()` check in `firestore.rules` and the Admin Portal login gate are d
 
 ### Firestore security rules
 
-`firestore.rules` is default-deny (`match /{document=**} { allow read, write: if false; }` at the top) with per-entity `isValid*(data, ...)` functions enforcing: exact key-set allowlists (blocks "ghost field" injection), `userId`/path ownership matching `request.auth.uid`, immutable identity fields, `createdAt == request.time`, string size caps, and an `isAdmin()` check hardcoded to one email. `security_spec.md` documents the "Dirty Dozen" adversarial payloads the rules are designed to reject — read it before modifying `firestore.rules` to understand what must keep failing.
+`firestore.rules` is default-deny (`match /{document=**} { allow read, write: if false; }` at the top) with per-entity `isValid*(data, ...)` functions enforcing: exact key-set allowlists (blocks "ghost field" injection), `userId`/path ownership matching `request.auth.uid`, immutable identity fields, `createdAt == request.time`, string size caps, and an `isAdmin()` check driven by the `admin: true` custom claim (plus verified email). `security_spec.md` documents the "Dirty Dozen" adversarial payloads the rules are designed to reject — read it before modifying `firestore.rules` to understand what must keep failing.
 
 ### AI extraction endpoints
 
-`server.ts` exposes `/api/gemini/extract` (prescription photo → structured medicines list) and `/api/gemini/extract-receipt` (fiscal receipt photo → establishment/items/total) using `@google/genai` against `gemini-3.5-flash` with a `responseSchema` for structured JSON output. Both take `{ imageBase64, mimeType }` and are consumed by `PrescriptionScanner.tsx` / `ReceiptScanner.tsx` respectively.
+`server/app.ts` exposes `/api/gemini/extract` (prescription photo → structured medicines list) and `/api/gemini/extract-receipt` (fiscal receipt photo → establishment/items/total) using `@google/genai` against the model in `GEMINI_MODEL` (default `gemini-2.5-flash`; the old `gemini-3.5-flash` was not a valid id) with a `responseSchema` for structured JSON output. Both take `{ imageBase64, mimeType }` and are consumed by `PrescriptionScanner.tsx` / `ReceiptScanner.tsx`. The scanners only fall back to sample/mock data when the server reports **no** Gemini key (`hasApiKey === false`); on a real 401/403/5xx they surface the error instead of injecting fake medicines.
 
 ### PWA / notifications
 
