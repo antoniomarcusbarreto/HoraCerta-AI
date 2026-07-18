@@ -3,6 +3,7 @@ import { User } from "../types";
 import { dbLocal } from "../dbLocalFallback";
 import { auth, dbFirebase } from "../firebase";
 import { TRIAL_DAYS } from "../subscription";
+import { reportLogin } from "../loginLog";
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
 import { 
   Mail, 
@@ -99,7 +100,9 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
         if (userProfile) {
           // 5. Trigger cloud synchronization down to local database
           await dbLocal.syncFromFirebase(userProfile.userId);
-          
+
+          firebaseUser.getIdToken().then((idToken: string) => reportLogin(idToken, userProfile!.name, userProfile!.email));
+
           setSuccess("Autenticado com sucesso! Carregando painel...");
           setTimeout(() => {
             onLoginSuccess(userProfile!);
@@ -137,6 +140,8 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
 
         // Write both locally and to Firestore
         dbLocal.updateUser(newUser);
+
+        firebaseUser.getIdToken().then((idToken: string) => reportLogin(idToken, newUser.name, newUser.email));
 
         setSuccess("Conta criada com sucesso! Carregando painel...");
         setTimeout(() => {

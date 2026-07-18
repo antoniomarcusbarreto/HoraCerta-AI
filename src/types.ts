@@ -95,3 +95,39 @@ export interface CupomFiscal {
   createdAt: string;
 }
 
+// ==========================================
+// ADMIN AUDIT LOGS
+// ==========================================
+
+export interface ActionLog {
+  logId: string;
+  actorId: string;
+  actorName: string;
+  actorEmail: string;
+  action: 'update' | 'delete';
+  entityType: string;
+  entityId: string;
+  entityLabel: string;
+  page: string;
+  createdAt: string;
+}
+
+export interface LoginLog {
+  logId: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  ip: string;
+  userAgent?: string;
+  createdAt: string;
+}
+
+export interface ErrorLog {
+  errorLogId: string;
+  action: string;
+  message: string;
+  stack?: string;
+  userId?: string;
+  createdAt: string;
+}
+

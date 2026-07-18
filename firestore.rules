@@ -170,6 +170,24 @@ service cloud.firestore {
              data.createdAt == request.time;
     }
 
+    // Trilha de auditoria de alteração/exclusão de registros (Admin Portal).
+    // entityLabel é um resumo legível (ex.: nome do paciente), nunca o
+    // registro inteiro, para não duplicar dado de saúde sensível.
+    function isValidActionLog(data) {
+      return data.keys().hasAll(['logId', 'actorId', 'actorName', 'actorEmail', 'action', 'entityType', 'entityId', 'entityLabel', 'page', 'createdAt']) &&
+             data.keys().hasOnly(['logId', 'actorId', 'actorName', 'actorEmail', 'action', 'entityType', 'entityId', 'entityLabel', 'page', 'createdAt']) &&
+             data.logId is string && data.logId.size() <= 128 &&
+             data.actorId is string && data.actorId.size() <= 128 &&
+             data.actorName is string && data.actorName.size() <= 128 &&
+             data.actorEmail is string && data.actorEmail.size() <= 128 &&
+             data.action in ['update', 'delete'] &&
+             data.entityType is string && data.entityType.size() <= 64 &&
+             data.entityId is string && data.entityId.size() <= 128 &&
+             data.entityLabel is string && data.entityLabel.size() <= 256 &&
+             data.page is string && data.page.size() <= 64 &&
+             data.createdAt == request.time;
+    }
+
     // ==========================================
     // RESOURCE ROUTES & ACTIONS
     // ==========================================
@@ -377,6 +395,35 @@ service cloud.firestore {
       match /pushDispatches/{dispatchId} {
         allow read, write: if false;
       }
+    }
+
+    // ==========================================
+    // ADMIN AUDIT LOGS (top-level, cross-user — feed the Admin Portal "Logs" tab)
+    // ==========================================
+
+    // Alteração/exclusão de registros. Escrito pelo client no momento da
+    // mutação (único lugar que sabe com certeza quem é o ator); trilha
+    // imutável — nunca pode ser atualizada ou apagada, nem pelo autor.
+    match /actionLogs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn() &&
+                       incoming().actorId == request.auth.uid &&
+                       isValidId(logId) &&
+                       isValidActionLog(incoming());
+      allow update, delete: if false;
+    }
+
+    // Login de usuário e erros de servidor. Escritos EXCLUSIVAMENTE via
+    // Admin SDK (bypassa estas regras) porque só o servidor conhece o IP
+    // real do cliente e o stack trace do erro. Zero acesso de escrita do client.
+    match /loginLogs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /errorLogs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false;
     }
   }
 }

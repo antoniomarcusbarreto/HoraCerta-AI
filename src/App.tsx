@@ -5,12 +5,14 @@ import { subscribeToPush, unsubscribeFromPush } from "./push";
 import { isScanAllowed, getAccessState, daysRemaining } from "./subscription";
 import { dueDoseMs } from "./utils/doseSchedule";
 import { processImageFile } from "./imageUtils";
+import { reportLogin } from "./loginLog";
 import { signInWithEmailAndPassword, signOut as firebaseSignOut, updatePassword, User as FirebaseUser } from "firebase/auth";
 import { User, Medicado, Receita, Medicamento, DoseLog, Consulta, Farmacia, MedicineCategory, CupomFiscal } from "./types";
 import BottomNavBar from "./components/BottomNavBar";
 import Dashboard from "./components/Dashboard";
 import Schedule from "./components/Schedule";
 import AdminPanel from "./components/AdminPanel";
+import AdminLogs from "./components/AdminLogs";
 import Appointments from "./components/Appointments";
 import Pharmacies from "./components/Pharmacies";
 import AuthScreen from "./components/AuthScreen";
@@ -32,6 +34,7 @@ export default function App() {
   // 1. Authentication State
   const [activeUser, setActiveUser] = useState<User | null>(null);
   const [activeAdminUser, setActiveAdminUser] = useState<User | null>(null);
+  const [adminSection, setAdminSection] = useState<"users" | "logs">("users");
 
   // 2. Global Database States
   const [users, setUsers] = useState<User[]>([]);
@@ -486,6 +489,35 @@ export default function App() {
     }, 4000);
   };
 
+  // Records an alteration/deletion for the Admin Portal's audit trail.
+  // Fire-and-forget, like every other dbFirebase write in this app — a
+  // logging failure must never block the mutation it's describing.
+  // `actor` defaults to the signed-in app user, but admin-portal handlers
+  // pass activeAdminUser explicitly since that's the real actor there.
+  const logAction = (
+    action: "update" | "delete",
+    entityType: string,
+    entityId: string,
+    entityLabel: string,
+    page: string,
+    actor?: User | null
+  ) => {
+    const user = actor ?? activeUser;
+    if (!user) return;
+    dbFirebase
+      .logAction({
+        actorId: user.userId,
+        actorName: user.name,
+        actorEmail: user.email,
+        action,
+        entityType,
+        entityId,
+        entityLabel,
+        page,
+      })
+      .catch((e) => console.warn("Falha ao registrar log de ação:", e));
+  };
+
   // ==========================================
   // PATIENTS (MEDICADOS) CRUD HANDLERS
   // ==========================================
@@ -506,13 +538,16 @@ export default function App() {
     if (!activeUser) return;
     dbLocal.updateMedicado(updatedPatient);
     setMedicados(dbLocal.getMedicados(activeUser.userId));
+    logAction("update", "Medicado", updatedPatient.medicadoId, updatedPatient.name, "Pacientes");
     showToast(`Dados de ${updatedPatient.name} atualizados!`);
   };
 
   const handleDeletePatient = (patientId: string) => {
     if (!activeUser) return;
+    const patient = medicados.find((m) => m.medicadoId === patientId);
     dbLocal.deleteMedicado(patientId);
     setMedicados(dbLocal.getMedicados(activeUser.userId));
+    logAction("delete", "Medicado", patientId, patient?.name ?? patientId, "Pacientes");
     showToast("Paciente removido com sucesso.");
   };
 
@@ -536,12 +571,15 @@ export default function App() {
     if (!activeUser) return;
     dbLocal.updateMedicamento(updatedMed);
     setMedicamentos(dbLocal.getMedicamentos(activeUser.userId));
+    logAction("update", "Medicamento", updatedMed.medicamentoId, updatedMed.name, "Medicamentos");
   };
 
   const handleDeleteMedicine = (medId: string) => {
     if (!activeUser) return;
+    const med = medicamentos.find((m) => m.medicamentoId === medId);
     dbLocal.deleteMedicamento(medId);
     setMedicamentos(dbLocal.getMedicamentos(activeUser.userId));
+    logAction("delete", "Medicamento", medId, med?.name ?? medId, "Medicamentos");
     showToast("Medicamento removido da programação.");
   };
 
@@ -574,13 +612,16 @@ export default function App() {
     if (!activeUser) return;
     dbLocal.updateConsulta(updatedAppt);
     setConsultas(dbLocal.getConsultas(activeUser.userId));
+    logAction("update", "Consulta", updatedAppt.consultaId, `${updatedAppt.doctorName} - ${updatedAppt.dateTime}`, "Agenda");
     showToast("Consulta atualizada.");
   };
 
   const handleDeleteAppointment = (apptId: string) => {
     if (!activeUser) return;
+    const appt = consultas.find((c) => c.consultaId === apptId);
     dbLocal.deleteConsulta(apptId);
     setConsultas(dbLocal.getConsultas(activeUser.userId));
+    logAction("delete", "Consulta", apptId, appt ? `${appt.doctorName} - ${appt.dateTime}` : apptId, "Agenda");
     showToast("Consulta desmarcada.");
   };
 
@@ -602,12 +643,15 @@ export default function App() {
     if (!activeUser) return;
     dbLocal.updateFarmacia(updatedFarm);
     setFarmacias(dbLocal.getFarmacias(activeUser.userId));
+    logAction("update", "Farmacia", updatedFarm.farmaciaId, updatedFarm.name, "Farmácias");
   };
 
   const handleDeleteFarmacia = (farmId: string) => {
     if (!activeUser) return;
+    const farm = farmacias.find((f) => f.farmaciaId === farmId);
     dbLocal.deleteFarmacia(farmId);
     setFarmacias(dbLocal.getFarmacias(activeUser.userId));
+    logAction("delete", "Farmacia", farmId, farm?.name ?? farmId, "Farmácias");
     showToast("Farmácia excluída da lista.");
   };
 
@@ -629,8 +673,10 @@ export default function App() {
 
   const handleDeleteCupom = (cupomId: string) => {
     if (!activeUser) return;
+    const cupom = cupons.find((c) => c.cupomId === cupomId);
     dbLocal.deleteCupom(cupomId);
     setCupons(dbLocal.getCupons(activeUser.userId));
+    logAction("delete", "CupomFiscal", cupomId, cupom?.establishment ?? cupomId, "Cupons Fiscais");
     showToast("Cupom fiscal removido.");
   };
 
@@ -652,6 +698,7 @@ export default function App() {
 
     dbLocal.setUserCache(updatedUser);
     setUsers(dbLocal.getUsers());
+    logAction("update", "User", updatedUser.userId, `${updatedUser.name} (${updatedUser.email})`, "Painel Admin", activeAdminUser ?? activeUser);
     showToast(`Cadastro de ${updatedUser.name} atualizado no diretório.`);
 
     // If the administrator edited their own status or role, update session
@@ -662,6 +709,7 @@ export default function App() {
   };
 
   const handleDeleteUser = async (userId: string): Promise<boolean> => {
+    const targetUser = users.find((u) => u.userId === userId);
     try {
       await dbFirebase.deleteUserProfile(userId);
     } catch (err: any) {
@@ -672,6 +720,7 @@ export default function App() {
 
     dbLocal.removeUserCache(userId);
     setUsers(dbLocal.getUsers());
+    logAction("delete", "User", userId, targetUser ? `${targetUser.name} (${targetUser.email})` : userId, "Painel Admin", activeAdminUser ?? activeUser);
     showToast("Cadastro de usuário removido com sucesso.");
     return true;
   };
@@ -744,10 +793,12 @@ export default function App() {
 
   const handleDeleteReceita = (receitaId: string) => {
     if (!activeUser) return;
+    const receita = receitas.find((r) => r.receitaId === receitaId);
     dbLocal.deleteReceita(receitaId);
     setReceitas(dbLocal.getReceitas(activeUser.userId));
     setMedicamentos(dbLocal.getMedicamentos(activeUser.userId));
     setDoseLogs(dbLocal.getDoseLogs(activeUser.userId));
+    logAction("delete", "Receita", receitaId, receita ? `${receita.doctorName || "Receita"} - ${receita.date}` : receitaId, "Receitas");
     showToast("Receita médica e seus medicamentos associados foram removidos.");
   };
 
@@ -842,6 +893,7 @@ export default function App() {
 
     setActiveAdminUser(profile);
     localStorage.setItem("horacerta_active_admin_id", profile.userId);
+    firebaseUser.getIdToken().then((idToken) => reportLogin(idToken, profile!.name, profile!.email));
     showToast(`Olá, ${profile.name}! Portal de Controle ativado.`);
   };
 
@@ -1018,15 +1070,40 @@ export default function App() {
               </div>
             </div>
 
-            <AdminPanel
-              users={users}
-              onUpdateUser={handleUpdateUser}
-              onDeleteUser={handleDeleteUser}
-              onAddUser={handleAddUser}
-              onNotify={showToast}
-              activeUserId={activeUser?.userId}
-              onSimulateUser={handleSimulateUser}
-            />
+            <div className="flex bg-brand-cream-dark/50 border border-brand-cream-darker p-1 rounded-2xl">
+              <button
+                type="button"
+                onClick={() => setAdminSection("users")}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
+                  adminSection === "users" ? "bg-brand-teal text-white shadow-xs" : "text-brand-teal/70 hover:text-brand-teal"
+                }`}
+              >
+                Usuários
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdminSection("logs")}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
+                  adminSection === "logs" ? "bg-brand-teal text-white shadow-xs" : "text-brand-teal/70 hover:text-brand-teal"
+                }`}
+              >
+                Logs
+              </button>
+            </div>
+
+            {adminSection === "users" ? (
+              <AdminPanel
+                users={users}
+                onUpdateUser={handleUpdateUser}
+                onDeleteUser={handleDeleteUser}
+                onAddUser={handleAddUser}
+                onNotify={showToast}
+                activeUserId={activeUser?.userId}
+                onSimulateUser={handleSimulateUser}
+              />
+            ) : (
+              <AdminLogs />
+            )}
           </div>
         )}
       </div>

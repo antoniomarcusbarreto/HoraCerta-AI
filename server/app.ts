@@ -318,6 +318,45 @@ function userOrIpKey(req: express.Request): string {
   return ipKeyGenerator(req.ip || "unknown");
 }
 
+// Real client IP for the login-log audit trail. On Vercel serverless,
+// req.ip/req.socket.remoteAddress reflect the platform's internal proxy, not
+// the browser — the real origin only shows up in these forwarding headers
+// (no `trust proxy` is configured, so Express can't resolve this itself).
+// req.ip is kept as the final fallback for the long-running dev/Cloud Run target.
+function getClientIp(req: express.Request): string {
+  const vercelForwarded = req.headers["x-vercel-forwarded-for"];
+  if (typeof vercelForwarded === "string" && vercelForwarded) {
+    return vercelForwarded.split(",")[0].trim();
+  }
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded) {
+    return forwarded.split(",")[0].trim();
+  }
+  return req.ip || "unknown";
+}
+
+// Persists a server-side failure for the Admin Portal's "Logs" tab.
+// Best-effort and swallows its own errors — a logging failure must never mask
+// or replace the original error response already sent to the caller.
+async function logServerError(action: string, error: unknown, uid?: string | null): Promise<void> {
+  try {
+    const message = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error && error.stack ? error.stack.slice(0, 2000) : undefined;
+    const errorLogId = `err_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const payload: Record<string, any> = {
+      errorLogId,
+      action,
+      message: message.slice(0, 2000),
+      createdAt: new Date().toISOString(),
+    };
+    if (stack) payload.stack = stack;
+    if (uid) payload.userId = uid;
+    await getDb().collection("errorLogs").doc(errorLogId).set(payload);
+  } catch (loggingErr) {
+    console.warn("Falha ao gravar errorLog:", loggingErr);
+  }
+}
+
 // NOTE (serverless): express-rate-limit's default store is IN-MEMORY and does
 // not survive between serverless invocations, so on Vercel these limits are
 // effectively per-instance/best-effort. For a hard guarantee, back them with a
@@ -357,6 +396,15 @@ const subscriptionRateLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: userOrIpKey,
   message: { error: "Muitas tentativas de pagamento. Tente novamente mais tarde." },
+});
+
+const logWriteRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey,
+  message: { error: "Limite de registros de log excedido. Tente novamente mais tarde." },
 });
 
 // ==========================================
@@ -513,6 +561,37 @@ export function createApiApp(): express.Express {
     res.json({ hasKey: !!process.env.GEMINI_API_KEY });
   });
 
+  // ==========================================
+  // AUDIT LOGS (Admin Portal "Logs" tab)
+  // ==========================================
+
+  // Records a successful login. Only the server can see the real client IP
+  // (Vercel serverless rewrites req.ip; see getClientIp) — this can't be done
+  // client-side like the rest of the app's CRUD, which writes straight to
+  // Firestore. Called right after auth succeeds (AuthScreen.tsx / App.tsx's
+  // handleAdminLogin) with the caller's own ID token.
+  app.post("/api/logs/login", requireAuth, logWriteRateLimiter, async (req, res) => {
+    try {
+      const uid = (req as any).uid as string;
+      const { userName, userEmail } = req.body || {};
+      const logId = `login_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      await getDb().collection("loginLogs").doc(logId).set({
+        logId,
+        userId: uid,
+        userName: typeof userName === "string" ? userName.slice(0, 128) : "",
+        userEmail: typeof userEmail === "string" ? userEmail.slice(0, 128) : "",
+        ip: getClientIp(req),
+        userAgent: typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"].slice(0, 256) : null,
+        createdAt: new Date().toISOString(),
+      });
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Login log error:", error);
+      await logServerError("POST /api/logs/login", error, (req as any).uid);
+      res.status(500).json({ error: "Falha ao registrar login." });
+    }
+  });
+
   // Admin: change another user's real Firebase Auth password. The web/client
   // SDK has no way to do this for anyone but the currently signed-in user —
   // it requires the Admin SDK, hence this server-side, claim-gated endpoint.
@@ -533,6 +612,7 @@ export function createApiApp(): express.Express {
       res.json({ success: true });
     } catch (error: any) {
       console.error("Admin change-user-password error:", error);
+      await logServerError("POST /api/admin/change-user-password", error, (req as any).uid);
       res.status(500).json({
         error: "Falha ao alterar a senha do usuário.",
         details: error instanceof Error ? error.message : String(error),
@@ -622,6 +702,7 @@ Instruções:
       res.json(parsedResult);
     } catch (error: any) {
       console.error("Gemini Extraction Error:", error);
+      await logServerError("POST /api/gemini/extract", error, (req as any).uid);
       res.status(500).json({
         error: "Falha ao processar receita com inteligência artificial.",
         details: error instanceof Error ? error.message : String(error)
@@ -702,6 +783,7 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
       res.json(parsedResult);
     } catch (error: any) {
       console.error("Gemini Receipt Extraction Error:", error);
+      await logServerError("POST /api/gemini/extract-receipt", error, (req as any).uid);
       res.status(500).json({
         error: "Falha ao processar nota fiscal com inteligência artificial.",
         details: error instanceof Error ? error.message : String(error)
@@ -756,6 +838,7 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
       res.json({ success: true });
     } catch (error: any) {
       console.error("Push subscribe error:", error);
+      await logServerError("POST /api/push/subscribe", error, (req as any).uid);
       res.status(500).json({ error: "Falha ao registrar a assinatura de push." });
     }
   });
@@ -774,6 +857,7 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
       res.json({ success: true });
     } catch (error: any) {
       console.error("Push unsubscribe error:", error);
+      await logServerError("POST /api/push/unsubscribe", error, (req as any).uid);
       res.status(500).json({ error: "Falha ao remover a assinatura de push." });
     }
   });
@@ -804,6 +888,7 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
       res.json({ success: true, sent });
     } catch (error: any) {
       console.error("Push dispatch error:", error);
+      await logServerError("POST /api/push/dispatch", error);
       res.status(500).json({ error: "Falha ao despachar lembretes." });
     }
   });
@@ -831,6 +916,7 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
       res.json({ success: true, sent });
     } catch (error: any) {
       console.error("Push dispatch error:", error);
+      await logServerError("GET /api/push/dispatch", error);
       res.status(500).json({ error: "Falha ao despachar lembretes." });
     }
   });
@@ -893,6 +979,7 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
       });
     } catch (error: any) {
       console.error("Subscription sync error:", error);
+      await logServerError("POST /api/subscription/sync", error, (req as any).uid);
       res.status(500).json({ error: "Falha ao sincronizar assinatura." });
     }
   });
@@ -935,6 +1022,7 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
       });
     } catch (error: any) {
       console.error("PIX create error:", error);
+      await logServerError("POST /api/subscription/pix", error, (req as any).uid);
       res.status(500).json({ error: "Falha ao gerar cobrança PIX.", details: error?.message });
     }
   });
@@ -983,6 +1071,7 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
       res.json({ initPoint: result.init_point, preferenceId: result.id });
     } catch (error: any) {
       console.error("Checkout create error:", error);
+      await logServerError("POST /api/subscription/checkout", error, (req as any).uid);
       res.status(500).json({ error: "Falha ao criar checkout de cartão.", details: error?.message });
     }
   });
@@ -1025,9 +1114,24 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
       res.status(200).json({ received: true });
     } catch (error: any) {
       console.error("Mercado Pago webhook error:", error);
+      await logServerError("POST /api/mercadopago/webhook", error);
       // 500 lets MP retry a genuinely failed processing attempt.
       res.status(500).json({ error: "Falha ao processar webhook." });
     }
+  });
+
+  // Safety net for anything a route's own try/catch didn't handle (e.g. a
+  // synchronous throw, or middleware failing before a route body runs). Must
+  // stay LAST — Express only treats a 4-arg handler as an error middleware,
+  // and dispatch order matters.
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error("Unhandled Express error:", err);
+    logServerError(`${req.method} ${req.path}`, err, (req as any).uid).catch(() => {});
+    if (res.headersSent) {
+      next(err);
+      return;
+    }
+    res.status(500).json({ error: "Erro interno no servidor." });
   });
 
   return app;

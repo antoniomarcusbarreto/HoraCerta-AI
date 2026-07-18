@@ -8,28 +8,36 @@ import {
   onAuthStateChanged,
   User as FirebaseUser
 } from "firebase/auth";
-import { 
-  getFirestore, 
-  doc, 
-  setDoc, 
-  getDoc, 
-  getDocs, 
-  collection, 
-  updateDoc, 
-  deleteDoc, 
-  query, 
+import {
+  getFirestore,
+  doc,
+  setDoc,
+  getDoc,
+  getDocs,
+  collection,
+  updateDoc,
+  deleteDoc,
+  query,
   where,
-  serverTimestamp
+  orderBy,
+  limit,
+  startAfter,
+  serverTimestamp,
+  QueryDocumentSnapshot,
+  DocumentData
 } from "firebase/firestore";
-import { 
-  User, 
-  Medicado, 
-  Receita, 
-  Medicamento, 
-  DoseLog, 
-  Consulta, 
-  Farmacia, 
-  CupomFiscal 
+import {
+  User,
+  Medicado,
+  Receita,
+  Medicamento,
+  DoseLog,
+  Consulta,
+  Farmacia,
+  CupomFiscal,
+  ActionLog,
+  LoginLog,
+  ErrorLog
 } from "./types";
 
 // Firebase Applet Config
@@ -434,5 +442,62 @@ export const dbFirebase = {
   async deleteCupom(userId: string, cupomId: string): Promise<void> {
     const docRef = doc(db, "users", userId, "cupons", cupomId);
     await deleteDoc(docRef);
+  },
+
+  // --- Admin Audit Logs ---
+  // Escrito diretamente pelo client no momento da mutação (mesmo padrão
+  // fire-and-forget do resto deste arquivo) — é o único ponto que sabe com
+  // certeza quem é o ator (activeUser/activeAdminUser) e em que página a
+  // ação ocorreu. Trilha imutável: firestore.rules bloqueia update/delete.
+  async logAction(entry: Omit<ActionLog, "logId" | "createdAt">): Promise<void> {
+    const logId = `log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const docRef = doc(db, "actionLogs", logId);
+    await setDoc(docRef, {
+      logId,
+      actorId: entry.actorId,
+      actorName: entry.actorName,
+      actorEmail: entry.actorEmail,
+      action: entry.action,
+      entityType: entry.entityType,
+      entityId: entry.entityId,
+      entityLabel: entry.entityLabel,
+      page: entry.page,
+      createdAt: serverTimestamp()
+    });
+  },
+
+  async getActionLogs(
+    pageSize: number = 50,
+    cursor: QueryDocumentSnapshot<DocumentData> | null = null
+  ): Promise<{ logs: ActionLog[]; lastDoc: QueryDocumentSnapshot<DocumentData> | null }> {
+    const base = query(collection(db, "actionLogs"), orderBy("createdAt", "desc"), limit(pageSize));
+    const q = cursor ? query(base, startAfter(cursor)) : base;
+    const snapshot = await getDocs(q);
+    const logs = snapshot.docs.map((d) => normalizeCreatedAt(d.data()) as ActionLog);
+    return { logs, lastDoc: snapshot.docs[snapshot.docs.length - 1] || null };
+  },
+
+  // loginLogs/errorLogs são escritos exclusivamente pelo servidor via Admin
+  // SDK (bypassa as regras) — aqui só é feita a leitura, liberada por isAdmin().
+  async getLoginLogs(
+    pageSize: number = 50,
+    cursor: QueryDocumentSnapshot<DocumentData> | null = null
+  ): Promise<{ logs: LoginLog[]; lastDoc: QueryDocumentSnapshot<DocumentData> | null }> {
+    const base = query(collection(db, "loginLogs"), orderBy("createdAt", "desc"), limit(pageSize));
+    const q = cursor ? query(base, startAfter(cursor)) : base;
+    const snapshot = await getDocs(q);
+    const logs = snapshot.docs.map((d) => normalizeCreatedAt(d.data()) as LoginLog);
+    return { logs, lastDoc: snapshot.docs[snapshot.docs.length - 1] || null };
+  },
+
+  async getErrorLogs(
+    pageSize: number = 50,
+    cursor: QueryDocumentSnapshot<DocumentData> | null = null
+  ): Promise<{ logs: ErrorLog[]; lastDoc: QueryDocumentSnapshot<DocumentData> | null }> {
+    const base = query(collection(db, "errorLogs"), orderBy("createdAt", "desc"), limit(pageSize));
+    const q = cursor ? query(base, startAfter(cursor)) : base;
+    const snapshot = await getDocs(q);
+    const logs = snapshot.docs.map((d) => normalizeCreatedAt(d.data()) as ErrorLog);
+    return { logs, lastDoc: snapshot.docs[snapshot.docs.length - 1] || null };
   }
 };
