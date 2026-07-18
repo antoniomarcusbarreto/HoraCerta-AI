@@ -29,9 +29,11 @@ dotenv.config({ path: ".env.local" });
 dotenv.config();
 
 // Gemini model id + accepted image types, centralized so both scanner
-// endpoints agree. `gemini-3.5-flash` (previously hardcoded) is not a published
-// model id; default to a real current one and allow an override via env so ops
-// can bump it without a code change if Google's catalog shifts.
+// endpoints agree. Overridable via GEMINI_MODEL so ops can bump the model
+// without a code change. (`gemini-3.5-flash` — the value originally hardcoded
+// here — was not a published id at the time; it since became available and was
+// verified to honor the responseSchema below. Prefer a pinned id over
+// `gemini-flash-latest`, which shifts under you without a deploy.)
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 const ALLOWED_IMAGE_MIME = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
 
@@ -564,12 +566,15 @@ export function createApiApp(): express.Express {
   // reliable way to tell WHICH deployment is actually answering, since a stale
   // function can keep serving after a new deploy reports "Ready".
   app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", build: "jose-cjs-2", time: new Date().toISOString() });
+    res.json({ status: "ok", build: "model-echo-3", time: new Date().toISOString() });
   });
 
-  // AI Key Status Check
+  // AI Key Status Check. `model` is echoed back (not a secret) so an operator
+  // can confirm from outside WHICH model a deployment resolved — GEMINI_MODEL
+  // is an env override, and otherwise there is no way to tell without shell
+  // access. The client only reads `hasKey`.
   app.get("/api/gemini/status", (req, res) => {
-    res.json({ hasKey: !!process.env.GEMINI_API_KEY });
+    res.json({ hasKey: !!process.env.GEMINI_API_KEY, model: GEMINI_MODEL });
   });
 
   // ==========================================
