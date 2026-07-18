@@ -18,8 +18,8 @@ import webpush from "web-push";
 import { MercadoPagoConfig, Payment, Preference } from "mercadopago";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { PLANS, getAccessState, TRIAL_DAYS, type PlanId } from "../src/subscription";
-import { dueDoseMs } from "../src/utils/doseSchedule";
+import { PLANS, getAccessState, TRIAL_DAYS, type PlanId } from "../src/subscription.js";
+import { dueDoseMs } from "../src/utils/doseSchedule.js";
 
 // dotenv.config() alone only reads ".env" — this project's docs/README tell
 // users to put secrets in ".env.local" (Vite convention), so load that first.

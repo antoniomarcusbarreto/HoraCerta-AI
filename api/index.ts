@@ -8,7 +8,7 @@
 // No listen() here: Vercel invokes the exported handler per request. The
 // frontend (dist/) is served by Vercel's static CDN, not by this function.
 
-import { createApiApp } from "../server/app";
+import { createApiApp } from "../server/app.js";
 
 const app = createApiApp();
 
