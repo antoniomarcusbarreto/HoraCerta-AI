@@ -35,7 +35,7 @@ Vite is configured with two HTML entry points (`vite.config.ts`): root `index.ht
 
 ### Offline-first data layer
 
-- `src/dbLocalFallback.ts` (`dbLocal`) is the **source of truth for rendering**: every collection is read from/written to `localStorage` (keys prefixed `horacerta_`) synchronously, seeded with `SEED_*` fixtures (demo users `user_antonio`/`user_maria`/`user_joao`) the first time a key is missing.
+- `src/dbLocalFallback.ts` (`dbLocal`) is the **source of truth for rendering**: every collection is read from/written to `localStorage` (keys prefixed `horacerta_`) synchronously. The `SEED_*` fixtures (demo users `user_antonio`/`user_maria`/`user_joao`) only seed **in development** — `SEEDS_ENABLED` is gated on `import.meta.env.DEV`, and production starts from an empty cache. A one-time `purgeSeedDataOnce()` also strips those fixtures from browsers that cached them before the gate existed. Do not remove the gate: the admin panel used to list the demo accounts as if they were real customers.
 - `src/firebase.ts` (`dbFirebase`) wraps Firestore CRUD. Every `dbLocal.add*`/`update*`/`delete*` method fire-and-forgets a matching `dbFirebase` call to push the change to Firestore (errors are only `console.warn`'d, never surfaced to the UI).
 - `dbLocal.syncFromFirebase(userId)` pulls the full Firestore tree for a user back down into `localStorage` — called on login (`AuthScreen.tsx`) and again from `App.tsx`'s effect when `activeUser` changes, so the UI renders instantly from cache then silently reconciles with the cloud.
 - Firestore layout: `users/{userId}/medicados/{medicadoId}/receitas|medicamentos/{id}/doseLogs/{id}`, plus flat `users/{userId}/consultas`, `farmacias`, `cupons`. Types for all entities live in `src/types.ts`.
@@ -47,9 +47,21 @@ Vite is configured with two HTML entry points (`vite.config.ts`): root `index.ht
 
 There's a fully separate admin portal (not just a role-gated tab) reachable at `/admin` or `#/admin`, with its own login state (`activeAdminUser`) independent of the main `activeUser` session, rendered as an early return in `App.tsx`.
 
-The `isAdmin()` check in `firestore.rules` and the Admin Portal login gate are driven by a Firebase Auth custom claim (`admin: true`), not a Firestore field. There is no client-side way to grant it — `server/setAdminClaim.js` is a standalone Admin SDK script an operator runs manually (`GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node server/setAdminClaim.js user@example.com [--revoke]`) to set or revoke it.
+The `isAdmin()` check in `firestore.rules` and the Admin Portal login gate are driven by a Firebase Auth custom claim (`admin: true`), not a Firestore field. There is no client-side way to grant it — `server/setAdminClaim.js` is a standalone Admin SDK script an operator runs manually (`GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node server/setAdminClaim.js user@example.com [--revoke]`) to set or revoke it. The header syntax is Bash; in PowerShell use `$env:GOOGLE_APPLICATION_CREDENTIALS = "./service-account.json"; node server/setAdminClaim.js ...`. A claim change only takes effect on the user's next login (it travels inside the ID token).
+
+The `role` field on the user document is **display metadata only** — it grants nothing. The admin panel therefore renders it read-only; there is deliberately no "promote" button, since a UI that flips `role` would look like it granted admin and would not.
+
+### Admin panel scope
+
+`AdminPanel.tsx` lists the **real** users from Firestore (`dbFirebase.getAllUsers()`, admin-only per the rules), loaded by an effect in `App.tsx` keyed on `activeAdminUser`. After any admin mutation, re-read via `refreshUsersFromFirestore()` — never `setUsers(dbLocal.getUsers())`, which would swap the directory for this browser's local cache (that bug made deleting one user appear to wipe the whole list).
+
+Three capabilities were removed on purpose and should not be reintroduced: **session simulation** ("enter as" another user — reads third-party health data without consent, LGPD), **admin-side user creation** (accounts come from self-registration; the old flow wrote a local-only record with no Auth account), and the **promote/demote** button (see `role` above).
+
+User deletion is a **hard delete** through `DELETE /api/admin/users/:uid` (Admin SDK): `recursiveDelete` on the user's whole Firestore tree plus `auth.deleteUser()`. A client-side profile delete is not enough — the Auth login would survive and every subcollection would be orphaned but stored. The endpoint refuses to delete the caller's own account or any other admin. For day-to-day moderation, prefer suspending (`status: "suspended"`).
 
 ### Firestore security rules
+
+**Committing `firestore.rules` does not publish it.** Rules have their own lifecycle: run `npm run deploy:rules` after changing them, or the deployed ruleset stays behind and reads fail with permission errors that look like a user/claim problem. (This exact gap left the audit-log collections unreadable for weeks.)
 
 `firestore.rules` is default-deny (`match /{document=**} { allow read, write: if false; }` at the top) with per-entity `isValid*(data, ...)` functions enforcing: exact key-set allowlists (blocks "ghost field" injection), `userId`/path ownership matching `request.auth.uid`, immutable identity fields, `createdAt == request.time`, string size caps, and an `isAdmin()` check driven by the `admin: true` custom claim (plus verified email). `security_spec.md` documents the "Dirty Dozen" adversarial payloads the rules are designed to reject — read it before modifying `firestore.rules` to understand what must keep failing.
 
