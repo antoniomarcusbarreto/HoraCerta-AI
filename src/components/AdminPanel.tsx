@@ -28,34 +28,21 @@ interface AdminPanelProps {
   users: User[];
   onUpdateUser: (user: User) => Promise<boolean>;
   onDeleteUser: (userId: string) => Promise<boolean>;
-  onAddUser: (user: Omit<User, "createdAt">) => void;
   onNotify: (message: string) => void;
   activeTab?: string;
   setActiveTab?: (tab: string) => void;
-  activeUserId?: string;
-  onSimulateUser?: (user: User) => void;
 }
 
 export default function AdminPanel({
   users,
   onUpdateUser,
   onDeleteUser,
-  onAddUser,
   onNotify,
   activeTab,
   setActiveTab,
-  activeUserId,
-  onSimulateUser,
 }: AdminPanelProps) {
-  const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
-
-  // Add User states
-  const [userName, setUserName] = useState("");
-  const [userEmail, setUserEmail] = useState("");
-  const [userRole, setUserRole] = useState<"user" | "admin">("user");
-  const [userStatus, setUserStatus] = useState<"active" | "suspended">("active");
 
   // Change Password states (real Firebase Auth password, via server/admin endpoint)
   const [editingPasswordUser, setEditingPasswordUser] = useState<User | null>(null);
@@ -205,28 +192,6 @@ export default function AdminPanel({
     }
   };
 
-  const handleAddUserSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!userName.trim() || !userEmail.trim()) return;
-
-    onAddUser({
-      userId: `user_${Date.now()}`,
-      name: userName,
-      email: userEmail,
-      role: userRole,
-      status: userStatus,
-      freeTrialUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days of trial by default
-      subscriptionStatus: "inactive",
-      subscriptionPlan: "none",
-    });
-
-    setUserName("");
-    setUserEmail("");
-    setUserRole("user");
-    setUserStatus("active");
-    setShowAddUserModal(false);
-  };
-
   // Filtered users for search query
   const filteredUsers = users.filter(u => 
     u.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -292,80 +257,11 @@ export default function AdminPanel({
         </div>
       </div>
 
-      {/* Simulador de Perfis (Controle RBAC) */}
-      {onSimulateUser && (
-        <div className="bg-white border border-brand-cream-darker rounded-3xl p-5 shadow-xs space-y-4 animate-fade-in">
-          <div className="flex items-center gap-2 border-b border-brand-cream-darker pb-2">
-            <div className="p-1.5 bg-brand-peach text-brand-coral rounded-lg shrink-0">
-              <Shield className="w-4 h-4" />
-            </div>
-            <div>
-              <h4 className="text-xs font-bold text-brand-teal uppercase tracking-wider">
-                Simulador de Perfis (Controle RBAC)
-              </h4>
-              <p className="text-[10px] text-gray-400 font-sans mt-0.5">
-                Alterne entre contas para testar permissões e simular sessões de usuários no app
-              </p>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            {users.map((u) => {
-              const isCurrent = activeUserId === u.userId;
-              const isSuspended = u.status === "suspended";
-              return (
-                <div
-                  key={u.userId}
-                  className={`flex items-center justify-between p-3 rounded-2xl border transition-all ${
-                    isCurrent
-                      ? "bg-brand-cream/60 border-brand-coral/40"
-                      : "bg-gray-50/50 border-gray-100 hover:bg-gray-50"
-                  }`}
-                >
-                  <div className="min-w-0 flex-1 pr-2">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-xs font-bold text-brand-teal truncate">{u.name}</span>
-                      <span
-                        className={`text-[8px] font-extrabold px-1.5 py-0.5 rounded-sm uppercase tracking-wide ${
-                          u.role === "admin"
-                            ? "bg-brand-coral/15 text-brand-coral"
-                            : "bg-gray-200/70 text-gray-500"
-                        }`}
-                      >
-                        {u.role}
-                      </span>
-                      {isSuspended && (
-                        <span className="text-[8px] font-extrabold bg-red-100 text-red-600 px-1.5 py-0.5 rounded-sm uppercase tracking-wide">
-                          Suspenso
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[9px] text-gray-400 font-mono mt-0.5 truncate">{u.email}</p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (isSuspended) {
-                        onNotify(`Sessão Negada: O usuário ${u.name} está bloqueado pelo administrador. Ative-o novamente no Painel Administrativo usando a conta do Antonio Marcus!`);
-                        return;
-                      }
-                      onSimulateUser(u);
-                    }}
-                    className={`px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase transition-all shrink-0 ${
-                      isCurrent
-                        ? "bg-brand-teal text-white cursor-default"
-                        : "bg-white border border-brand-cream-darker text-brand-teal hover:bg-brand-peach font-semibold"
-                    }`}
-                  >
-                    {isCurrent ? "Simulando" : "Simular"}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {/* O "Simulador de Perfis" foi REMOVIDO de propósito. Ele entrava na
+          sessão de qualquer usuário, o que com contas reais significa abrir
+          prontuário, medicamentos e receitas de terceiros sem consentimento —
+          inaceitável num app de saúde (LGPD). Não reintroduzir: para testar
+          permissões, use uma conta de teste própria em ambiente de dev. */}
 
       {/* Control Area */}
       <div className="space-y-4">
@@ -375,12 +271,10 @@ export default function AdminPanel({
             <h3 className="text-xs font-bold text-brand-teal uppercase tracking-wider flex items-center gap-1.5">
               Usuários Registrados ({filteredUsers.length})
             </h3>
-            <button
-              onClick={() => setShowAddUserModal(true)}
-              className="text-xs font-semibold bg-brand-teal text-brand-cream hover:bg-brand-teal-light px-3 py-1.5 rounded-xl flex items-center gap-1 transition-all shadow-xs"
-            >
-              <Plus className="w-3.5 h-3.5" /> Novo Usuário
-            </button>
+            {/* Sem botão "Novo Usuário": as contas nascem do cadastro do próprio
+                usuário no app (Firebase Auth). O botão antigo criava um registro
+                apenas local, sem conta de login, que sumia no próximo
+                carregamento assim que a lista passou a vir do Firestore. */}
           </div>
 
           <div className="relative">
@@ -442,24 +336,31 @@ export default function AdminPanel({
 
                     {/* Quick switch roles & delete actions */}
                     <div className="flex items-center space-x-1">
-                      {/* Change privilege role */}
-                      <button
-                        onClick={() => handleToggleRole(u)}
-                        className={`p-1 rounded-md border text-[9px] font-bold transition-all ${
-                          isAdmin 
-                            ? "bg-brand-coral-light/10 text-brand-coral border-brand-coral/10 hover:bg-brand-coral/15" 
-                            : "bg-gray-50 text-gray-500 border-gray-100 hover:bg-gray-100"
-                        }`}
-                        title={isAdmin ? "Rebaixar para Usuário" : "Promover a Admin"}
-                      >
-                        {isAdmin ? "Admin" : "Promover"}
-                      </button>
+                      {/* Role is READ-ONLY here. The old "Promover" button only
+                          flipped this Firestore field, which grants nothing —
+                          authorization comes exclusively from the `admin`
+                          custom claim (firestore.rules / Admin Portal login).
+                          Clicking it looked like it promoted someone and did
+                          not. Granting admin is a deliberate operator action:
+                          `node server/setAdminClaim.js <email>`. */}
+                      {isAdmin && (
+                        <span
+                          className="p-1 rounded-md border text-[9px] font-bold bg-brand-coral-light/10 text-brand-coral border-brand-coral/10"
+                          title="Papel definido pela custom claim do Firebase (server/setAdminClaim.js)"
+                        >
+                          Admin
+                        </span>
+                      )}
 
                       {/* Delete user */}
                       <button
                         onClick={() => {
-                          if (u.email === "antonio.marcus.barreto@gmail.com" && u.userId !== "user_antonio") {
-                            onNotify("Não é possível remover o administrador principal bootstrapped!");
+                          // Protege qualquer conta que seja admin, em vez de um
+                          // e-mail fixo no código (que ficou obsoleto assim que
+                          // o admin do app mudou). Remover o próprio cadastro
+                          // também é bloqueado em App.tsx.
+                          if (isAdmin) {
+                            onNotify("Não é possível remover uma conta de administrador pelo painel.");
                             return;
                           }
                           setConfirmDialog({
@@ -748,90 +649,6 @@ export default function AdminPanel({
         </div>
       )}
 
-      {/* MODAL: Registrar Novo Usuário */}
-      {showAddUserModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="bg-brand-cream rounded-3xl max-w-sm w-full p-6 shadow-xl border border-brand-cream-darker animate-scale-up">
-            <h3 className="text-base font-display font-bold text-brand-teal mb-4">
-              Registrar Novo Usuário
-            </h3>
-            <form onSubmit={handleAddUserSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
-                  Nome do Usuário
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ex: João da Silva"
-                  value={userName}
-                  onChange={(e) => setUserName(e.target.value)}
-                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
-                  Email
-                </label>
-                <input
-                  type="email"
-                  required
-                  placeholder="Ex: joao@email.com"
-                  value={userEmail}
-                  onChange={(e) => setUserEmail(e.target.value)}
-                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
-                    Privilégio (Role)
-                  </label>
-                  <select
-                    value={userRole}
-                    onChange={(e) => setUserRole(e.target.value as "user" | "admin")}
-                    className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden"
-                  >
-                    <option value="user">Usuário Comum</option>
-                    <option value="admin">Administrador</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
-                    Status Inicial
-                  </label>
-                  <select
-                    value={userStatus}
-                    onChange={(e) => setUserStatus(e.target.value as "active" | "suspended")}
-                    className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden"
-                  >
-                    <option value="active">Ativo / Liberado</option>
-                    <option value="suspended">Suspenso</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex space-x-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowAddUserModal(false)}
-                  className="flex-1 border border-brand-cream-darker text-gray-500 rounded-xl py-2 text-sm font-semibold hover:bg-gray-50 transition-all"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 bg-brand-teal text-brand-cream rounded-xl py-2 text-sm font-semibold hover:bg-brand-teal-light transition-all shadow-sm"
-                >
-                  Cadastrar
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       <ConfirmDialog
         open={!!confirmDialog}

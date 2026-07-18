@@ -780,19 +780,10 @@ export default function App() {
     return true;
   };
 
-  // Note: unlike update/delete above, admin-created users have no real
-  // Firebase Auth account behind them (that requires the Admin SDK on a
-  // trusted backend, which is out of scope here) — this stays a local-only
-  // demo record, intentionally not wired through the same await/rollback path.
-  const handleAddUser = (userData: Omit<User, "createdAt">) => {
-    const newUser: User = {
-      ...userData,
-      createdAt: new Date().toISOString(),
-    };
-    dbLocal.updateUser(newUser);
-    setUsers(dbLocal.getUsers());
-    showToast(`Usuário ${newUser.name} registrado pelo administrador.`);
-  };
+  // Não existe criação de usuário pelo admin: as contas nascem do cadastro da
+  // própria pessoa (Firebase Auth) na AuthScreen. O handler antigo gravava só
+  // no cache local, sem conta de login — um registro fantasma que sumia assim
+  // que o diretório passou a vir do Firestore.
 
   // ==========================================
   // AI prescription scanner registration callback
@@ -959,18 +950,10 @@ export default function App() {
     showToast("Sessão do portal de controle encerrada.");
   };
 
-  const handleSimulateUser = (simUser: User) => {
-    setActiveUser(simUser);
-    localStorage.setItem("horacerta_active_user_id", simUser.userId);
-    showToast(`Sessão simulada com sucesso como: ${simUser.name}`);
-    
-    // Redirect back to user app
-    setIsAdminRoute(false);
-    window.location.hash = "";
-    if (window.location.pathname.startsWith("/app/admin")) {
-      window.history.pushState({}, "", "/app");
-    }
-  };
+  // A simulação de sessão ("entrar como" outro usuário) foi REMOVIDA: com
+  // contas reais ela dá ao operador acesso a prontuário, medicamentos e
+  // receitas de terceiros sem consentimento — inaceitável num app de saúde
+  // (LGPD). Para testar permissões, use uma conta de teste em desenvolvimento.
 
   // Check if session has admin role privileges
   const isAdminSession = activeUser?.role === "admin";
@@ -1151,10 +1134,7 @@ export default function App() {
                 users={users}
                 onUpdateUser={handleUpdateUser}
                 onDeleteUser={handleDeleteUser}
-                onAddUser={handleAddUser}
                 onNotify={showToast}
-                activeUserId={activeUser?.userId}
-                onSimulateUser={handleSimulateUser}
               />
             ) : (
               <AdminLogs />
