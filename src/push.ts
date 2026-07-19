@@ -18,6 +18,14 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return output;
 }
 
+// iPadOS 13+ reports as "MacIntel" in the user agent, so touch support is the
+// only remaining signal that distinguishes it from a real Mac.
+export function isIOSDevice(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  return /iPhone|iPad|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
 function pushSupported(): boolean {
   return (
     typeof navigator !== "undefined" &&
@@ -36,12 +44,25 @@ type GetIdToken = () => Promise<string | undefined>;
 // the server (no VAPID key). Returns true only when a subscription was registered.
 export async function subscribeToPush(getIdToken: GetIdToken): Promise<boolean> {
   try {
-    if (!pushSupported() || Notification.permission !== "granted") return false;
+    if (!pushSupported()) {
+      console.warn("Push indisponível: navegador sem suporte a Service Worker/PushManager/Notification (ex.: iOS Safari fora do modo instalado).");
+      return false;
+    }
+    if (Notification.permission !== "granted") {
+      console.warn("Push não registrado: permissão de notificação ainda não concedida.");
+      return false;
+    }
 
     const keyRes = await fetch("/api/push/vapid-public-key");
-    if (!keyRes.ok) return false;
+    if (!keyRes.ok) {
+      console.warn("Push não registrado: falha ao buscar a chave VAPID pública (status " + keyRes.status + ").");
+      return false;
+    }
     const { key } = await keyRes.json();
-    if (!key) return false; // server has push disabled
+    if (!key) {
+      console.warn("Push não registrado: servidor está com o Web Push desativado (sem chave VAPID configurada).");
+      return false;
+    }
 
     const reg = await navigator.serviceWorker.ready;
 
@@ -54,7 +75,10 @@ export async function subscribeToPush(getIdToken: GetIdToken): Promise<boolean> 
     }
 
     const idToken = await getIdToken();
-    if (!idToken) return false;
+    if (!idToken) {
+      console.warn("Push não registrado: usuário sem sessão Firebase válida no momento da inscrição.");
+      return false;
+    }
 
     const res = await fetch("/api/push/subscribe", {
       method: "POST",
@@ -64,6 +88,9 @@ export async function subscribeToPush(getIdToken: GetIdToken): Promise<boolean> 
       },
       body: JSON.stringify({ subscription: subscription.toJSON() }),
     });
+    if (!res.ok) {
+      console.warn("Push não registrado: o servidor rejeitou a inscrição (status " + res.status + ").");
+    }
     return res.ok;
   } catch (err) {
     console.warn("Falha ao registrar push:", err);

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { dbLocal } from "./dbLocalFallback";
 import { auth, dbFirebase, isDeadSessionError } from "./firebase";
-import { subscribeToPush, unsubscribeFromPush } from "./push";
+import { subscribeToPush, unsubscribeFromPush, isIOSDevice } from "./push";
 import { isScanAllowed, getAccessState, daysRemaining } from "./subscription";
 import { dueDoseMs } from "./utils/doseSchedule";
 import { processImageFile } from "./imageUtils";
@@ -19,7 +19,7 @@ import AuthScreen from "./components/AuthScreen";
 import PrivacyPolicy from "./components/PrivacyPolicy";
 import SubscriptionScreen from "./components/SubscriptionScreen";
 import { useIsDesktop } from "./hooks/useIsDesktop";
-import { Shield, Sparkles, Heart, HelpCircle, LogOut, ShieldAlert, CheckCircle2, User as UserIcon, Camera, Key, Upload, Eye, EyeOff, Save, Smartphone, Bell, Download, Gift, CreditCard, Lock, Mail, ArrowRight } from "lucide-react";
+import { Shield, Sparkles, Heart, HelpCircle, LogOut, ShieldAlert, CheckCircle2, User as UserIcon, Camera, Key, Upload, Eye, EyeOff, Save, Smartphone, Bell, Download, Gift, CreditCard, Lock, Mail, ArrowRight, AlertCircle } from "lucide-react";
 
 // Set by the CTAs on the static landing page (root index.html) right before
 // navigating to /app, so a desktop user who explicitly chose to enter the
@@ -65,6 +65,11 @@ export default function App() {
 
   // 4. PWA & Background Notification States
   const [notificationPermission, setNotificationPermission] = useState<string>("default");
+  // Tracks whether THIS browser actually has a server-side push subscription —
+  // distinct from notificationPermission, which is just the OS-level prompt
+  // answer. On iOS Safari outside standalone/installed mode, permission can be
+  // granted while PushManager doesn't exist at all, so "Ativo" would lie.
+  const [pushRegistered, setPushRegistered] = useState(false);
   const [isPWAInstalled, setIsPWAInstalled] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
@@ -366,7 +371,7 @@ export default function App() {
   // the subscription is stored under the authenticated uid from the ID token.
   useEffect(() => {
     if (!activeUser || notificationPermission !== "granted") return;
-    subscribeToPush(() => auth.currentUser?.getIdToken() ?? Promise.resolve(undefined));
+    subscribeToPush(() => auth.currentUser?.getIdToken() ?? Promise.resolve(undefined)).then(setPushRegistered);
   }, [activeUser, notificationPermission]);
 
   // Listen for navigation / hash changes to toggle separate Admin Page mode
@@ -469,7 +474,24 @@ export default function App() {
       if (permission === "granted") {
         showToast("Excelente! Notificações de Alerta ativadas!");
         // Register for server push right away so reminders arrive with the app closed.
-        subscribeToPush(() => auth.currentUser?.getIdToken() ?? Promise.resolve(undefined));
+        // Awaited (unlike the background sync effect) specifically so a failure here
+        // is visible — this is the one moment the user is actively watching for
+        // confirmation, and a silent failure here is exactly what left production
+        // with zero push subscriptions despite the feature "working".
+        subscribeToPush(() => auth.currentUser?.getIdToken() ?? Promise.resolve(undefined)).then((ok) => {
+          setPushRegistered(ok);
+          if (!ok) {
+            // iOS grants the OS permission dialog even outside standalone mode, but
+            // PushManager simply doesn't exist there — so this is the single most
+            // likely reason "ativado" doesn't actually deliver anything, and the
+            // generic message below would leave the user just as stuck as before.
+            if (isIOSDevice() && !isPWAInstalled) {
+              showToast("No iPhone, os lembretes com o app fechado só funcionam depois de instalado: toque em 'Instalar no Celular' acima (Compartilhar > Adicionar à Tela de Início), abra o app por esse ícone e tente de novo.");
+            } else {
+              showToast("Alertas no navegador ativados, mas não consegui habilitar o lembrete com o app fechado. Tente novamente em instantes.");
+            }
+          }
+        });
         if ("serviceWorker" in navigator) {
           navigator.serviceWorker.ready.then((reg) => {
             reg.showNotification("HoraCerta AI - Alertas Ativados", {
@@ -1006,6 +1028,7 @@ export default function App() {
     // null out auth.currentUser and make the unsubscribe silently no-op,
     // orphaning this device's subscription on the server.
     await unsubscribeFromPush(() => auth.currentUser?.getIdToken() ?? Promise.resolve(undefined));
+    setPushRegistered(false);
     // End the real Firebase Auth session too — otherwise auth.currentUser stays
     // signed in after "logout", so a next user on the same device could still
     // mint ID tokens for the previous account.
@@ -1727,10 +1750,37 @@ export default function App() {
                     <Bell className={`w-5 h-5 mb-1.5 transition-transform group-hover:scale-110 ${notificationPermission === "granted" ? "text-brand-teal/60" : "text-brand-coral animate-pulse"}`} />
                     <span className="text-[10px] font-bold uppercase tracking-wider">Permitir Alertas</span>
                     <span className="text-[9px] text-gray-400 font-sans mt-0.5 capitalize">
-                      Status: {notificationPermission === "granted" ? "Ativo" : notificationPermission === "denied" ? "Bloqueado" : "Ativar"}
+                      Status: {
+                        notificationPermission !== "granted"
+                          ? (notificationPermission === "denied" ? "Bloqueado" : "Ativar")
+                          // Permission granted is only half the story — without a real
+                          // push subscription the reminder won't survive the app closing.
+                          : (pushRegistered ? "Ativo" : "Só com app aberto")
+                      }
                     </span>
                   </button>
                 </div>
+
+                {/* Proactive iOS guidance — shown BEFORE the user hits the confusing
+                    "permission granted, still doesn't work" state, since the OS
+                    permission dialog appears normally even outside standalone mode. */}
+                {isIOSDevice() && !isPWAInstalled && (
+                  <div className="bg-amber-50 border border-amber-200/60 rounded-2xl p-3 flex items-start gap-2 animate-fade-in">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <p className="text-[10px] text-amber-900 font-sans leading-relaxed">
+                      <strong className="font-bold">No iPhone, instale o app primeiro:</strong> toque em "Instalar no Celular" acima (Compartilhar {"→"} Adicionar à Tela de Início) e abra pelo ícone criado — só assim os lembretes chegam com a tela bloqueada.
+                    </p>
+                  </div>
+                )}
+
+                {notificationPermission === "granted" && !pushRegistered && !(isIOSDevice() && !isPWAInstalled) && (
+                  <div className="bg-amber-50 border border-amber-200/60 rounded-2xl p-3 flex items-start gap-2 animate-fade-in">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <p className="text-[10px] text-amber-900 font-sans leading-relaxed">
+                      Alertas permitidos neste navegador, mas os lembretes só chegam com o app aberto — a inscrição para funcionar com o app fechado ainda não foi concluída. Toque em "Permitir Alertas" novamente.
+                    </p>
+                  </div>
+                )}
 
                 {notificationPermission === "granted" && (
                   <div className="bg-brand-peach/50 border border-brand-coral/10 rounded-2xl p-3 flex items-center justify-between gap-3 animate-fade-in">

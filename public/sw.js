@@ -1,4 +1,4 @@
-const CACHE_NAME = "horacerta-cache-v3";
+const CACHE_NAME = "horacerta-cache-v4";
 const ASSETS = [
   "/app",
   "/app/index.html",

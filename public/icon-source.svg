@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <clipPath id="pillClip">
+      <rect x="-90" y="-37" width="180" height="74" rx="37" ry="37" />
+    </clipPath>
+  </defs>
+
+  <!-- background -->
+  <rect x="0" y="0" width="512" height="512" rx="112" ry="112" fill="#0D3E46" />
+
+  <!-- clock face -->
+  <circle cx="256" cy="228" r="148" fill="#FDFBF7" stroke="#F3BC8B" stroke-width="10" />
+
+  <!-- hour ticks -->
+  <rect x="248" y="92" width="16" height="30" rx="8" fill="#0D3E46" />
+  <rect x="248" y="334" width="16" height="30" rx="8" fill="#0D3E46" />
+  <rect x="92" y="220" width="30" height="16" rx="8" fill="#0D3E46" />
+  <rect x="390" y="220" width="30" height="16" rx="8" fill="#0D3E46" />
+
+  <!-- hands (10:10) -->
+  <line x1="256" y1="228" x2="256" y2="146" stroke="#0D3E46" stroke-width="16" stroke-linecap="round" />
+  <line x1="256" y1="228" x2="332" y2="170" stroke="#EAA15F" stroke-width="14" stroke-linecap="round" />
+  <circle cx="256" cy="228" r="12" fill="#EAA15F" />
+
+  <!-- pill badge -->
+  <g transform="translate(256 392) rotate(-24)">
+    <g clip-path="url(#pillClip)">
+      <rect x="-90" y="-37" width="90" height="74" fill="#EAA15F" />
+      <rect x="0" y="-37" width="90" height="74" fill="#FDFBF7" />
+    </g>
+    <rect x="-90" y="-37" width="180" height="74" rx="37" ry="37" fill="none" stroke="#0D3E46" stroke-width="8" />
+    <line x1="0" y1="-37" x2="0" y2="37" stroke="#0D3E46" stroke-width="6" />
+  </g>
+</svg>

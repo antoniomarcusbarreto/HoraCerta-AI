@@ -72,9 +72,19 @@ export default function Dashboard({
   const startCamera = async () => {
     try {
       setCameraActive(true);
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: "user" } 
-      });
+      // Câmera traseira por padrão: esta foto é do paciente (que pode não ser
+      // quem está segurando o celular), não uma selfie de quem está cadastrando.
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { exact: "environment" } }
+        });
+      } catch {
+        // Dispositivo sem câmera traseira (ex.: notebook/desktop) — usa a que houver.
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" }
+        });
+      }
       setCameraStream(stream);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
