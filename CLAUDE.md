@@ -51,6 +51,8 @@ The `isAdmin()` check in `firestore.rules` and the Admin Portal login gate are d
 
 The `role` field on the user document is **display metadata only** — it grants nothing. The admin panel therefore renders it read-only; there is deliberately no "promote" button, since a UI that flips `role` would look like it granted admin and would not.
 
+**Password recovery deliberately does not use Firebase's `sendPasswordResetEmail`/`sendEmailVerification`.** Instead: `AuthScreen.tsx`'s "Esqueci minha senha" link collects name + registered email and posts to `POST /api/auth/request-password-reset` (public, rate-limited via `passwordResetRequestRateLimiter` in `server/app.ts`). That endpoint always returns the same generic message to the client (avoids account enumeration); if the email matches a real Firebase Auth user, it emails the single admin (`ADMIN_NOTIFICATION_EMAIL` constant) via the Resend HTTP API (`sendResendEmail` helper — needs `RESEND_API_KEY`, see `.env.example`). The admin then reuses the **already-existing** `POST /api/admin/change-user-password` flow (`AdminPanel.tsx`'s password modal) to set a temporary password and relays it to the user out-of-band (WhatsApp/phone/personal email) — there is no automated channel back to the user, by design.
+
 ### Admin panel scope
 
 `AdminPanel.tsx` lists the **real** users from Firestore (`dbFirebase.getAllUsers()`, admin-only per the rules), loaded by an effect in `App.tsx` keyed on `activeAdminUser`. After any admin mutation, re-read via `refreshUsersFromFirestore()` — never `setUsers(dbLocal.getUsers())`, which would swap the directory for this browser's local cache (that bug made deleting one user appear to wipe the whole list).

@@ -33,6 +33,15 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  // "Esqueci minha senha": o projeto não usa sendPasswordResetEmail do
+  // Firebase (ver CLAUDE.md) — em vez disso, esta solicitação notifica o
+  // único administrador por e-mail, que redefine a senha manualmente pelo
+  // Admin Portal e repassa ao usuário por fora do app.
+  const [forgotPasswordMode, setForgotPasswordMode] = useState(false);
+  const [resetName, setResetName] = useState("");
+  const [resetEmail, setResetEmail] = useState("");
+  const [isSubmittingReset, setIsSubmittingReset] = useState(false);
+
   // Password Complexity Validation Helpers
   const isMinLength = password.length >= 6;
   const hasLetter = /[a-zA-Z]/.test(password);
@@ -158,6 +167,42 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
     }
   };
 
+  const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccess(null);
+
+    const trimmedName = resetName.trim();
+    const trimmedResetEmail = resetEmail.trim().toLowerCase();
+
+    if (!trimmedName || !trimmedResetEmail) {
+      setError("Por favor, informe seu nome e o e-mail cadastrado.");
+      return;
+    }
+
+    setIsSubmittingReset(true);
+    try {
+      const response = await fetch("/api/auth/request-password-reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmedName, email: trimmedResetEmail }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || "Não foi possível enviar a solicitação.");
+      }
+
+      setSuccess(data.message || "Se os dados conferirem com uma conta cadastrada, entraremos em contato em breve.");
+      setResetName("");
+      setResetEmail("");
+    } catch (err: any) {
+      setError(err.message || "Não foi possível enviar a solicitação. Tente novamente.");
+    } finally {
+      setIsSubmittingReset(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-brand-cream text-brand-teal flex flex-col justify-center items-center px-4 py-8 select-none font-sans">
       <div className="w-full max-w-md lg:max-w-lg bg-white border border-brand-cream-darker rounded-[2.5rem] p-8 lg:p-10 shadow-xl relative overflow-hidden">
@@ -179,38 +224,40 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
         </div>
 
         {/* Tab Buttons (Entrar vs Criar Conta) */}
-        <div className="flex bg-brand-cream p-1.5 rounded-2xl mb-6 relative z-10 border border-brand-cream-darker">
-          <button
-            type="button"
-            onClick={() => {
-              setIsLogin(true);
-              setError(null);
-              setSuccess(null);
-            }}
-            className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${
-              isLogin 
-                ? "bg-brand-teal text-brand-cream shadow-md" 
-                : "text-brand-teal/70 hover:text-brand-teal"
-            }`}
-          >
-            Entrar
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setIsLogin(false);
-              setError(null);
-              setSuccess(null);
-            }}
-            className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${
-              !isLogin 
-                ? "bg-brand-teal text-brand-cream shadow-md" 
-                : "text-brand-teal/70 hover:text-brand-teal"
-            }`}
-          >
-            Criar Conta
-          </button>
-        </div>
+        {!forgotPasswordMode && (
+          <div className="flex bg-brand-cream p-1.5 rounded-2xl mb-6 relative z-10 border border-brand-cream-darker">
+            <button
+              type="button"
+              onClick={() => {
+                setIsLogin(true);
+                setError(null);
+                setSuccess(null);
+              }}
+              className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                isLogin
+                  ? "bg-brand-teal text-brand-cream shadow-md"
+                  : "text-brand-teal/70 hover:text-brand-teal"
+              }`}
+            >
+              Entrar
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setIsLogin(false);
+                setError(null);
+                setSuccess(null);
+              }}
+              className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                !isLogin
+                  ? "bg-brand-teal text-brand-cream shadow-md"
+                  : "text-brand-teal/70 hover:text-brand-teal"
+              }`}
+            >
+              Criar Conta
+            </button>
+          </div>
+        )}
 
         {/* Notifications */}
         {error && (
@@ -228,6 +275,76 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
         )}
 
         {/* Form */}
+        {forgotPasswordMode ? (
+          <form onSubmit={handleForgotPasswordSubmit} className="space-y-4 relative z-10">
+            <p className="text-xs text-gray-500 font-sans leading-snug -mt-1 mb-2">
+              Informe seu nome e o e-mail cadastrado. Vamos verificar e entrar em contato para ajudar a redefinir sua senha.
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block ml-1">
+                Nome Completo
+              </label>
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-gray-400">
+                  <UserIcon className="w-4 h-4" />
+                </span>
+                <input
+                  type="text"
+                  required
+                  placeholder="Seu nome"
+                  value={resetName}
+                  onChange={(e) => setResetName(e.target.value)}
+                  className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl pl-10 pr-4 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline-none focus:border-brand-teal/50 transition-all font-medium"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block ml-1">
+                E-mail Cadastrado
+              </label>
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-gray-400">
+                  <Mail className="w-4 h-4" />
+                </span>
+                <input
+                  type="email"
+                  required
+                  placeholder="seu.email@exemplo.com"
+                  value={resetEmail}
+                  onChange={(e) => setResetEmail(e.target.value)}
+                  className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl pl-10 pr-4 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline-none focus:border-brand-teal/50 transition-all font-medium"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSubmittingReset}
+              className={`w-full font-display font-semibold text-xs py-3.5 rounded-xl text-brand-cream flex items-center justify-center gap-2 shadow-md transition-all active:scale-98 ${
+                isSubmittingReset
+                  ? "bg-gray-300 cursor-not-allowed shadow-none"
+                  : "bg-brand-coral hover:bg-brand-coral-light"
+              }`}
+            >
+              {isSubmittingReset ? "Enviando..." : "Solicitar Redefinição"}
+              <ArrowRight className="w-4 h-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setForgotPasswordMode(false);
+                setError(null);
+                setSuccess(null);
+              }}
+              className="w-full text-center text-xs font-bold text-brand-teal/60 hover:text-brand-teal transition-all"
+            >
+              Voltar para o login
+            </button>
+          </form>
+        ) : (
         <form onSubmit={handleAuthSubmit} className="space-y-4 relative z-10">
           {/* Campo Nome (Only on Register) */}
           {!isLogin && (
@@ -296,6 +413,20 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
+            {isLogin && (
+              <button
+                type="button"
+                onClick={() => {
+                  setForgotPasswordMode(true);
+                  setResetEmail(email);
+                  setError(null);
+                  setSuccess(null);
+                }}
+                className="text-[11px] font-bold text-brand-teal/60 hover:text-brand-teal transition-all ml-1"
+              >
+                Esqueci minha senha
+              </button>
+            )}
           </div>
 
           {/* Password Complexity checklist - displayed only on Sign Up (Register) */}
@@ -364,6 +495,7 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
             <ArrowRight className="w-4 h-4" />
           </button>
         </form>
+        )}
       </div>
       <div className="mt-6 text-center relative z-10">
         <a

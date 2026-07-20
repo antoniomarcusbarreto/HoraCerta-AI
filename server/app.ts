@@ -37,6 +37,14 @@ dotenv.config();
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 const ALLOWED_IMAGE_MIME = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
 
+// Single admin's inbox: destination for "esqueci minha senha" notifications.
+// There is only one admin account in this project (see CLAUDE.md), so this is
+// a constant rather than a configurable list.
+const ADMIN_NOTIFICATION_EMAIL = "antonio.marcus.barreto@gmail.com";
+// Resend's shared test sender — works without a verified domain but is more
+// likely to be flagged as spam. Swap for a verified domain address in prod.
+const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
+
 // Lazily initialize Gemini to prevent crashes on startup if key is missing
 let aiClient: GoogleGenAI | null = null;
 
@@ -368,6 +376,35 @@ async function logServerError(action: string, error: unknown, uid?: string | nul
   }
 }
 
+// Sends a plain notification email via Resend's HTTP API (no SDK needed — a
+// single fetch call, which plays nicer with serverless than holding an SMTP
+// connection open). Throws on failure; callers decide whether that's fatal.
+async function sendResendEmail(to: string, subject: string, text: string): Promise<void> {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    throw new Error("RESEND_API_KEY is not defined in the environment secrets.");
+  }
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: RESEND_FROM_EMAIL,
+      to: [to],
+      subject,
+      text,
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`Resend respondeu ${response.status}: ${body.slice(0, 500)}`);
+  }
+}
+
 // NOTE (serverless): express-rate-limit's default store is IN-MEMORY and does
 // not survive between serverless invocations, so on Vercel these limits are
 // effectively per-instance/best-effort. For a hard guarantee, back them with a
@@ -416,6 +453,17 @@ const logWriteRateLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: userOrIpKey,
   message: { error: "Limite de registros de log excedido. Tente novamente mais tarde." },
+});
+
+// Unauthenticated by nature (it's for people who can't log in), so this is
+// the only real defense against someone using it to spam the admin's inbox.
+const passwordResetRequestRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey,
+  message: { error: "Muitas solicitações de redefinição de senha. Tente novamente mais tarde." },
 });
 
 // ==========================================
@@ -695,6 +743,67 @@ export function createApiApp(): express.Express {
         error: "Falha ao excluir o usuário.",
         details: error instanceof Error ? error.message : String(error),
       });
+    }
+  });
+
+  // "Esqueci minha senha": the project deliberately does not use Firebase's
+  // sendPasswordResetEmail/sendEmailVerification (see CLAUDE.md). Instead this
+  // notifies the single admin by email so they can set a temporary password
+  // via the existing /api/admin/change-user-password flow and relay it to the
+  // user out-of-band. Always returns the same generic response regardless of
+  // whether the email matched an account, to avoid leaking which emails are
+  // registered.
+  app.post("/api/auth/request-password-reset", passwordResetRequestRateLimiter, async (req, res) => {
+    const GENERIC_RESPONSE = {
+      message: "Se os dados conferirem com uma conta cadastrada, entraremos em contato em breve.",
+    };
+
+    try {
+      const { name, email } = req.body || {};
+
+      if (!name || typeof name !== "string" || !name.trim()) {
+        res.status(400).json({ error: "Informe seu nome." });
+        return;
+      }
+      if (!email || typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        res.status(400).json({ error: "Informe um e-mail válido." });
+        return;
+      }
+
+      let matchedUser: { uid: string; displayName?: string } | null = null;
+      try {
+        const rec = await getAuth(getAdminApp()).getUserByEmail(email.trim());
+        matchedUser = { uid: rec.uid, displayName: rec.displayName };
+      } catch (err: any) {
+        if (err?.code !== "auth/user-not-found") throw err;
+      }
+
+      if (matchedUser) {
+        try {
+          await sendResendEmail(
+            ADMIN_NOTIFICATION_EMAIL,
+            "HoraCerta AI — solicitação de redefinição de senha",
+            [
+              `Nome informado: ${name.trim().slice(0, 200)}`,
+              `E-mail informado: ${email.trim().slice(0, 200)}`,
+              `Nome cadastrado no Firebase: ${matchedUser.displayName || "(sem nome)"}`,
+              `UID: ${matchedUser.uid}`,
+              `Data/hora: ${new Date().toISOString()}`,
+            ].join("\n"),
+          );
+        } catch (emailErr) {
+          console.error("Falha ao enviar e-mail de solicitação de reset:", emailErr);
+          await logServerError("POST /api/auth/request-password-reset (email)", emailErr);
+          // Fall through to the generic response — a delivery failure must not
+          // reveal to the caller whether the account exists.
+        }
+      }
+
+      res.json(GENERIC_RESPONSE);
+    } catch (error: any) {
+      console.error("Password reset request error:", error);
+      await logServerError("POST /api/auth/request-password-reset", error);
+      res.status(500).json({ error: "Falha ao processar a solicitação." });
     }
   });
 
