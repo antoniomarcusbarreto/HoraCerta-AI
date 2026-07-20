@@ -34,13 +34,40 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
   const [success, setSuccess] = useState<string | null>(null);
 
   // "Esqueci minha senha": o projeto não usa sendPasswordResetEmail do
-  // Firebase (ver CLAUDE.md) — em vez disso, esta solicitação notifica o
-  // único administrador por e-mail, que redefine a senha manualmente pelo
-  // Admin Portal e repassa ao usuário por fora do app.
+  // Firebase (ver CLAUDE.md). Em vez disso: se nome+e-mail baterem com o
+  // cadastro, um código de verificação é enviado para o PRÓPRIO e-mail
+  // cadastrado (prova de acesso à caixa de entrada — nome sozinho é
+  // adivinhável) e o usuário troca a senha ali mesmo. Se não baterem, o
+  // usuário pode optar por notificar o administrador para verificação manual.
   const [forgotPasswordMode, setForgotPasswordMode] = useState(false);
+  const [resetStage, setResetStage] = useState<"form" | "otp" | "unmatched" | "done">("form");
   const [resetName, setResetName] = useState("");
   const [resetEmail, setResetEmail] = useState("");
+  const [resetCode, setResetCode] = useState("");
+  const [resetNewPassword, setResetNewPassword] = useState("");
+  const [resetConfirmPassword, setResetConfirmPassword] = useState("");
   const [isSubmittingReset, setIsSubmittingReset] = useState(false);
+  const [isSubmittingConfirm, setIsSubmittingConfirm] = useState(false);
+  const [resetInfo, setResetInfo] = useState<string | null>(null);
+
+  const resetIsMinLength = resetNewPassword.length >= 6;
+  const resetHasLetter = /[a-zA-Z]/.test(resetNewPassword);
+  const resetHasNumber = /[0-9]/.test(resetNewPassword);
+  const resetIsPasswordValid = resetIsMinLength && resetHasLetter && resetHasNumber;
+  const resetPasswordsMatch = resetConfirmPassword.length > 0 && resetNewPassword === resetConfirmPassword;
+
+  const exitForgotPasswordMode = () => {
+    setForgotPasswordMode(false);
+    setResetStage("form");
+    setResetName("");
+    setResetEmail("");
+    setResetCode("");
+    setResetNewPassword("");
+    setResetConfirmPassword("");
+    setResetInfo(null);
+    setError(null);
+    setSuccess(null);
+  };
 
   // Password Complexity Validation Helpers
   const isMinLength = password.length >= 6;
@@ -167,10 +194,11 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
     }
   };
 
-  const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const submitPasswordResetRequest = async (e: React.FormEvent | null, forceSend: boolean) => {
+    e?.preventDefault();
     setError(null);
-    setSuccess(null);
+    setResetInfo(null);
+    if (!forceSend) setSuccess(null);
 
     const trimmedName = resetName.trim();
     const trimmedResetEmail = resetEmail.trim().toLowerCase();
@@ -185,7 +213,7 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
       const response = await fetch("/api/auth/request-password-reset", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: trimmedName, email: trimmedResetEmail }),
+        body: JSON.stringify({ name: trimmedName, email: trimmedResetEmail, forceSend }),
       });
 
       const data = await response.json().catch(() => ({}));
@@ -193,13 +221,74 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
         throw new Error(data.error || "Não foi possível enviar a solicitação.");
       }
 
-      setSuccess(data.message || "Se os dados conferirem com uma conta cadastrada, entraremos em contato em breve.");
-      setResetName("");
-      setResetEmail("");
+      if (data.matched) {
+        // Nome + e-mail confirmados: código de verificação a caminho do
+        // próprio e-mail cadastrado.
+        setResetEmail(trimmedResetEmail);
+        setResetStage("otp");
+        setSuccess(data.message);
+      } else if (forceSend) {
+        setResetStage("done");
+        setSuccess(data.message);
+      } else {
+        setResetStage("unmatched");
+        setResetInfo(data.message);
+      }
     } catch (err: any) {
       setError(err.message || "Não foi possível enviar a solicitação. Tente novamente.");
     } finally {
       setIsSubmittingReset(false);
+    }
+  };
+
+  const handleConfirmResetSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccess(null);
+
+    if (!/^\d{6}$/.test(resetCode)) {
+      setError("Informe o código de 6 dígitos enviado ao seu e-mail.");
+      return;
+    }
+    if (!resetIsPasswordValid) {
+      setError("A nova senha não atende aos requisitos de complexidade exigidos.");
+      return;
+    }
+    if (!resetPasswordsMatch) {
+      setError("As senhas informadas não conferem.");
+      return;
+    }
+
+    setIsSubmittingConfirm(true);
+    try {
+      const response = await fetch("/api/auth/confirm-password-reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: resetEmail.trim().toLowerCase(),
+          code: resetCode.trim(),
+          newPassword: resetNewPassword,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || "Não foi possível redefinir a senha.");
+      }
+
+      setResetStage("done");
+      setSuccess("Senha redefinida com sucesso! Você já pode entrar com a nova senha.");
+      setResetCode("");
+      setResetNewPassword("");
+      setResetConfirmPassword("");
+      setTimeout(() => {
+        exitForgotPasswordMode();
+        setIsLogin(true);
+      }, 2500);
+    } catch (err: any) {
+      setError(err.message || "Não foi possível redefinir a senha. Tente novamente.");
+    } finally {
+      setIsSubmittingConfirm(false);
     }
   };
 
@@ -274,76 +363,262 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
           </div>
         )}
 
+        {resetInfo && (
+          <div className="mb-4 bg-amber-50 border border-amber-100 text-amber-800 text-xs rounded-2xl p-3.5 flex items-start gap-2.5 animate-fade-in">
+            <AlertCircle className="w-4.5 h-4.5 shrink-0 text-amber-500 mt-0.5" />
+            <span className="font-sans leading-snug">{resetInfo}</span>
+          </div>
+        )}
+
         {/* Form */}
         {forgotPasswordMode ? (
-          <form onSubmit={handleForgotPasswordSubmit} className="space-y-4 relative z-10">
-            <p className="text-xs text-gray-500 font-sans leading-snug -mt-1 mb-2">
-              Informe seu nome e o e-mail cadastrado. Vamos verificar e entrar em contato para ajudar a redefinir sua senha.
-            </p>
+          resetStage === "otp" ? (
+            <form onSubmit={handleConfirmResetSubmit} className="space-y-4 relative z-10">
+              <p className="text-xs text-gray-500 font-sans leading-snug -mt-1 mb-2">
+                Código enviado para <span className="font-semibold text-brand-teal">{resetEmail}</span>. Informe-o
+                abaixo junto com sua nova senha.
+              </p>
 
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block ml-1">
-                Nome Completo
-              </label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-gray-400">
-                  <UserIcon className="w-4 h-4" />
-                </span>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block ml-1">
+                  Código de Verificação
+                </label>
                 <input
                   type="text"
+                  inputMode="numeric"
+                  maxLength={6}
                   required
-                  placeholder="Seu nome"
-                  value={resetName}
-                  onChange={(e) => setResetName(e.target.value)}
-                  className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl pl-10 pr-4 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline-none focus:border-brand-teal/50 transition-all font-medium"
+                  placeholder="000000"
+                  value={resetCode}
+                  onChange={(e) => setResetCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl px-4 py-3 text-sm tracking-[0.3em] text-center text-brand-teal placeholder-gray-400 font-sans focus:outline-none focus:border-brand-teal/50 transition-all font-semibold"
                 />
               </div>
-            </div>
 
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block ml-1">
-                E-mail Cadastrado
-              </label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-gray-400">
-                  <Mail className="w-4 h-4" />
-                </span>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block ml-1">
+                  Nova Senha
+                </label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-gray-400">
+                    <Lock className="w-4 h-4" />
+                  </span>
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    required
+                    placeholder="Crie uma senha forte"
+                    value={resetNewPassword}
+                    onChange={(e) => setResetNewPassword(e.target.value)}
+                    className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl pl-10 pr-10 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline-none focus:border-brand-teal/50 transition-all font-medium"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-gray-400 hover:text-brand-teal"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block ml-1">
+                  Confirmar Nova Senha
+                </label>
                 <input
-                  type="email"
+                  type={showPassword ? "text" : "password"}
                   required
-                  placeholder="seu.email@exemplo.com"
-                  value={resetEmail}
-                  onChange={(e) => setResetEmail(e.target.value)}
-                  className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl pl-10 pr-4 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline-none focus:border-brand-teal/50 transition-all font-medium"
+                  placeholder="Repita a nova senha"
+                  value={resetConfirmPassword}
+                  onChange={(e) => setResetConfirmPassword(e.target.value)}
+                  className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl px-4 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline-none focus:border-brand-teal/50 transition-all font-medium"
                 />
               </div>
+
+              {resetNewPassword.length > 0 && (
+                <div className="bg-brand-cream/65 border border-brand-cream-darker rounded-2xl p-3.5 space-y-2 text-[11px] animate-fade-in font-sans">
+                  <p className="font-semibold text-brand-teal/90 mb-1">Requisitos de Segurança da Senha:</p>
+                  <div className="flex items-center gap-2">
+                    {resetIsMinLength ? (
+                      <span className="w-4 h-4 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center shrink-0">
+                        <Check className="w-3 h-3" />
+                      </span>
+                    ) : (
+                      <span className="w-4 h-4 bg-red-100 text-red-600 rounded-full flex items-center justify-center shrink-0">
+                        <X className="w-3 h-3" />
+                      </span>
+                    )}
+                    <span className={resetIsMinLength ? "text-emerald-800" : "text-gray-500"}>Mínimo de 6 caracteres</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {resetHasLetter ? (
+                      <span className="w-4 h-4 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center shrink-0">
+                        <Check className="w-3 h-3" />
+                      </span>
+                    ) : (
+                      <span className="w-4 h-4 bg-red-100 text-red-600 rounded-full flex items-center justify-center shrink-0">
+                        <X className="w-3 h-3" />
+                      </span>
+                    )}
+                    <span className={resetHasLetter ? "text-emerald-800" : "text-gray-500"}>Pelo menos uma letra (A-Z, a-z)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {resetHasNumber ? (
+                      <span className="w-4 h-4 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center shrink-0">
+                        <Check className="w-3 h-3" />
+                      </span>
+                    ) : (
+                      <span className="w-4 h-4 bg-red-100 text-red-600 rounded-full flex items-center justify-center shrink-0">
+                        <X className="w-3 h-3" />
+                      </span>
+                    )}
+                    <span className={resetHasNumber ? "text-emerald-800" : "text-gray-500"}>Pelo menos um número (0-9)</span>
+                  </div>
+                  {resetConfirmPassword.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      {resetPasswordsMatch ? (
+                        <span className="w-4 h-4 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center shrink-0">
+                          <Check className="w-3 h-3" />
+                        </span>
+                      ) : (
+                        <span className="w-4 h-4 bg-red-100 text-red-600 rounded-full flex items-center justify-center shrink-0">
+                          <X className="w-3 h-3" />
+                        </span>
+                      )}
+                      <span className={resetPasswordsMatch ? "text-emerald-800" : "text-gray-500"}>As senhas conferem</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={isSubmittingConfirm || !resetIsPasswordValid || !resetPasswordsMatch}
+                className={`w-full font-display font-semibold text-xs py-3.5 rounded-xl text-brand-cream flex items-center justify-center gap-2 shadow-md transition-all active:scale-98 ${
+                  isSubmittingConfirm || !resetIsPasswordValid || !resetPasswordsMatch
+                    ? "bg-gray-300 cursor-not-allowed shadow-none"
+                    : "bg-brand-coral hover:bg-brand-coral-light"
+                }`}
+              >
+                {isSubmittingConfirm ? "Redefinindo..." : "Definir Nova Senha"}
+                <ArrowRight className="w-4 h-4" />
+              </button>
+
+              <button
+                type="button"
+                disabled={isSubmittingReset}
+                onClick={() => submitPasswordResetRequest(null, false)}
+                className="w-full text-center text-xs font-bold text-brand-teal/60 hover:text-brand-teal transition-all"
+              >
+                {isSubmittingReset ? "Reenviando..." : "Reenviar código"}
+              </button>
+
+              <button
+                type="button"
+                onClick={exitForgotPasswordMode}
+                className="w-full text-center text-xs font-bold text-brand-teal/40 hover:text-brand-teal transition-all"
+              >
+                Voltar para o login
+              </button>
+            </form>
+          ) : resetStage === "done" ? (
+            <div className="space-y-4 relative z-10">
+              <button
+                type="button"
+                onClick={exitForgotPasswordMode}
+                className="w-full font-display font-semibold text-xs py-3.5 rounded-xl text-brand-cream flex items-center justify-center gap-2 shadow-md transition-all active:scale-98 bg-brand-coral hover:bg-brand-coral-light"
+              >
+                Voltar para o login
+                <ArrowRight className="w-4 h-4" />
+              </button>
             </div>
+          ) : (
+            <form onSubmit={(e) => submitPasswordResetRequest(e, false)} className="space-y-4 relative z-10">
+              <p className="text-xs text-gray-500 font-sans leading-snug -mt-1 mb-2">
+                Informe seu nome e o e-mail cadastrado. Se os dados conferirem, enviamos um código de verificação
+                para você redefinir a senha na hora.
+              </p>
 
-            <button
-              type="submit"
-              disabled={isSubmittingReset}
-              className={`w-full font-display font-semibold text-xs py-3.5 rounded-xl text-brand-cream flex items-center justify-center gap-2 shadow-md transition-all active:scale-98 ${
-                isSubmittingReset
-                  ? "bg-gray-300 cursor-not-allowed shadow-none"
-                  : "bg-brand-coral hover:bg-brand-coral-light"
-              }`}
-            >
-              {isSubmittingReset ? "Enviando..." : "Solicitar Redefinição"}
-              <ArrowRight className="w-4 h-4" />
-            </button>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block ml-1">
+                  Nome Completo
+                </label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-gray-400">
+                    <UserIcon className="w-4 h-4" />
+                  </span>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Seu nome"
+                    value={resetName}
+                    onChange={(e) => {
+                      setResetName(e.target.value);
+                      setResetStage("form");
+                      setResetInfo(null);
+                    }}
+                    className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl pl-10 pr-4 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline-none focus:border-brand-teal/50 transition-all font-medium"
+                  />
+                </div>
+              </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                setForgotPasswordMode(false);
-                setError(null);
-                setSuccess(null);
-              }}
-              className="w-full text-center text-xs font-bold text-brand-teal/60 hover:text-brand-teal transition-all"
-            >
-              Voltar para o login
-            </button>
-          </form>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block ml-1">
+                  E-mail Cadastrado
+                </label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-gray-400">
+                    <Mail className="w-4 h-4" />
+                  </span>
+                  <input
+                    type="email"
+                    required
+                    placeholder="seu.email@exemplo.com"
+                    value={resetEmail}
+                    onChange={(e) => {
+                      setResetEmail(e.target.value);
+                      setResetStage("form");
+                      setResetInfo(null);
+                    }}
+                    className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl pl-10 pr-4 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline-none focus:border-brand-teal/50 transition-all font-medium"
+                  />
+                </div>
+              </div>
+
+              {resetStage === "unmatched" ? (
+                <button
+                  type="button"
+                  disabled={isSubmittingReset}
+                  onClick={() => submitPasswordResetRequest(null, true)}
+                  className={`w-full font-display font-semibold text-xs py-3.5 rounded-xl text-brand-cream flex items-center justify-center gap-2 shadow-md transition-all active:scale-98 ${
+                    isSubmittingReset
+                      ? "bg-gray-300 cursor-not-allowed shadow-none"
+                      : "bg-brand-coral hover:bg-brand-coral-light"
+                  }`}
+                >
+                  {isSubmittingReset ? "Enviando..." : "Enviar mesmo assim"}
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={isSubmittingReset}
+                  className={`w-full font-display font-semibold text-xs py-3.5 rounded-xl text-brand-cream flex items-center justify-center gap-2 shadow-md transition-all active:scale-98 ${
+                    isSubmittingReset
+                      ? "bg-gray-300 cursor-not-allowed shadow-none"
+                      : "bg-brand-coral hover:bg-brand-coral-light"
+                  }`}
+                >
+                  {isSubmittingReset ? "Verificando..." : "Verificar Dados"}
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              )}
+
+              <button type="button" onClick={exitForgotPasswordMode} className="w-full text-center text-xs font-bold text-brand-teal/60 hover:text-brand-teal transition-all">
+                Voltar para o login
+              </button>
+            </form>
+          )
         ) : (
         <form onSubmit={handleAuthSubmit} className="space-y-4 relative z-10">
           {/* Campo Nome (Only on Register) */}
@@ -418,7 +693,9 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
                 type="button"
                 onClick={() => {
                   setForgotPasswordMode(true);
+                  setResetStage("form");
                   setResetEmail(email);
+                  setResetInfo(null);
                   setError(null);
                   setSuccess(null);
                 }}

@@ -16,7 +16,7 @@ import { getAuth } from "firebase-admin/auth";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
 import webpush from "web-push";
 import { MercadoPagoConfig, Payment, Preference } from "mercadopago";
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual, randomInt } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { PLANS, getAccessState, TRIAL_DAYS, type PlanId } from "../src/subscription.js";
 import { dueDoseMs } from "../src/utils/doseSchedule.js";
@@ -44,6 +44,12 @@ const ADMIN_NOTIFICATION_EMAIL = "antonio.marcus.barreto@gmail.com";
 // Resend's shared test sender — works without a verified domain but is more
 // likely to be flagged as spam. Swap for a verified domain address in prod.
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
+
+// Self-service password reset: once name+email are confirmed to match a real
+// account, a one-time code is emailed to that account's own registered
+// address (proof of inbox access) before any password change is allowed.
+const PASSWORD_RESET_CODE_TTL_MS = 10 * 60 * 1000;
+const PASSWORD_RESET_CODE_MAX_ATTEMPTS = 5;
 
 // Lazily initialize Gemini to prevent crashes on startup if key is missing
 let aiClient: GoogleGenAI | null = null;
@@ -376,6 +382,20 @@ async function logServerError(action: string, error: unknown, uid?: string | nul
   }
 }
 
+// Loose equality for "is this the same name" — trims, lowercases, and
+// collapses internal whitespace so casing/spacing typos don't block a
+// legitimate self-service password reset.
+function normalizeForCompare(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+// One-time codes are short-lived and single-use, so a plain SHA-256 digest
+// (no per-code salt) is sufficient — the value is never persisted anywhere
+// an attacker could offline-brute-force it, only compared via timingSafeEqual.
+function hashResetCode(code: string): string {
+  return createHash("sha256").update(code).digest("hex");
+}
+
 // Sends a plain notification email via Resend's HTTP API (no SDK needed — a
 // single fetch call, which plays nicer with serverless than holding an SMTP
 // connection open). Throws on failure; callers decide whether that's fatal.
@@ -456,14 +476,28 @@ const logWriteRateLimiter = rateLimit({
 });
 
 // Unauthenticated by nature (it's for people who can't log in), so this is
-// the only real defense against someone using it to spam the admin's inbox.
+// the only real defense against someone using it to spam the admin's inbox
+// or trigger repeated OTP emails. A legitimate flow can hit this more than
+// once (verify, then confirm/resend/force-send), hence the higher ceiling
+// than the other admin-adjacent limiters.
 const passwordResetRequestRateLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 5,
+  max: 8,
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: userOrIpKey,
   message: { error: "Muitas solicitações de redefinição de senha. Tente novamente mais tarde." },
+});
+
+// Guards the OTP-verification step against brute-forcing the 6-digit code
+// over HTTP, on top of the per-code attempt counter stored in Firestore.
+const passwordResetConfirmRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey,
+  message: { error: "Muitas tentativas. Tente novamente mais tarde." },
 });
 
 // ==========================================
@@ -747,19 +781,23 @@ export function createApiApp(): express.Express {
   });
 
   // "Esqueci minha senha": the project deliberately does not use Firebase's
-  // sendPasswordResetEmail/sendEmailVerification (see CLAUDE.md). Instead this
-  // notifies the single admin by email so they can set a temporary password
-  // via the existing /api/admin/change-user-password flow and relay it to the
-  // user out-of-band. Always returns the same generic response regardless of
-  // whether the email matched an account, to avoid leaking which emails are
-  // registered.
+  // sendPasswordResetEmail/sendEmailVerification (see CLAUDE.md). Instead:
+  //   - If the submitted name+email match a real account (name is compared
+  //     against the Firestore profile's `name`, since these Auth accounts
+  //     never get displayName set), a one-time code is emailed to that
+  //     account's OWN registered address via Resend — proof of inbox access
+  //     — unlocking self-service password change via the confirm endpoint
+  //     below. Name alone is guessable/public, so email-in-hand is the real
+  //     verification factor here, not the name match.
+  //   - If they don't match (wrong name, or no such account at all — both
+  //     cases are handled identically so this endpoint never reveals which
+  //     emails are registered), nothing is sent on the first call. The
+  //     caller may explicitly opt in via `forceSend` to notify the single
+  //     admin anyway, who can investigate and reset manually via the
+  //     existing /api/admin/change-user-password flow.
   app.post("/api/auth/request-password-reset", passwordResetRequestRateLimiter, async (req, res) => {
-    const GENERIC_RESPONSE = {
-      message: "Se os dados conferirem com uma conta cadastrada, entraremos em contato em breve.",
-    };
-
     try {
-      const { name, email } = req.body || {};
+      const { name, email, forceSend } = req.body || {};
 
       if (!name || typeof name !== "string" || !name.trim()) {
         res.status(400).json({ error: "Informe seu nome." });
@@ -770,40 +808,164 @@ export function createApiApp(): express.Express {
         return;
       }
 
-      let matchedUser: { uid: string; displayName?: string } | null = null;
+      const trimmedEmail = email.trim();
+
+      let matchedUid: string | null = null;
       try {
-        const rec = await getAuth(getAdminApp()).getUserByEmail(email.trim());
-        matchedUser = { uid: rec.uid, displayName: rec.displayName };
+        const rec = await getAuth(getAdminApp()).getUserByEmail(trimmedEmail);
+        const profileSnap = await getDb().collection("users").doc(rec.uid).get();
+        const registeredName = profileSnap.exists ? (profileSnap.data()?.name as string | undefined) : undefined;
+        if (registeredName && normalizeForCompare(registeredName) === normalizeForCompare(name)) {
+          matchedUid = rec.uid;
+        }
       } catch (err: any) {
         if (err?.code !== "auth/user-not-found") throw err;
       }
 
-      if (matchedUser) {
+      if (matchedUid) {
+        const code = String(randomInt(100000, 1000000));
+        await getDb()
+          .collection("passwordResetCodes")
+          .doc(matchedUid)
+          .set({
+            codeHash: hashResetCode(code),
+            expiresAt: new Date(Date.now() + PASSWORD_RESET_CODE_TTL_MS).toISOString(),
+            attempts: 0,
+            createdAt: new Date().toISOString(),
+          });
+
+        try {
+          await sendResendEmail(
+            trimmedEmail,
+            "HoraCerta AI — código para redefinir sua senha",
+            [
+              `Seu código de verificação é: ${code}`,
+              `Ele expira em ${PASSWORD_RESET_CODE_TTL_MS / 60000} minutos.`,
+              "Se você não solicitou a redefinição de senha, ignore este e-mail.",
+            ].join("\n"),
+          );
+        } catch (emailErr) {
+          console.error("Falha ao enviar código de redefinição:", emailErr);
+          await logServerError("POST /api/auth/request-password-reset (otp email)", emailErr, matchedUid);
+          res.status(500).json({ error: "Não foi possível enviar o código de verificação. Tente novamente." });
+          return;
+        }
+
+        res.json({
+          matched: true,
+          message: "Enviamos um código de verificação para o seu e-mail cadastrado. Informe-o para definir uma nova senha.",
+        });
+        return;
+      }
+
+      // No match: only notify the admin if the caller explicitly asked to,
+      // after already being told the automatic check failed.
+      if (forceSend === true) {
         try {
           await sendResendEmail(
             ADMIN_NOTIFICATION_EMAIL,
-            "HoraCerta AI — solicitação de redefinição de senha",
+            "HoraCerta AI — solicitação de redefinição de senha (não confirmada automaticamente)",
             [
+              "Os dados abaixo NÃO bateram com o cadastro automaticamente — confirme a identidade antes de trocar a senha.",
               `Nome informado: ${name.trim().slice(0, 200)}`,
-              `E-mail informado: ${email.trim().slice(0, 200)}`,
-              `Nome cadastrado no Firebase: ${matchedUser.displayName || "(sem nome)"}`,
-              `UID: ${matchedUser.uid}`,
+              `E-mail informado: ${trimmedEmail.slice(0, 200)}`,
               `Data/hora: ${new Date().toISOString()}`,
             ].join("\n"),
           );
         } catch (emailErr) {
           console.error("Falha ao enviar e-mail de solicitação de reset:", emailErr);
-          await logServerError("POST /api/auth/request-password-reset (email)", emailErr);
-          // Fall through to the generic response — a delivery failure must not
-          // reveal to the caller whether the account exists.
+          await logServerError("POST /api/auth/request-password-reset (admin email)", emailErr);
         }
+        res.json({ matched: false, message: "Solicitação enviada! Entraremos em contato em breve." });
+        return;
       }
 
-      res.json(GENERIC_RESPONSE);
+      res.json({
+        matched: false,
+        message: "Não conseguimos confirmar automaticamente esses dados com o nosso cadastro. Você pode solicitar o envio mesmo assim para uma verificação manual.",
+      });
     } catch (error: any) {
       console.error("Password reset request error:", error);
       await logServerError("POST /api/auth/request-password-reset", error);
       res.status(500).json({ error: "Falha ao processar a solicitação." });
+    }
+  });
+
+  // Second step of the self-service flow above: exchanges a valid, unexpired
+  // one-time code for an actual password change via the Admin SDK. Errors
+  // are intentionally generic ("código inválido ou expirado") whether the
+  // account doesn't exist, the code is wrong, or it expired — same reasoning
+  // as the request endpoint, this must never confirm which emails exist.
+  app.post("/api/auth/confirm-password-reset", passwordResetConfirmRateLimiter, async (req, res) => {
+    const INVALID_CODE_RESPONSE = { error: "Código inválido ou expirado. Solicite um novo código." };
+
+    try {
+      const { email, code, newPassword } = req.body || {};
+
+      if (!email || typeof email !== "string") {
+        res.status(400).json({ error: "Informe o e-mail." });
+        return;
+      }
+      if (!code || typeof code !== "string" || !/^\d{6}$/.test(code)) {
+        res.status(400).json(INVALID_CODE_RESPONSE);
+        return;
+      }
+      if (!newPassword || typeof newPassword !== "string" || !/^(?=.*[A-Za-z])(?=.*\d).{6,}$/.test(newPassword)) {
+        res.status(400).json({ error: "A nova senha deve ter pelo menos 6 caracteres, com letra e número." });
+        return;
+      }
+
+      let uid: string;
+      try {
+        uid = (await getAuth(getAdminApp()).getUserByEmail(email.trim())).uid;
+      } catch (err: any) {
+        if (err?.code === "auth/user-not-found") {
+          res.status(400).json(INVALID_CODE_RESPONSE);
+          return;
+        }
+        throw err;
+      }
+
+      const codeRef = getDb().collection("passwordResetCodes").doc(uid);
+      const codeSnap = await codeRef.get();
+
+      if (!codeSnap.exists) {
+        res.status(400).json(INVALID_CODE_RESPONSE);
+        return;
+      }
+
+      const codeData = codeSnap.data()!;
+      if (new Date(codeData.expiresAt).getTime() < Date.now()) {
+        await codeRef.delete();
+        res.status(400).json(INVALID_CODE_RESPONSE);
+        return;
+      }
+      if ((codeData.attempts || 0) >= PASSWORD_RESET_CODE_MAX_ATTEMPTS) {
+        await codeRef.delete();
+        res.status(400).json({ error: "Muitas tentativas incorretas. Solicite um novo código." });
+        return;
+      }
+
+      const providedHash = hashResetCode(code);
+      const storedHashBuf = Buffer.from(codeData.codeHash, "hex");
+      const providedHashBuf = Buffer.from(providedHash, "hex");
+      const codeMatches =
+        storedHashBuf.length === providedHashBuf.length && timingSafeEqual(storedHashBuf, providedHashBuf);
+
+      if (!codeMatches) {
+        await codeRef.update({ attempts: (codeData.attempts || 0) + 1 });
+        res.status(400).json({ error: "Código incorreto. Tente novamente." });
+        return;
+      }
+
+      await codeRef.delete();
+      await getAuth(getAdminApp()).updateUser(uid, { password: newPassword });
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Password reset confirm error:", error);
+      await logServerError("POST /api/auth/confirm-password-reset", error);
+      res.status(500).json({ error: "Falha ao redefinir a senha." });
     }
   });
 
