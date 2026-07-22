@@ -111,6 +111,14 @@ export default function AdminPanel({
     await onUpdateUser({ ...user, role: nextRole });
   };
 
+  // Bypasses the 1-scan-per-type trial cap (src/subscription.ts's
+  // canPerformScan) for this user specifically — protects Gemini quota abuse
+  // in general while letting an operator whitelist a legitimate case (e.g. a
+  // support/demo account) without granting a paid subscription.
+  const handleToggleScanExempt = async (user: User) => {
+    await onUpdateUser({ ...user, scanLimitExempt: !user.scanLimitExempt });
+  };
+
   const handleTrialSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingTrialUser) return;
@@ -430,6 +438,30 @@ export default function AdminPanel({
                         Gerenciar
                       </button>
                     </div>
+                  </div>
+
+                  {/* Trial Scan Limit Section (Gemini cost protection) */}
+                  <div className="bg-brand-cream/40 rounded-xl p-2 border border-brand-cream-darker/50 flex items-center justify-between gap-2 text-[10px]">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1 text-brand-teal font-semibold">
+                        <Award className="w-3 h-3 text-brand-coral shrink-0" />
+                        <span>Limite de Scans Gratuitos</span>
+                      </div>
+                      <div className="text-[9px] text-gray-500 mt-0.5">
+                        Receita: <strong>{u.trialPrescriptionScansUsed || 0}/1</strong> · Nota: <strong>{u.trialReceiptScansUsed || 0}/1</strong>
+                        {u.scanLimitExempt && <span className="text-emerald-600 font-bold ml-1">(Isento)</span>}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleToggleScanExempt(u)}
+                      className={`shrink-0 text-[9px] font-bold uppercase rounded-lg px-2.5 py-1.5 border transition-colors ${
+                        u.scanLimitExempt
+                          ? "bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100"
+                          : "bg-white text-brand-teal border-brand-cream-darker hover:bg-brand-peach"
+                      }`}
+                    >
+                      {u.scanLimitExempt ? "Remover Isenção" : "Isentar do Limite"}
+                    </button>
                   </div>
 
                   {/* Actions Bar (Password edit & Activation Status) */}

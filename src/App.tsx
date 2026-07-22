@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { dbLocal } from "./dbLocalFallback";
 import { auth, dbFirebase, isDeadSessionError } from "./firebase";
 import { subscribeToPush, unsubscribeFromPush, isIOSDevice } from "./push";
-import { isScanAllowed, getAccessState, daysRemaining } from "./subscription";
+import { canPerformScan, getAccessState, daysRemaining } from "./subscription";
 import { dueDoseMs } from "./utils/doseSchedule";
 import { processImageFile } from "./imageUtils";
 import { reportLogin } from "./loginLog";
@@ -286,6 +286,9 @@ export default function App() {
           subscriptionStatus: data.subscriptionStatus ?? prev.subscriptionStatus,
           subscriptionPlan: data.subscriptionPlan ?? prev.subscriptionPlan,
           subscriptionCurrentPeriodEnd: data.subscriptionCurrentPeriodEnd ?? prev.subscriptionCurrentPeriodEnd,
+          scanLimitExempt: data.scanLimitExempt ?? prev.scanLimitExempt,
+          trialPrescriptionScansUsed: data.trialPrescriptionScansUsed ?? prev.trialPrescriptionScansUsed,
+          trialReceiptScansUsed: data.trialReceiptScansUsed ?? prev.trialReceiptScansUsed,
         };
         if (JSON.stringify(next) === JSON.stringify(prev)) return prev;
         dbLocal.setUserCache(next);
@@ -1373,7 +1376,7 @@ export default function App() {
               onDeleteFarmacia={handleDeleteFarmacia}
               onAddCupom={handleAddCupom}
               onDeleteCupom={handleDeleteCupom}
-              canScan={isScanAllowed(activeUser)}
+              canScan={canPerformScan(activeUser, "receipt")}
               onSubscribe={() => setShowSubscription(true)}
             />
           )}
@@ -1385,7 +1388,7 @@ export default function App() {
               medicamentos={medicamentos}
               onAddReceita={handleAddReceita}
               onDeleteReceita={handleDeleteReceita}
-              canScan={isScanAllowed(activeUser)}
+              canScan={canPerformScan(activeUser, "prescription")}
               onSubscribe={() => setShowSubscription(true)}
             />
           )}

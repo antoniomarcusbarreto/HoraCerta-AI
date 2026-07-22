@@ -164,7 +164,9 @@ export default function PrescriptionScanner({
 
       if (!response.ok) {
         const errJson = await response.json();
-        throw new Error(errJson.details || errJson.error || "Falha na leitura");
+        const scanErr = new Error(errJson.details || errJson.error || "Falha na leitura");
+        (scanErr as any).code = errJson.code;
+        throw scanErr;
       }
 
       const parsedData = await response.json();
@@ -185,12 +187,14 @@ export default function PrescriptionScanner({
         setExtractedData(MOCK_EXTRACTED_PRESCRIPTION);
         setScanError("Modo demonstração: sem chave de IA ativa, exibimos uma receita de exemplo. Nada foi lido da sua imagem — revise antes de salvar.");
       } else {
-        const raw = String(err?.message || "");
-        setScanError(
-          /assinatura|subscription/i.test(raw)
-            ? "É necessária uma assinatura ativa para usar o leitor de receitas. Ative um plano e tente novamente."
-            : "Não foi possível ler a receita. Verifique sua conexão e envie uma foto nítida, ou tente novamente em instantes."
-        );
+        const code = err?.code;
+        if (code === "TRIAL_SCAN_LIMIT_REACHED") {
+          setScanError("Você já utilizou seu scan gratuito de receita do período de testes. Assine um plano para continuar usando o leitor de receitas.");
+        } else if (code === "SUBSCRIPTION_REQUIRED") {
+          setScanError("É necessária uma assinatura ativa para usar o leitor de receitas. Ative um plano e tente novamente.");
+        } else {
+          setScanError("Não foi possível ler a receita. Verifique sua conexão e envie uma foto nítida, ou tente novamente em instantes.");
+        }
       }
     } finally {
       setIsScanning(false);

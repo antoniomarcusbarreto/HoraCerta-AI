@@ -61,7 +61,7 @@ service cloud.firestore {
     // enforces incoming().createdAt == existing().createdAt (immutability).
     function isValidUser(data, userId) {
       return data.keys().hasAll(['userId', 'name', 'email', 'role', 'status', 'createdAt']) &&
-             data.keys().hasOnly(['userId', 'name', 'email', 'role', 'status', 'createdAt', 'freeTrialUntil', 'subscriptionStatus', 'subscriptionPlan', 'subscriptionCurrentPeriodEnd', 'avatarUrl']) &&
+             data.keys().hasOnly(['userId', 'name', 'email', 'role', 'status', 'createdAt', 'freeTrialUntil', 'subscriptionStatus', 'subscriptionPlan', 'subscriptionCurrentPeriodEnd', 'avatarUrl', 'scanLimitExempt', 'trialPrescriptionScansUsed', 'trialReceiptScansUsed']) &&
              data.userId == userId &&
              data.name is string && data.name.size() <= 128 &&
              data.email is string && data.email.size() <= 128 &&
@@ -72,6 +72,9 @@ service cloud.firestore {
              (!('subscriptionStatus' in data) || data.subscriptionStatus in ['active', 'inactive', 'expired']) &&
              (!('subscriptionPlan' in data) || data.subscriptionPlan in ['monthly', 'yearly', 'none']) &&
              (!('subscriptionCurrentPeriodEnd' in data) || (data.subscriptionCurrentPeriodEnd is string && data.subscriptionCurrentPeriodEnd.size() <= 64)) &&
+             (!('scanLimitExempt' in data) || data.scanLimitExempt is bool) &&
+             (!('trialPrescriptionScansUsed' in data) || data.trialPrescriptionScansUsed is number) &&
+             (!('trialReceiptScansUsed' in data) || data.trialReceiptScansUsed is number) &&
              (!('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() <= 500000));
     }
 

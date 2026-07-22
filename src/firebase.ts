@@ -137,6 +137,9 @@ export const dbFirebase = {
     if (user.subscriptionStatus) firestoreUser.subscriptionStatus = user.subscriptionStatus;
     if (user.subscriptionPlan) firestoreUser.subscriptionPlan = user.subscriptionPlan;
     if (user.subscriptionCurrentPeriodEnd) firestoreUser.subscriptionCurrentPeriodEnd = user.subscriptionCurrentPeriodEnd;
+    if (user.scanLimitExempt !== undefined) firestoreUser.scanLimitExempt = user.scanLimitExempt;
+    if (user.trialPrescriptionScansUsed !== undefined) firestoreUser.trialPrescriptionScansUsed = user.trialPrescriptionScansUsed;
+    if (user.trialReceiptScansUsed !== undefined) firestoreUser.trialReceiptScansUsed = user.trialReceiptScansUsed;
     if (user.avatarUrl) firestoreUser.avatarUrl = user.avatarUrl;
     await setDoc(docRef, firestoreUser);
   },
@@ -153,6 +156,9 @@ export const dbFirebase = {
     if (user.subscriptionStatus !== undefined) payload.subscriptionStatus = user.subscriptionStatus;
     if (user.subscriptionPlan !== undefined) payload.subscriptionPlan = user.subscriptionPlan;
     if (user.subscriptionCurrentPeriodEnd !== undefined) payload.subscriptionCurrentPeriodEnd = user.subscriptionCurrentPeriodEnd;
+    if (user.scanLimitExempt !== undefined) payload.scanLimitExempt = user.scanLimitExempt;
+    if (user.trialPrescriptionScansUsed !== undefined) payload.trialPrescriptionScansUsed = user.trialPrescriptionScansUsed;
+    if (user.trialReceiptScansUsed !== undefined) payload.trialReceiptScansUsed = user.trialReceiptScansUsed;
     if (user.avatarUrl !== undefined) payload.avatarUrl = user.avatarUrl;
     await updateDoc(docRef, payload);
   },

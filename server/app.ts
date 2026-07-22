@@ -13,12 +13,12 @@ import cors from "cors";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { initializeApp, getApps, getApp, cert, type App } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
-import { getFirestore, type Firestore } from "firebase-admin/firestore";
+import { getFirestore, FieldValue, type Firestore } from "firebase-admin/firestore";
 import webpush from "web-push";
 import { MercadoPagoConfig, Payment, Preference } from "mercadopago";
 import { createHash, createHmac, timingSafeEqual, randomInt } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { PLANS, getAccessState, TRIAL_DAYS, type PlanId } from "../src/subscription.js";
+import { PLANS, getAccessState, canPerformScan, TRIAL_DAYS, type PlanId, type ScanType } from "../src/subscription.js";
 import { dueDoseMs } from "../src/utils/doseSchedule.js";
 
 // dotenv.config() alone only reads ".env" — this project's docs/README tell
@@ -261,32 +261,55 @@ function validateMpSignature(req: express.Request): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-// Defense-in-depth for the billed scanner endpoints: rejects with 403 when the
-// user's access state is "blocked" (trial over + no active/grace subscription),
-// so a technical user can't bypass the UI gate by calling the API directly.
+// Defense-in-depth for the billed scanner endpoints, in a single Firestore read:
+//   1. rejects with 403 when the user's access state is "blocked" (trial over +
+//      no active/grace subscription), so a technical user can't bypass the UI
+//      gate by calling the API directly;
+//   2. rejects with 403 when a TRIAL user has already spent their free scan of
+//      this type (protects the Gemini quota — see src/subscription.ts's
+//      canPerformScan). Active subscribers, grace-period users and admin-exempt
+//      users are never subject to this cap.
 // Fails OPEN on unexpected infra errors — this is a secondary guard behind the
 // client gate, and we must not lock out paying users on a transient read error.
-async function requireActiveSubscription(req: express.Request, res: express.Response, next: express.NextFunction) {
-  try {
-    const uid = (req as any).uid as string;
-    const snap = await getDb().collection("users").doc(uid).get();
-    const data = snap.exists ? snap.data() : null;
-    const state = getAccessState({
-      freeTrialUntil: data?.freeTrialUntil as string | undefined,
-      subscriptionCurrentPeriodEnd: data?.subscriptionCurrentPeriodEnd as string | undefined,
-    });
-    if (state === "blocked") {
-      res.status(403).json({
-        error: "É necessária uma assinatura ativa para usar o scanner.",
-        code: "SUBSCRIPTION_REQUIRED",
-      });
-      return;
+// Stashes the resolved access state on the request so the route handler can
+// decide whether to bump the trial scan counter without a second Firestore read.
+function requireScanAccess(scanType: ScanType) {
+  return async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    try {
+      const uid = (req as any).uid as string;
+      const snap = await getDb().collection("users").doc(uid).get();
+      const data = snap.exists ? snap.data() : null;
+      const user = {
+        freeTrialUntil: data?.freeTrialUntil as string | undefined,
+        subscriptionCurrentPeriodEnd: data?.subscriptionCurrentPeriodEnd as string | undefined,
+        scanLimitExempt: data?.scanLimitExempt as boolean | undefined,
+        trialPrescriptionScansUsed: data?.trialPrescriptionScansUsed as number | undefined,
+        trialReceiptScansUsed: data?.trialReceiptScansUsed as number | undefined,
+      };
+      const state = getAccessState(user);
+      if (state === "blocked") {
+        res.status(403).json({
+          error: "É necessária uma assinatura ativa para usar o scanner.",
+          code: "SUBSCRIPTION_REQUIRED",
+        });
+        return;
+      }
+      if (!canPerformScan(user, scanType)) {
+        res.status(403).json({
+          error: scanType === "prescription"
+            ? "Você já utilizou seu scan gratuito de receita do período de testes. Assine um plano para continuar usando o leitor de receitas."
+            : "Você já utilizou seu scan gratuito de nota fiscal do período de testes. Assine um plano para continuar usando o leitor de notas.",
+          code: "TRIAL_SCAN_LIMIT_REACHED",
+        });
+        return;
+      }
+      (req as any).scanAccessState = state;
+      next();
+    } catch (err) {
+      console.warn("Verificação de acesso ao scanner falhou (liberando por segurança de disponibilidade):", err);
+      next();
     }
-    next();
-  } catch (err) {
-    console.warn("Verificação de assinatura falhou (liberando por segurança de disponibilidade):", err);
-    next();
-  }
+  };
 }
 
 // Requires a valid Firebase ID token in the Authorization header. Rejects with
@@ -648,7 +671,7 @@ export function createApiApp(): express.Express {
   // reliable way to tell WHICH deployment is actually answering, since a stale
   // function can keep serving after a new deploy reports "Ready".
   app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", build: "model-echo-3", time: new Date().toISOString() });
+    res.json({ status: "ok", build: "scan-limit-1", time: new Date().toISOString() });
   });
 
   // AI Key Status Check. `model` is echoed back (not a secret) so an operator
@@ -970,7 +993,7 @@ export function createApiApp(): express.Express {
   });
 
   // AI Prescription Reading Endpoint
-  app.post("/api/gemini/extract", requireAuth, requireActiveSubscription, geminiRateLimiter, async (req, res) => {
+  app.post("/api/gemini/extract", requireAuth, requireScanAccess("prescription"), geminiRateLimiter, async (req, res) => {
     try {
       const { imageBase64, mimeType } = req.body;
 
@@ -1048,6 +1071,17 @@ Instruções:
       }
 
       const parsedResult = JSON.parse(extractedText.trim());
+
+      // The scan succeeded — if this was a trial user (not exempt, not paid),
+      // count it against their one free prescription scan. Never blocks the
+      // response: a bookkeeping hiccup shouldn't cost the user a result they
+      // already paid Gemini tokens to produce.
+      if ((req as any).scanAccessState === "trial") {
+        getDb().collection("users").doc((req as any).uid)
+          .set({ trialPrescriptionScansUsed: FieldValue.increment(1) }, { merge: true })
+          .catch((e) => console.warn("Falha ao incrementar trialPrescriptionScansUsed:", e));
+      }
+
       res.json(parsedResult);
     } catch (error: any) {
       console.error("Gemini Extraction Error:", error);
@@ -1060,7 +1094,7 @@ Instruções:
   });
 
   // AI Fiscal Receipt Reading Endpoint
-  app.post("/api/gemini/extract-receipt", requireAuth, requireActiveSubscription, geminiRateLimiter, async (req, res) => {
+  app.post("/api/gemini/extract-receipt", requireAuth, requireScanAccess("receipt"), geminiRateLimiter, async (req, res) => {
     try {
       const { imageBase64, mimeType } = req.body;
 
@@ -1129,6 +1163,14 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
       }
 
       const parsedResult = JSON.parse(extractedText.trim());
+
+      // Same trial-scan bookkeeping as /api/gemini/extract, for the receipt type.
+      if ((req as any).scanAccessState === "trial") {
+        getDb().collection("users").doc((req as any).uid)
+          .set({ trialReceiptScansUsed: FieldValue.increment(1) }, { merge: true })
+          .catch((e) => console.warn("Falha ao incrementar trialReceiptScansUsed:", e));
+      }
+
       res.json(parsedResult);
     } catch (error: any) {
       console.error("Gemini Receipt Extraction Error:", error);
@@ -1325,6 +1367,9 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
         subscriptionPlan: merged.subscriptionPlan ?? "none",
         subscriptionCurrentPeriodEnd: merged.subscriptionCurrentPeriodEnd ?? null,
         freeTrialUntil: merged.freeTrialUntil ?? null,
+        scanLimitExempt: merged.scanLimitExempt ?? false,
+        trialPrescriptionScansUsed: merged.trialPrescriptionScansUsed ?? 0,
+        trialReceiptScansUsed: merged.trialReceiptScansUsed ?? 0,
       });
     } catch (error: any) {
       console.error("Subscription sync error:", error);
