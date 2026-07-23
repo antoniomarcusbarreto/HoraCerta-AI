@@ -8,7 +8,7 @@ interface PrescriptionScannerProps {
   onScanComplete: (
     doctorName: string,
     date: string,
-    medicines: Omit<Medicamento, "medicamentoId" | "createdAt" | "userId">[],
+    medicines: (Omit<Medicamento, "medicamentoId" | "createdAt" | "userId"> & { createdAt?: string })[],
     medicadoId: string
   ) => void;
   onCancel: () => void;
@@ -88,6 +88,22 @@ export default function PrescriptionScanner({
     "Extraindo dosagens, frequências em horas e categorias...",
     "Formatando lista terapêutica estruturada..."
   ];
+
+  // Pré-preenche data/hora de início de cada medicamento extraído com "agora",
+  // editável pelo usuário na tela de revisão.
+  const withStartDefaults = (medicines: any[]) => {
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const dd = String(now.getDate()).padStart(2, "0");
+    const hr = String(now.getHours()).padStart(2, "0");
+    const min = String(now.getMinutes()).padStart(2, "0");
+    return medicines.map((med) => ({
+      ...med,
+      startDate: med.startDate || `${yyyy}-${mm}-${dd}`,
+      startTime: med.startTime || `${hr}:${min}`,
+    }));
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -173,7 +189,7 @@ export default function PrescriptionScanner({
       setExtractedData({
         doctorName: parsedData.doctorName || "",
         date: parsedData.date || new Date().toLocaleDateString("pt-BR"),
-        medicines: parsedData.medicines || [],
+        medicines: withStartDefaults(parsedData.medicines || []),
       });
     } catch (err: any) {
       clearInterval(timer);
@@ -184,7 +200,10 @@ export default function PrescriptionScanner({
       // inject fake medicines into a patient's health record.
       if (hasApiKey === false) {
         setScanStep(scanStepsText.length - 1);
-        setExtractedData(MOCK_EXTRACTED_PRESCRIPTION);
+        setExtractedData({
+          ...MOCK_EXTRACTED_PRESCRIPTION,
+          medicines: withStartDefaults(MOCK_EXTRACTED_PRESCRIPTION.medicines),
+        });
         setScanError("Modo demonstração: sem chave de IA ativa, exibimos uma receita de exemplo. Nada foi lido da sua imagem — revise antes de salvar.");
       } else {
         const code = err?.code;
@@ -214,7 +233,10 @@ export default function PrescriptionScanner({
       setScanStep(currentStep);
       if (currentStep >= scanStepsText.length) {
         clearInterval(interval);
-        setExtractedData(MOCK_EXTRACTED_PRESCRIPTION);
+        setExtractedData({
+          ...MOCK_EXTRACTED_PRESCRIPTION,
+          medicines: withStartDefaults(MOCK_EXTRACTED_PRESCRIPTION.medicines),
+        });
         setIsScanning(false);
       }
     }, 600);
@@ -230,7 +252,24 @@ export default function PrescriptionScanner({
 
   const handleSavePrescription = () => {
     if (!extractedData || !selectedPatientId) return;
-    const medicinesWithReminder = extractedData.medicines.map((m) => ({ ...m, reminderOffset }));
+    const medicinesWithReminder = extractedData.medicines.map((m) => {
+      const { startDate, startTime, ...rest } = m;
+      const dateParts = (startDate || "").split("-");
+      const timeParts = (startTime || "08:00").split(":");
+      const createdAt =
+        dateParts.length === 3
+          ? new Date(
+              Number(dateParts[0]),
+              Number(dateParts[1]) - 1,
+              Number(dateParts[2]),
+              Number(timeParts[0]),
+              Number(timeParts[1]),
+              0,
+              0
+            ).toISOString()
+          : undefined;
+      return { ...rest, reminderOffset, createdAt };
+    });
     onScanComplete(
       extractedData.doctorName,
       extractedData.date,
@@ -580,6 +619,27 @@ export default function PrescriptionScanner({
                       placeholder="Ex: Tomar com água abundante"
                       className="w-full border-b border-brand-cream-darker focus:border-brand-coral text-xs py-1 focus:outline-hidden placeholder-gray-300"
                     />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[9px] font-bold text-gray-400 uppercase block">Data de Início</label>
+                      <input
+                        type="date"
+                        value={med.startDate || ""}
+                        onChange={(e) => handleFieldChange(index, "startDate", e.target.value)}
+                        className="w-full border-b border-brand-cream-darker focus:border-brand-coral text-xs py-1 focus:outline-hidden bg-white text-brand-teal"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-bold text-gray-400 uppercase block">Horário da 1ª Dose</label>
+                      <input
+                        type="time"
+                        value={med.startTime || ""}
+                        onChange={(e) => handleFieldChange(index, "startTime", e.target.value)}
+                        className="w-full border-b border-brand-cream-darker focus:border-brand-coral text-xs py-1 focus:outline-hidden bg-white text-brand-teal"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>

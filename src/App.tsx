@@ -979,7 +979,7 @@ export default function App() {
         status: "active",
         reminderOffset: med.reminderOffset ?? 10,
         pricePlaceholder: Math.floor(Math.random() * 40) + 15.90, // Generate low cost pricing
-        createdAt: new Date().toISOString(),
+        createdAt: med.createdAt || new Date().toISOString(),
       };
       dbLocal.addMedicamento(newMed);
     });

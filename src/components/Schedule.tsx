@@ -64,6 +64,12 @@ export default function Schedule({
     const dd = String(today.getDate()).padStart(2, "0");
     return `${yyyy}-${mm}-${dd}`;
   });
+  const [startTime, setStartTime] = useState(() => {
+    const now = new Date();
+    const hr = String(now.getHours()).padStart(2, "0");
+    const min = String(now.getMinutes()).padStart(2, "0");
+    return `${hr}:${min}`;
+  });
 
   // Confirmation state for administering medicine
   const [doseToConfirm, setDoseToConfirm] = useState<{
@@ -193,6 +199,9 @@ export default function Schedule({
     const mm = String(today.getMonth() + 1).padStart(2, "0");
     const dd = String(today.getDate()).padStart(2, "0");
     setStartDate(`${yyyy}-${mm}-${dd}`);
+    const hr = String(today.getHours()).padStart(2, "0");
+    const min = String(today.getMinutes()).padStart(2, "0");
+    setStartTime(`${hr}:${min}`);
 
     setShowAddMedModal(true);
   };
@@ -201,18 +210,17 @@ export default function Schedule({
     e.preventDefault();
     if (!medName.trim() || !dosage.trim() || !selectedPatientId) return;
 
-    const parts = startDate.split('-');
-    const today = new Date();
-    const isToday = today.getFullYear() === Number(parts[0]) &&
-                    (today.getMonth() + 1) === Number(parts[1]) &&
-                    today.getDate() === Number(parts[2]);
-
-    let localStart;
-    if (isToday) {
-      localStart = new Date();
-    } else {
-      localStart = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 8, 0, 0);
-    }
+    const dateParts = startDate.split('-');
+    const timeParts = (startTime || "08:00").split(':');
+    const localStart = new Date(
+      Number(dateParts[0]),
+      Number(dateParts[1]) - 1,
+      Number(dateParts[2]),
+      Number(timeParts[0]),
+      Number(timeParts[1]),
+      0,
+      0
+    );
     const createdAtISO = localStart.toISOString();
 
     onAddMedicine({
@@ -640,17 +648,45 @@ export default function Schedule({
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
-                  Data de Início / A partir de
-                </label>
-                <input
-                  type="date"
-                  required
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden focus:border-brand-coral"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
+                    Data de Início
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden focus:border-brand-coral"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
+                    Horário da 1ª Dose
+                  </label>
+                  <div className="flex gap-1">
+                    <input
+                      type="time"
+                      required
+                      value={startTime}
+                      onChange={(e) => setStartTime(e.target.value)}
+                      className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden focus:border-brand-coral"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const now = new Date();
+                        const hr = String(now.getHours()).padStart(2, "0");
+                        const min = String(now.getMinutes()).padStart(2, "0");
+                        setStartTime(`${hr}:${min}`);
+                      }}
+                      className="shrink-0 px-2.5 rounded-xl border border-brand-cream-darker text-[10px] font-bold text-brand-teal hover:bg-brand-peach transition-all"
+                    >
+                      Agora
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

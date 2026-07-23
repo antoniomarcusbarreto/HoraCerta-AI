@@ -11,7 +11,7 @@ interface AppointmentsProps {
   onAddReceita: (
     doctorName: string,
     date: string,
-    medicines: Omit<Medicamento, "medicamentoId" | "createdAt" | "userId">[],
+    medicines: (Omit<Medicamento, "medicamentoId" | "createdAt" | "userId"> & { createdAt?: string })[],
     medicadoId: string
   ) => void;
   onDeleteReceita: (receitaId: string) => void;

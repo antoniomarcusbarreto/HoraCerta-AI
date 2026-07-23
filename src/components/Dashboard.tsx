@@ -228,14 +228,10 @@ export default function Dashboard({
     }));
   });
 
-  // Match logs taken today
-  const takenDoseCount = todayDosePlans.filter(plan => {
-    return doseLogs.some(log => {
-      if (log.medicamentoId !== plan.medId) return false;
-      if (log.status !== "taken") return false;
-      return log.plannedTime.includes(`T${plan.time}:00`);
-    });
-  }).length;
+  // Match logs taken today (checa data + hora — não apenas o horário)
+  const takenDoseCount = todayDosePlans.filter(plan =>
+    isDoseTaken(doseLogs, plan.medId, new Date(), plan.time)
+  ).length;
 
   const totalDosesCount = todayDosePlans.length;
   const adherencePercent = totalDosesCount > 0 ? Math.round((takenDoseCount / totalDosesCount) * 100) : 100;
@@ -498,8 +494,8 @@ export default function Dashboard({
                   {/* List of medications for today */}
                   <div className="space-y-3">
                     {meds.map(({ med, times }) => (
-                      <div key={med.medicamentoId} className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
+                      <div key={med.medicamentoId}>
+                        <div className="min-w-0">
                           <h4 className={`font-semibold text-xs leading-snug ${textTitleClass} truncate`}>
                             {med.name}
                           </h4>
@@ -507,9 +503,9 @@ export default function Dashboard({
                             {med.dosage}
                           </p>
                         </div>
-                        
+
                         {/* Times badges */}
-                        <div className="flex flex-wrap items-center gap-1 justify-end shrink-0">
+                        <div className="flex flex-wrap items-center gap-1 mt-1.5">
                           {times.map((time) => {
                             const now = new Date();
                             const taken = isDoseTaken(doseLogs, med.medicamentoId, now, time);
