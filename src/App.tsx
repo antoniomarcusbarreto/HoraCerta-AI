@@ -267,16 +267,19 @@ export default function App() {
   // to legacy users (server-side, since the client can't write freeTrialUntil)
   // and pulls any status set by the payment webhook. Updates `activeUser` in
   // place only when something actually changed, so it can't loop.
-  const syncSubscription = useCallback(async () => {
+  // Returns the resolved accessState (or null on failure) so callers that need
+  // to know whether the sync actually landed — e.g. the post-checkout poll
+  // below — don't have to read back a stale `activeUser` closure.
+  const syncSubscription = useCallback(async (): Promise<string | null> => {
     const current = auth.currentUser;
-    if (!current) return;
+    if (!current) return null;
     try {
       const token = await current.getIdToken();
       const res = await fetch("/api/subscription/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) return;
+      if (!res.ok) return null;
       const data = await res.json();
       setActiveUser((prev) => {
         if (!prev) return prev;
@@ -294,8 +297,10 @@ export default function App() {
         dbLocal.setUserCache(next);
         return next;
       });
+      return data.accessState ?? null;
     } catch {
       /* rede offline — o app segue com o estado em cache */
+      return null;
     }
   }, []);
 
@@ -305,19 +310,63 @@ export default function App() {
     syncSubscription();
   }, [activeUser?.userId, syncSubscription]);
 
-  // Returning from the card Checkout Pro (MP redirects to /app?sub=...): refresh
-  // the subscription and clean the query string so it doesn't re-trigger.
+  // Returning from the card Checkout Pro (MP redirects to /app?sub=...). The
+  // Mercado Pago webhook that actually activates the subscription can land a
+  // few seconds AFTER this redirect, and Firebase Auth may not have finished
+  // restoring the session at the exact instant this effect runs on a fresh
+  // page load — a single sync attempt right here is unreliable and fails
+  // silently either way (this is exactly what left a paying user stuck on
+  // "trial" until they force-reopened the app). So: clean the query string
+  // immediately (before any async work, so a reload mid-poll can't re-trigger
+  // this), wait for a real signed-in user via onAuthStateChanged instead of
+  // assuming auth.currentUser is ready, then poll sync (same cadence as the
+  // PIX confirmation poll in SubscriptionScreen) until the webhook catches up
+  // or a reasonable window elapses.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const sub = params.get("sub");
     if (!sub) return;
-    syncSubscription().then(() => {
-      if (sub === "success") showToast("Pagamento recebido! Verificando sua assinatura...");
-    });
+
     params.delete("sub");
     const clean = window.location.pathname + (params.toString() ? `?${params}` : "") + window.location.hash;
     window.history.replaceState({}, "", clean);
+
+    if (sub !== "success") {
+      syncSubscription();
+      return;
+    }
+
+    showToast("Pagamento recebido! Confirmando sua assinatura...");
+
+    let cancelled = false;
+    let pollTimeout: ReturnType<typeof setTimeout> | undefined;
+    const unsubscribeAuth = onAuthStateChanged(auth, (fbUser) => {
+      if (!fbUser || cancelled) return;
+      cancelled = true;
+      unsubscribeAuth();
+
+      let attempts = 0;
+      const maxAttempts = 10; // ~30s no total, mesma janela de tolerância do polling do PIX
+      const poll = async () => {
+        const state = await syncSubscription();
+        attempts++;
+        if (state === "active" || attempts >= maxAttempts) {
+          if (state !== "active") {
+            showToast("Ainda estamos confirmando seu pagamento. Se não atualizar em instantes, reabra o app.");
+          }
+          return;
+        }
+        pollTimeout = setTimeout(poll, 3000);
+      };
+      poll();
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribeAuth();
+      if (pollTimeout) clearTimeout(pollTimeout);
+    };
   }, [syncSubscription]);
 
   // ==========================================
@@ -1619,36 +1668,54 @@ export default function App() {
                 </div>
 
                 <div className="space-y-3">
-                  {/* Free Trial Status */}
+                  {/* Free Trial Status — a paid subscription (active or in its
+                      grace period) takes precedence over the trial: freeTrialUntil
+                      is set once at signup and never cleared, so once someone
+                      subscribes it stays in the future and, left unchecked here,
+                      keeps advertising "days of free trial left" even though
+                      access is now governed by the subscription, not the trial. */}
                   <div className="flex items-start gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-orange-50 border border-orange-100 flex items-center justify-center shrink-0">
-                      <Gift className="w-4 h-4 text-orange-600" />
-                    </div>
+                    {(() => {
+                      const state = getAccessState(activeUser);
+                      const subscriptionCovers = state === "active" || state === "grace";
+                      return (
+                        <div className={`w-8 h-8 rounded-lg border flex items-center justify-center shrink-0 ${
+                          subscriptionCovers ? "bg-emerald-50 border-emerald-100" : "bg-orange-50 border-orange-100"
+                        }`}>
+                          <Gift className={`w-4 h-4 ${subscriptionCovers ? "text-emerald-600" : "text-orange-600"}`} />
+                        </div>
+                      );
+                    })()}
                     <div>
                       <h5 className="text-[11px] font-bold text-brand-teal uppercase tracking-wide">Período de Gratuidade</h5>
                       <p className="text-[11px] text-gray-500 mt-0.5">
-                        {activeUser?.freeTrialUntil ? (
-                          (() => {
-                            const expiry = new Date(activeUser.freeTrialUntil);
-                            const now = new Date();
-                            const diff = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-                            if (diff > 0) {
-                              return (
-                                <span>
-                                  Você tem <strong className="text-emerald-600 font-bold">{diff} {diff === 1 ? "dia" : "dias"}</strong> de teste gratuito restantes (até {expiry.toLocaleDateString("pt-BR")}).
-                                </span>
-                              );
-                            } else {
-                              return (
-                                <span className="text-red-500 font-semibold">
-                                  Seu período de gratuidade expirou em {expiry.toLocaleDateString("pt-BR")}.
-                                </span>
-                              );
-                            }
-                          })()
-                        ) : (
-                          <span>Sem benefícios de gratuidade ativos no momento.</span>
-                        )}
+                        {(() => {
+                          const state = getAccessState(activeUser);
+                          if (state === "active" || state === "grace") {
+                            return (
+                              <span className="text-emerald-600 font-semibold">
+                                Sua assinatura já está ativa — o período de gratuidade não é mais necessário.
+                              </span>
+                            );
+                          }
+                          if (!activeUser?.freeTrialUntil) {
+                            return <span>Sem benefícios de gratuidade ativos no momento.</span>;
+                          }
+                          const expiry = new Date(activeUser.freeTrialUntil);
+                          const diff = daysRemaining(activeUser.freeTrialUntil);
+                          if (diff > 0) {
+                            return (
+                              <span>
+                                Você tem <strong className="text-emerald-600 font-bold">{diff} {diff === 1 ? "dia" : "dias"}</strong> de teste gratuito restantes (até {expiry.toLocaleDateString("pt-BR")}).
+                              </span>
+                            );
+                          }
+                          return (
+                            <span className="text-red-500 font-semibold">
+                              Seu período de gratuidade expirou em {expiry.toLocaleDateString("pt-BR")}.
+                            </span>
+                          );
+                        })()}
                       </p>
                     </div>
                   </div>
