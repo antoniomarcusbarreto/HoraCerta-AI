@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 
 interface DashboardProps {
+  userName: string;
   medicados: Medicado[];
   medicamentos: Medicamento[];
   doseLogs: DoseLog[];
@@ -34,6 +35,7 @@ interface DashboardProps {
 }
 
 export default function Dashboard({
+  userName,
   medicados,
   medicamentos,
   doseLogs,
@@ -274,10 +276,10 @@ export default function Dashboard({
     <div className="pb-32 px-4 max-w-md lg:max-w-none mx-auto lg:mx-0 pt-6 lg:pt-0 lg:px-0 animate-fade-in">
       {/* Top Header Section */}
       <div className="flex items-center justify-between mb-6 bg-white border border-brand-cream-darker rounded-3xl p-5 shadow-xs">
-        <div>
+        <div className="min-w-0 flex-1 mr-3">
           <span className="text-xs font-mono text-brand-coral font-bold tracking-widest">HoraCerta AI</span>
-          <h1 className="text-3xl font-display font-bold text-brand-teal mt-0.5 tracking-tight">
-            Olá, <span className="text-brand-coral">Antonio</span>
+          <h1 className="text-3xl font-display font-bold text-brand-teal mt-0.5 tracking-tight truncate">
+            Olá, <span className="text-brand-coral">{userName}</span>
           </h1>
           <p className="text-xs text-gray-500 font-sans mt-0.5">Sua saúde guiada por inteligência artificial.</p>
         </div>

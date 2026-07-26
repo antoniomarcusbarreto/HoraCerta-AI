@@ -1382,6 +1382,7 @@ export default function App() {
         <div className="lg:max-w-[1080px] lg:mx-auto lg:my-8 lg:bg-[#FDFBF5] lg:border lg:border-[#ECE6D8] lg:rounded-[28px] lg:p-8 lg:shadow-[0_2px_10px_rgba(0,0,0,0.03)]">
           {activeTab === "home" && (
             <Dashboard
+              userName={activeUser.name}
               medicados={medicados}
               medicamentos={medicamentos}
               doseLogs={doseLogs}
