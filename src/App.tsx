@@ -328,7 +328,19 @@ export default function App() {
     const sub = params.get("sub");
     if (!sub) return;
 
+    // Mercado Pago anexa o id do pagamento no back_url do Checkout Pro
+    // (auto_return) — capturamos antes de limpar a URL para poder perguntar
+    // diretamente a eles como último recurso, caso o webhook nunca chegue.
+    const returnedPaymentId = params.get("payment_id") || params.get("collection_id");
+
     params.delete("sub");
+    params.delete("payment_id");
+    params.delete("collection_id");
+    params.delete("status");
+    params.delete("collection_status");
+    params.delete("merchant_order_id");
+    params.delete("preference_id");
+    params.delete("payment_type");
     const clean = window.location.pathname + (params.toString() ? `?${params}` : "") + window.location.hash;
     window.history.replaceState({}, "", clean);
 
@@ -351,10 +363,24 @@ export default function App() {
       const poll = async () => {
         const state = await syncSubscription();
         attempts++;
-        if (state === "active" || attempts >= maxAttempts) {
-          if (state !== "active") {
-            showToast("Ainda estamos confirmando seu pagamento. Se não atualizar em instantes, reabra o app.");
+        if (state === "active") return;
+        if (attempts >= maxAttempts) {
+          // Último recurso: pergunta direto ao Mercado Pago por ESTE pagamento
+          // em vez de só esperar o webhook, que pode nunca chegar (falha de
+          // entrega do lado deles — algo que nenhum log nosso consegue ver).
+          if (returnedPaymentId) {
+            try {
+              const token = await fbUser.getIdToken();
+              await fetch("/api/subscription/verify-payment", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ paymentId: returnedPaymentId }),
+              });
+            } catch { /* melhor esforço — o toast abaixo já orienta a reabrir o app */ }
+            const finalState = await syncSubscription();
+            if (finalState === "active") return;
           }
+          showToast("Ainda estamos confirmando seu pagamento. Se não atualizar em instantes, reabra o app.");
           return;
         }
         pollTimeout = setTimeout(poll, 3000);

@@ -114,8 +114,21 @@ export default function SubscriptionScreen({ user, onBack, onSubscribed }: Subsc
     } catch { /* clipboard indisponível */ }
   };
 
+  // "Verificar agora" pergunta direto ao Mercado Pago pelo status deste
+  // pagamento (pull), em vez de só esperar o webhook (push) — se o webhook
+  // nunca chegar (ex.: MP_WEBHOOK_SECRET desatualizado, falha de entrega do
+  // lado do Mercado Pago), este é o caminho que ainda funciona. Só faz a
+  // checagem extra aqui (clique explícito do usuário), não no poll automático
+  // a cada 4s, para não gastar a cota de requisições do endpoint à toa.
   const handleManualCheck = async () => {
     setChecking(true);
+    if (pix?.paymentId) {
+      try {
+        await authedPost("/api/subscription/verify-payment", { paymentId: pix.paymentId });
+      } catch {
+        /* segue para o sync abaixo mesmo se a verificação direta falhar */
+      }
+    }
     await checkStatus();
     setChecking(false);
   };

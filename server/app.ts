@@ -489,6 +489,19 @@ const subscriptionRateLimiter = rateLimit({
   message: { error: "Muitas tentativas de pagamento. Tente novamente mais tarde." },
 });
 
+// Separate from subscriptionRateLimiter (which gates PAYMENT CREATION) because
+// this endpoint is meant to be polled/re-clicked while waiting for a webhook
+// that may never arrive — sharing one budget would let a slow PIX confirmation
+// exhaust the same limit needed to create a NEW payment attempt.
+const paymentVerifyRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey,
+  message: { error: "Muitas verificações de pagamento. Tente novamente mais tarde." },
+});
+
 const logWriteRateLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 30,
@@ -1467,6 +1480,64 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
       console.error("Checkout create error:", error);
       await logServerError("POST /api/subscription/checkout", error, (req as any).uid);
       res.status(500).json({ error: "Falha ao criar checkout de cartão.", details: error?.message });
+    }
+  });
+
+  // PULL-based fallback for the webhook's PUSH: actively re-checks one payment
+  // directly with Mercado Pago and reconciles it if approved. Exists because
+  // the webhook can simply never arrive (delivery failure on Mercado Pago's
+  // side, not something our own logs can ever see) — the client already holds
+  // the paymentId (returned by /api/subscription/pix, or appended by MP to the
+  // Checkout Pro back_url as payment_id/collection_id), so it can ask us to
+  // check directly instead of only waiting on the webhook. Reuses
+  // activateSubscription, which is idempotent, so calling this after the
+  // webhook already succeeded is a harmless no-op.
+  app.post("/api/subscription/verify-payment", requireAuth, paymentVerifyRateLimiter, async (req, res) => {
+    try {
+      const uid = (req as any).uid as string;
+      const paymentId = req.body?.paymentId;
+      if (paymentId == null || (typeof paymentId !== "string" && typeof paymentId !== "number")) {
+        res.status(400).json({ error: "paymentId ausente ou inválido." });
+        return;
+      }
+
+      const payment = new Payment(getMpConfig());
+      const info = await payment.get({ id: String(paymentId) });
+
+      // Ownership check: the payment must be tied to the CALLING user, never a
+      // client-supplied uid — otherwise one user could pass another's payment
+      // id and either snoop on it or, worse, trigger activation on their own
+      // account off someone else's money.
+      const infoUid = (info.metadata?.uid as string | undefined) || (info.external_reference as string | undefined);
+      if (infoUid !== uid) {
+        res.status(403).json({ error: "Este pagamento não pertence à sua conta." });
+        return;
+      }
+
+      let subscriptionActive = false;
+      if (info.status === "approved") {
+        let plan = info.metadata?.plan as PlanId | undefined;
+        if (plan !== "monthly" && plan !== "yearly") {
+          const amt = Number(info.transaction_amount);
+          plan = amt === PLANS.yearly.amount ? "yearly" : amt === PLANS.monthly.amount ? "monthly" : undefined;
+        }
+        if (plan) {
+          await activateSubscription(uid, plan, info.id ?? paymentId);
+          subscriptionActive = true;
+        } else {
+          await logServerError(
+            "POST /api/subscription/verify-payment (aprovado sem plano)",
+            new Error(`Pagamento ${info.id ?? paymentId} aprovado (R$ ${info.transaction_amount}) mas não foi possível determinar o plano.`),
+            uid
+          );
+        }
+      }
+
+      res.json({ status: info.status, subscriptionActive });
+    } catch (error: any) {
+      console.error("Verify payment error:", error);
+      await logServerError("POST /api/subscription/verify-payment", error, (req as any).uid);
+      res.status(500).json({ error: "Falha ao verificar o pagamento." });
     }
   });
 
