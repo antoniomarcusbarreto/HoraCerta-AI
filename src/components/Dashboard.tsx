@@ -236,7 +236,7 @@ export default function Dashboard({
   ).length;
 
   const totalDosesCount = todayDosePlans.length;
-  const adherencePercent = totalDosesCount > 0 ? Math.round((takenDoseCount / totalDosesCount) * 100) : 100;
+  const adherencePercent = totalDosesCount > 0 ? Math.round((takenDoseCount / totalDosesCount) * 100) : 0;
 
   // Get active medicines grouped by patient for today
   const getTodayPatientSchedule = () => {

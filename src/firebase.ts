@@ -23,7 +23,9 @@ import {
   limit,
   startAfter,
   serverTimestamp,
+  Timestamp,
   QueryDocumentSnapshot,
+  QueryConstraint,
   DocumentData
 } from "firebase/firestore";
 import {
@@ -96,6 +98,29 @@ function normalizeCreatedAt<T extends { createdAt?: any }>(data: T): T {
     return { ...data, createdAt: raw.toDate().toISOString() };
   }
   return data;
+}
+
+export type LogDateRange = { start?: Date; end?: Date };
+
+// `createdAt` não tem o mesmo tipo de valor em todas as coleções de log:
+// actionLogs é escrito pelo client com serverTimestamp() (Timestamp real),
+// enquanto loginLogs/errorLogs são escritos pelo servidor via Admin SDK com
+// `new Date().toISOString()` (string). Um filtro `where` com Timestamp contra
+// um campo armazenado como string não dá erro — só nunca bate com nada,
+// porque o Firestore compara por tipo. Por isso o valor do filtro precisa
+// ser construído no mesmo tipo do campo de cada coleção.
+function buildLogQuery(
+  coll: ReturnType<typeof collection>,
+  pageSize: number,
+  dateRange: LogDateRange | undefined,
+  createdAtType: "timestamp" | "isoString"
+) {
+  const toFilterValue = (d: Date) => (createdAtType === "timestamp" ? Timestamp.fromDate(d) : d.toISOString());
+  const constraints: QueryConstraint[] = [orderBy("createdAt", "desc")];
+  if (dateRange?.start) constraints.push(where("createdAt", ">=", toFilterValue(dateRange.start)));
+  if (dateRange?.end) constraints.push(where("createdAt", "<=", toFilterValue(dateRange.end)));
+  constraints.push(limit(pageSize));
+  return query(coll, ...constraints);
 }
 
 // ==========================================
@@ -493,9 +518,10 @@ export const dbFirebase = {
 
   async getActionLogs(
     pageSize: number = 50,
-    cursor: QueryDocumentSnapshot<DocumentData> | null = null
+    cursor: QueryDocumentSnapshot<DocumentData> | null = null,
+    dateRange?: LogDateRange
   ): Promise<{ logs: ActionLog[]; lastDoc: QueryDocumentSnapshot<DocumentData> | null }> {
-    const base = query(collection(db, "actionLogs"), orderBy("createdAt", "desc"), limit(pageSize));
+    const base = buildLogQuery(collection(db, "actionLogs"), pageSize, dateRange, "timestamp");
     const q = cursor ? query(base, startAfter(cursor)) : base;
     const snapshot = await getDocs(q);
     const logs = snapshot.docs.map((d) => normalizeCreatedAt(d.data()) as ActionLog);
@@ -506,9 +532,10 @@ export const dbFirebase = {
   // SDK (bypassa as regras) — aqui só é feita a leitura, liberada por isAdmin().
   async getLoginLogs(
     pageSize: number = 50,
-    cursor: QueryDocumentSnapshot<DocumentData> | null = null
+    cursor: QueryDocumentSnapshot<DocumentData> | null = null,
+    dateRange?: LogDateRange
   ): Promise<{ logs: LoginLog[]; lastDoc: QueryDocumentSnapshot<DocumentData> | null }> {
-    const base = query(collection(db, "loginLogs"), orderBy("createdAt", "desc"), limit(pageSize));
+    const base = buildLogQuery(collection(db, "loginLogs"), pageSize, dateRange, "isoString");
     const q = cursor ? query(base, startAfter(cursor)) : base;
     const snapshot = await getDocs(q);
     const logs = snapshot.docs.map((d) => normalizeCreatedAt(d.data()) as LoginLog);
@@ -517,9 +544,10 @@ export const dbFirebase = {
 
   async getErrorLogs(
     pageSize: number = 50,
-    cursor: QueryDocumentSnapshot<DocumentData> | null = null
+    cursor: QueryDocumentSnapshot<DocumentData> | null = null,
+    dateRange?: LogDateRange
   ): Promise<{ logs: ErrorLog[]; lastDoc: QueryDocumentSnapshot<DocumentData> | null }> {
-    const base = query(collection(db, "errorLogs"), orderBy("createdAt", "desc"), limit(pageSize));
+    const base = buildLogQuery(collection(db, "errorLogs"), pageSize, dateRange, "isoString");
     const q = cursor ? query(base, startAfter(cursor)) : base;
     const snapshot = await getDocs(q);
     const logs = snapshot.docs.map((d) => normalizeCreatedAt(d.data()) as ErrorLog);

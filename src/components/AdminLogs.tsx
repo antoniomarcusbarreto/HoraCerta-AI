@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { dbFirebase } from "../firebase";
+import { dbFirebase, LogDateRange } from "../firebase";
 import { ActionLog, LoginLog, ErrorLog } from "../types";
-import { AlertCircle, Search, LogIn, Pencil, Trash2, ServerCrash, RefreshCw } from "lucide-react";
+import { AlertCircle, Search, LogIn, Pencil, Trash2, ServerCrash, RefreshCw, CalendarRange } from "lucide-react";
 import type { QueryDocumentSnapshot, DocumentData } from "firebase/firestore";
 
 type LogTab = "acoes" | "login" | "erros";
@@ -21,28 +21,44 @@ export default function AdminLogs() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Filtro por data: strings no formato do <input type="date"> (yyyy-mm-dd).
+  // Aplicado no servidor (where no mesmo campo do orderBy, sem índice extra),
+  // não só no que já foi paginado — senão "De 01/01" não acharia nada se os
+  // 30 registros mais recentes carregados forem todos de outro dia.
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
   const [actionLogs, setActionLogs] = useState<ActionLog[]>([]);
   const [loginLogs, setLoginLogs] = useState<LoginLog[]>([]);
   const [errorLogs, setErrorLogs] = useState<ErrorLog[]>([]);
   const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [hasMore, setHasMore] = useState(true);
 
+  const buildDateRange = (): LogDateRange | undefined => {
+    if (!dateFrom && !dateTo) return undefined;
+    const range: LogDateRange = {};
+    if (dateFrom) range.start = new Date(`${dateFrom}T00:00:00`);
+    if (dateTo) range.end = new Date(`${dateTo}T23:59:59.999`);
+    return range;
+  };
+
   const loadPage = async (tab: LogTab, cursor: QueryDocumentSnapshot<DocumentData> | null, reset: boolean) => {
     setLoading(true);
     setError(null);
     try {
+      const dateRange = buildDateRange();
       if (tab === "acoes") {
-        const { logs, lastDoc: last } = await dbFirebase.getActionLogs(PAGE_SIZE, cursor);
+        const { logs, lastDoc: last } = await dbFirebase.getActionLogs(PAGE_SIZE, cursor, dateRange);
         setActionLogs((prev) => (reset ? logs : [...prev, ...logs]));
         setLastDoc(last);
         setHasMore(logs.length === PAGE_SIZE);
       } else if (tab === "login") {
-        const { logs, lastDoc: last } = await dbFirebase.getLoginLogs(PAGE_SIZE, cursor);
+        const { logs, lastDoc: last } = await dbFirebase.getLoginLogs(PAGE_SIZE, cursor, dateRange);
         setLoginLogs((prev) => (reset ? logs : [...prev, ...logs]));
         setLastDoc(last);
         setHasMore(logs.length === PAGE_SIZE);
       } else {
-        const { logs, lastDoc: last } = await dbFirebase.getErrorLogs(PAGE_SIZE, cursor);
+        const { logs, lastDoc: last } = await dbFirebase.getErrorLogs(PAGE_SIZE, cursor, dateRange);
         setErrorLogs((prev) => (reset ? logs : [...prev, ...logs]));
         setLastDoc(last);
         setHasMore(logs.length === PAGE_SIZE);
@@ -60,7 +76,7 @@ export default function AdminLogs() {
     setHasMore(true);
     loadPage(subTab, null, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subTab]);
+  }, [subTab, dateFrom, dateTo]);
 
   const q = searchQuery.toLowerCase();
   const filteredActionLogs = actionLogs.filter(
@@ -135,6 +151,43 @@ export default function AdminLogs() {
         >
           <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
         </button>
+      </div>
+
+      {/* Date range filter */}
+      <div className="flex items-end gap-2 bg-white border border-brand-cream-darker rounded-2xl p-3">
+        <CalendarRange className="w-4 h-4 text-brand-teal mb-2 shrink-0" />
+        <div className="flex-1">
+          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">De</label>
+          <input
+            type="date"
+            value={dateFrom}
+            max={dateTo || undefined}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="w-full bg-white border border-brand-cream-darker rounded-lg px-2 py-1.5 text-xs text-brand-teal focus:outline-hidden focus:border-brand-coral font-sans"
+          />
+        </div>
+        <div className="flex-1">
+          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">Até</label>
+          <input
+            type="date"
+            value={dateTo}
+            min={dateFrom || undefined}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="w-full bg-white border border-brand-cream-darker rounded-lg px-2 py-1.5 text-xs text-brand-teal focus:outline-hidden focus:border-brand-coral font-sans"
+          />
+        </div>
+        {(dateFrom || dateTo) && (
+          <button
+            type="button"
+            onClick={() => {
+              setDateFrom("");
+              setDateTo("");
+            }}
+            className="shrink-0 text-[10px] font-bold uppercase text-brand-coral hover:text-brand-coral-dark px-2 py-1.5 rounded-lg transition-colors"
+          >
+            Limpar
+          </button>
+        )}
       </div>
 
       {error && (
