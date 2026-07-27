@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { User } from "../types";
 import { auth } from "../firebase";
+import { getAccessState, PLANS, type PlanId } from "../subscription";
 import ConfirmDialog from "./ConfirmDialog";
 import {
   Shield,
@@ -57,6 +58,12 @@ export default function AdminPanel({
   const [editingSubscriptionUser, setEditingSubscriptionUser] = useState<User | null>(null);
   const [subStatus, setSubStatus] = useState<'active' | 'inactive' | 'expired'>('inactive');
   const [subPlan, setSubPlan] = useState<'monthly' | 'yearly' | 'none'>('none');
+  // Dias a conceder quando subStatus = 'active' — o que de fato libera o
+  // acesso é subscriptionCurrentPeriodEnd (não subscriptionStatus/Plan, que
+  // são só rótulos), então precisamos saber quantos dias somar. Pré-preenchido
+  // com a duração real do plano (PLANS[plan].days) para reconciliar um
+  // pagamento manualmente com o mesmo resultado de um pagamento automático.
+  const [subDays, setSubDays] = useState("30");
 
   // Helper to format date nicely
   const formatDateString = (isoString?: string) => {
@@ -142,14 +149,42 @@ export default function AdminPanel({
     }
   };
 
+  // subscriptionStatus/subscriptionPlan são só rótulos de exibição — quem
+  // realmente libera os scanners é subscriptionCurrentPeriodEnd (ver
+  // getAccessState em src/subscription.ts). Este handler existe para
+  // reconciliar manualmente um pagamento que o webhook do Mercado Pago não
+  // processou (ver o log em Logs → Erros): marcar "Ativa" aqui precisa
+  // conceder o mesmo período real que um pagamento automático concederia, e
+  // marcar "Inativa"/"Expirada" precisa revogar o acesso de verdade — senão
+  // um período pago ainda vigente continuaria liberando o app mesmo com o
+  // rótulo dizendo "inativo".
   const handleSubscriptionSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingSubscriptionUser) return;
+
+    let subscriptionCurrentPeriodEnd: string;
+    if (subStatus === "active") {
+      const days = parseInt(subDays, 10);
+      if (isNaN(days) || days <= 0) {
+        onNotify("Informe um número de dias válido para conceder.");
+        return;
+      }
+      const currentEnd = editingSubscriptionUser.subscriptionCurrentPeriodEnd
+        ? new Date(editingSubscriptionUser.subscriptionCurrentPeriodEnd)
+        : new Date();
+      const base = currentEnd.getTime() > Date.now() ? currentEnd : new Date();
+      subscriptionCurrentPeriodEnd = new Date(base.getTime() + days * 24 * 60 * 60 * 1000).toISOString();
+    } else {
+      // Data bem no passado: garante que getAccessState nunca a trate como
+      // vigente, sem precisar de suporte a "campo ausente" nas regras.
+      subscriptionCurrentPeriodEnd = new Date(0).toISOString();
+    }
 
     const success = await onUpdateUser({
       ...editingSubscriptionUser,
       subscriptionStatus: subStatus,
       subscriptionPlan: subPlan,
+      subscriptionCurrentPeriodEnd,
     });
 
     if (success) {
@@ -298,7 +333,7 @@ export default function AdminPanel({
         </div>
 
         {/* Registered Users List */}
-        <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
+        <div className="space-y-3">
           {filteredUsers.length === 0 ? (
             <div className="bg-white border border-brand-cream-darker rounded-3xl p-8 text-center text-gray-400">
               <AlertCircle className="w-8 h-8 mx-auto mb-2 text-gray-300" />
@@ -309,7 +344,12 @@ export default function AdminPanel({
               const isSuspended = u.status === "suspended";
               const isAdmin = u.role === "admin";
               const trial = getTrialInfo(u.freeTrialUntil);
-              const hasActiveSub = u.subscriptionStatus === "active";
+              // O acesso REAL vem da data (subscriptionCurrentPeriodEnd via
+              // getAccessState), não do rótulo subscriptionStatus — os dois
+              // podem divergir se um pagamento foi reconciliado à mão antes
+              // desta correção, ou se o período simplesmente já venceu.
+              const accessState = getAccessState(u);
+              const hasActiveSub = accessState === "active" || accessState === "grace";
 
               return (
                 <div
@@ -325,21 +365,21 @@ export default function AdminPanel({
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <h4 className="text-xs font-bold text-brand-teal leading-tight">{u.name}</h4>
+                        <h4 className="text-sm font-bold text-brand-teal leading-tight">{u.name}</h4>
                         {isAdmin && (
-                          <span className="text-[8px] font-extrabold bg-brand-coral/15 text-brand-coral px-1 py-0.5 rounded-sm uppercase tracking-wider">
+                          <span className="text-[10px] font-extrabold bg-brand-coral/15 text-brand-coral px-1.5 py-0.5 rounded-sm uppercase tracking-wider">
                             Admin
                           </span>
                         )}
                         <span
-                          className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide ${
+                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide ${
                             isSuspended ? "bg-red-100 text-red-600" : "bg-emerald-100 text-emerald-600"
                           }`}
                         >
                           {isSuspended ? "Bloqueado" : "Ativo"}
                         </span>
                       </div>
-                      <p className="text-[10px] text-gray-400 font-mono mt-0.5">{u.email}</p>
+                      <p className="text-xs text-gray-400 font-mono mt-0.5">{u.email}</p>
                     </div>
 
                     {/* Quick switch roles & delete actions */}
@@ -353,7 +393,7 @@ export default function AdminPanel({
                           `node server/setAdminClaim.js <email>`. */}
                       {isAdmin && (
                         <span
-                          className="p-1 rounded-md border text-[9px] font-bold bg-brand-coral-light/10 text-brand-coral border-brand-coral/10"
+                          className="p-1 rounded-md border text-xs font-bold bg-brand-coral-light/10 text-brand-coral border-brand-coral/10"
                           title="Papel definido pela custom claim do Firebase (server/setAdminClaim.js)"
                         >
                           Admin
@@ -392,14 +432,14 @@ export default function AdminPanel({
                   <div className="border-t border-brand-cream-darker/60 my-1"></div>
 
                   {/* Core Platform Management (Trial & Subscription Details) */}
-                  <div className="grid grid-cols-2 gap-2 text-[10px]">
+                  <div className="grid grid-cols-2 gap-2 text-xs">
                     {/* Trial Status Section */}
                     <div className="bg-brand-cream/40 rounded-xl p-2 border border-brand-cream-darker/50 space-y-1">
                       <div className="flex items-center gap-1 text-brand-teal font-semibold">
-                        <Gift className="w-3 h-3 text-brand-coral shrink-0" />
+                        <Gift className="w-3.5 h-3.5 text-brand-coral shrink-0" />
                         <span>Gratuidade / Teste</span>
                       </div>
-                      <div className="text-[9px] text-gray-500 leading-tight">
+                      <div className="text-xs text-gray-500 leading-tight">
                         Status: <strong className={trial.status === "active" ? "text-emerald-600" : "text-red-500"}>
                           {trial.status === "active" ? "Válido" : "Expirado"}
                         </strong>
@@ -407,7 +447,7 @@ export default function AdminPanel({
                       </div>
                       <button
                         onClick={() => setEditingTrialUser(u)}
-                        className="w-full mt-1.5 bg-white border border-brand-cream-darker hover:bg-brand-peach text-[9px] font-bold text-brand-teal uppercase rounded-lg py-1 transition-colors"
+                        className="w-full mt-1.5 bg-white border border-brand-cream-darker hover:bg-brand-peach text-xs font-bold text-brand-teal uppercase rounded-lg py-1.5 transition-colors"
                       >
                         Conceder Dias
                       </button>
@@ -416,24 +456,31 @@ export default function AdminPanel({
                     {/* Subscription Section */}
                     <div className="bg-brand-cream/40 rounded-xl p-2 border border-brand-cream-darker/50 space-y-1">
                       <div className="flex items-center gap-1 text-brand-teal font-semibold">
-                        <CreditCard className="w-3 h-3 text-brand-teal shrink-0" />
+                        <CreditCard className="w-3.5 h-3.5 text-brand-teal shrink-0" />
                         <span>Assinatura</span>
                       </div>
-                      <div className="text-[9px] text-gray-500 leading-tight">
-                        Status: <strong className={hasActiveSub ? "text-emerald-600" : "text-gray-400"}>
-                          {hasActiveSub ? "Ativa" : "Inativa"}
+                      <div className="text-xs text-gray-500 leading-tight">
+                        Acesso real: <strong className={hasActiveSub ? "text-emerald-600" : "text-gray-400"}>
+                          {accessState === "active" ? "Ativa" : accessState === "grace" ? "Carência" : accessState === "trial" ? "Trial" : "Bloqueada"}
                         </strong>
                         <div className="truncate text-gray-400 mt-0.5">
                           Plano: <span className="capitalize font-semibold text-brand-teal">{u.subscriptionPlan || "Nenhum"}</span>
                         </div>
+                        {hasActiveSub && u.subscriptionCurrentPeriodEnd && (
+                          <div className="truncate text-gray-400 mt-0.5">
+                            Válida até {formatDateString(u.subscriptionCurrentPeriodEnd)}
+                          </div>
+                        )}
                       </div>
                       <button
                         onClick={() => {
                           setEditingSubscriptionUser(u);
                           setSubStatus(u.subscriptionStatus || 'inactive');
+                          const nextPlan = u.subscriptionPlan && u.subscriptionPlan !== 'none' ? u.subscriptionPlan : 'monthly';
                           setSubPlan(u.subscriptionPlan || 'none');
+                          setSubDays(String(PLANS[nextPlan as PlanId].days));
                         }}
-                        className="w-full mt-1.5 bg-white border border-brand-cream-darker hover:bg-brand-peach text-[9px] font-bold text-brand-teal uppercase rounded-lg py-1 transition-colors"
+                        className="w-full mt-1.5 bg-white border border-brand-cream-darker hover:bg-brand-peach text-xs font-bold text-brand-teal uppercase rounded-lg py-1.5 transition-colors"
                       >
                         Gerenciar
                       </button>
@@ -441,20 +488,20 @@ export default function AdminPanel({
                   </div>
 
                   {/* Trial Scan Limit Section (Gemini cost protection) */}
-                  <div className="bg-brand-cream/40 rounded-xl p-2 border border-brand-cream-darker/50 flex items-center justify-between gap-2 text-[10px]">
+                  <div className="bg-brand-cream/40 rounded-xl p-2 border border-brand-cream-darker/50 flex items-center justify-between gap-2 text-xs">
                     <div className="min-w-0">
                       <div className="flex items-center gap-1 text-brand-teal font-semibold">
-                        <Award className="w-3 h-3 text-brand-coral shrink-0" />
+                        <Award className="w-3.5 h-3.5 text-brand-coral shrink-0" />
                         <span>Limite de Scans Gratuitos</span>
                       </div>
-                      <div className="text-[9px] text-gray-500 mt-0.5">
+                      <div className="text-xs text-gray-500 mt-0.5">
                         Receita: <strong>{u.trialPrescriptionScansUsed || 0}/1</strong> · Nota: <strong>{u.trialReceiptScansUsed || 0}/1</strong>
                         {u.scanLimitExempt && <span className="text-emerald-600 font-bold ml-1">(Isento)</span>}
                       </div>
                     </div>
                     <button
                       onClick={() => handleToggleScanExempt(u)}
-                      className={`shrink-0 text-[9px] font-bold uppercase rounded-lg px-2.5 py-1.5 border transition-colors ${
+                      className={`shrink-0 text-xs font-bold uppercase rounded-lg px-2.5 py-1.5 border transition-colors ${
                         u.scanLimitExempt
                           ? "bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100"
                           : "bg-white text-brand-teal border-brand-cream-darker hover:bg-brand-peach"
@@ -472,15 +519,15 @@ export default function AdminPanel({
                         setEditingPasswordUser(u);
                         setNewPassword("");
                       }}
-                      className="flex-1 bg-brand-cream-dark text-brand-teal hover:bg-brand-peach border border-brand-cream-darker rounded-xl py-1.5 text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1 transition-colors"
+                      className="flex-1 bg-brand-cream-dark text-brand-teal hover:bg-brand-peach border border-brand-cream-darker rounded-xl py-1.5 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1 transition-colors"
                     >
-                      <Lock className="w-3 h-3 text-brand-teal" /> Alterar Senha
+                      <Lock className="w-3.5 h-3.5 text-brand-teal" /> Alterar Senha
                     </button>
 
                     {/* Ativar/Desativar Button */}
                     <button
                       onClick={() => handleToggleStatus(u)}
-                      className={`flex-1 rounded-xl py-1.5 text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1 transition-all ${
+                      className={`flex-1 rounded-xl py-1.5 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1 transition-all ${
                         isSuspended
                           ? "bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100"
                           : "bg-red-50 text-red-500 border border-red-100 hover:bg-red-100"
@@ -488,11 +535,11 @@ export default function AdminPanel({
                     >
                       {isSuspended ? (
                         <>
-                          <UserCheck className="w-3 h-3 text-emerald-600" /> Ativar Usuário
+                          <UserCheck className="w-3.5 h-3.5 text-emerald-600" /> Ativar Usuário
                         </>
                       ) : (
                         <>
-                          <UserX className="w-3 h-3 text-red-500" /> Desativar Conta
+                          <UserX className="w-3.5 h-3.5 text-red-500" /> Desativar Conta
                         </>
                       )}
                     </button>
@@ -601,7 +648,11 @@ export default function AdminPanel({
                 </label>
                 <select
                   value={subPlan}
-                  onChange={(e) => setSubPlan(e.target.value as any)}
+                  onChange={(e) => {
+                    const nextPlan = e.target.value as 'monthly' | 'yearly' | 'none';
+                    setSubPlan(nextPlan);
+                    if (nextPlan !== 'none') setSubDays(String(PLANS[nextPlan].days));
+                  }}
                   className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden"
                 >
                   <option value="none">Nenhum Plano Ativo</option>
@@ -609,6 +660,29 @@ export default function AdminPanel({
                   <option value="yearly">Plano Anual (Premium)</option>
                 </select>
               </div>
+
+              {subStatus === "active" && (
+                <div>
+                  <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
+                    Dias a Conceder
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={subDays}
+                    onChange={(e) => setSubDays(e.target.value)}
+                    className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden"
+                  />
+                  <p className="text-[10px] text-gray-400 mt-1 leading-snug">
+                    Somado ao período restante (se houver). Use para reconciliar manualmente um pagamento
+                    aprovado no Mercado Pago que não ativou sozinho — confira o valor/ID do pagamento no
+                    painel do Mercado Pago antes de conceder.
+                    {editingSubscriptionUser.subscriptionCurrentPeriodEnd && (
+                      <> Válido atualmente até {formatDateString(editingSubscriptionUser.subscriptionCurrentPeriodEnd)}.</>
+                    )}
+                  </p>
+                </div>
+              )}
 
               <div className="flex space-x-2 pt-2">
                 <button

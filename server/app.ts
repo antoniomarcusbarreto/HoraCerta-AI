@@ -1476,6 +1476,28 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
   app.post("/api/mercadopago/webhook", async (req, res) => {
     try {
       if (!validateMpSignature(req)) {
+        // This is a PUBLIC, unauthenticated endpoint — random bot/scanner
+        // traffic hitting it with no real payload is expected noise and would
+        // flood errorLogs if logged unconditionally. Only log when the request
+        // actually looks like a genuine (or spoofed-to-look-genuine) Mercado
+        // Pago call — has an x-signature header AND a payment id — since
+        // THAT combination rejected is the signal that either MP_WEBHOOK_SECRET
+        // is misconfigured (every real payment silently fails to activate) or
+        // someone is probing the endpoint. Money can have already moved on
+        // Mercado Pago's side by the time this fires, so this must never be silent.
+        const dataIdRaw = (req.query["data.id"] ?? req.body?.data?.id) as string | undefined;
+        const looksGenuine = typeof req.headers["x-signature"] === "string" && !!dataIdRaw;
+        if (looksGenuine) {
+          await logServerError(
+            "POST /api/mercadopago/webhook (assinatura rejeitada)",
+            new Error(
+              `Webhook rejeitado para payment.id=${dataIdRaw}. ` +
+              (process.env.MP_WEBHOOK_SECRET
+                ? "MP_WEBHOOK_SECRET está configurado mas não bateu com a assinatura recebida — confira se é o valor ATUAL do painel do Mercado Pago (Webhooks)."
+                : "MP_WEBHOOK_SECRET NÃO está configurado no ambiente — todo webhook real está sendo rejeitado agora. Configure-o na Vercel e faça um redeploy.")
+            )
+          );
+        }
         res.status(401).json({ error: "Assinatura do webhook inválida." });
         return;
       }
@@ -1502,6 +1524,20 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
         }
         if (uid && plan) {
           await activateSubscription(uid, plan, info.id ?? dataId);
+        } else {
+          // Money already moved on Mercado Pago's side (status === "approved")
+          // but we couldn't tell who to credit or which plan — must never fail
+          // silently. Surfaces in Admin Portal → Logs → Erros so an operator
+          // can reconcile manually via "Gerenciar Assinatura", cross-checking
+          // this payment id against the Mercado Pago dashboard.
+          await logServerError(
+            "POST /api/mercadopago/webhook (pagamento aprovado sem uid/plano)",
+            new Error(
+              `Pagamento ${info.id ?? dataId} aprovado (R$ ${info.transaction_amount}) mas uid=${uid ?? "?"} plan=${plan ?? "?"} — ` +
+              `não foi possível ativar a assinatura automaticamente. Verifique este pagamento no painel do Mercado Pago e ative manualmente pelo Painel Admin.`
+            ),
+            uid
+          );
         }
       }
 
