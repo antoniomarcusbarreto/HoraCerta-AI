@@ -310,6 +310,29 @@ export default function App() {
     syncSubscription();
   }, [activeUser?.userId, syncSubscription]);
 
+  // Same reasoning as the auth-session foreground check above: a PWA installed
+  // on mobile is backgrounded/foregrounded without a full document reload, so
+  // an already-mounted session's subscription fields go stale while the app
+  // sits in the background — an admin reconciling a payment (or the Mercado
+  // Pago webhook finally landing) never reaches it otherwise. This is exactly
+  // what left a user seeing "expirada" on their phone after an admin had
+  // already granted real access server-side: reopening the already-running
+  // app is a foreground event, not a fresh mount, so the login-sync effect
+  // above never re-fires.
+  useEffect(() => {
+    if (!activeUser) return;
+    let lastChecked = 0;
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastChecked < 5 * 60 * 1000) return;
+      lastChecked = now;
+      syncSubscription();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [activeUser?.userId, syncSubscription]);
+
   // Returning from the card Checkout Pro (MP redirects to /app?sub=...). The
   // Mercado Pago webhook that actually activates the subscription can land a
   // few seconds AFTER this redirect, and Firebase Auth may not have finished
