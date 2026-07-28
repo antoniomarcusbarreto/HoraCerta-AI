@@ -79,8 +79,14 @@
   .btn--coral:hover{background:var(--coral-light);transform:translateY(-2px);box-shadow:0 14px 28px -10px rgba(214,133,60,.65);}
   .btn--ghost-cream{background:transparent;border-color:rgba(253,251,247,.35);color:var(--cream);}
   .btn--ghost-cream:hover{border-color:var(--cream);background:rgba(253,251,247,.08);transform:translateY(-2px);}
+  /* quiet: secondary action for people who already have an account */
+  .btn--quiet{background:transparent;border-color:var(--cream-darker);color:var(--teal);font-weight:500;}
+  .btn--quiet:hover{border-color:var(--teal);background:var(--cream-dark);transform:translateY(-1px);}
   .btn svg{width:15px;height:15px;}
   .nav .btn{padding:10px 20px;font-size:13px;}
+  .nav-actions{display:flex;align-items:center;gap:10px;}
+  /* billing disclosure sitting directly under a signup CTA */
+  .cta-fineprint{margin-top:14px;font-family:var(--sans);font-size:12.5px;color:var(--cream-70);}
 
   /* ---------- hero ---------- */
   .hero{position:relative;background:linear-gradient(155deg,var(--teal) 0%,var(--teal-deep) 78%);overflow:hidden;padding:76px 0 110px;}
@@ -141,15 +147,20 @@
   .bn-fab svg{width:16px;height:16px;color:var(--teal-deep);}
 
   /* ---------- empathy ---------- */
-  .empathy{padding:96px 0 84px;}
-  .empathy-inner{max-width:760px;}
+  /* Two columns so the pain points sit beside the headline instead of floating
+     in dead space, and a tight bottom pad so it reads into the next section. */
+  .empathy{padding:88px 0 40px;}
+  .empathy-inner{display:grid;grid-template-columns:1.02fr .98fr;gap:56px;align-items:center;}
   .empathy h2{font-family:var(--serif);font-size:clamp(24px,3vw,34px);font-weight:600;color:var(--teal);margin-top:14px;line-height:1.28;}
-  .pain-chips{display:flex;flex-wrap:wrap;gap:10px;margin:30px 0;}
-  .pain-chip{font-family:var(--sans);font-size:13px;font-weight:500;color:var(--ink-soft);background:var(--cream-dark);border:1px solid var(--cream-darker);padding:9px 16px;border-radius:100px;text-decoration:line-through;text-decoration-color:var(--coral);text-decoration-thickness:1.5px;}
-  .empathy-resolve{font-family:var(--serif);font-style:italic;font-weight:500;color:var(--coral-deep);font-size:19px;}
+  .pain-chips{display:flex;flex-direction:column;align-items:flex-start;gap:12px;}
+  .pain-chip{display:flex;align-items:center;gap:12px;font-family:var(--sans);font-size:14.5px;font-weight:600;color:var(--ink);background:var(--cream-dark);border:1px solid var(--cream-darker);padding:14px 20px;border-radius:100px;}
+  .pain-chip s{text-decoration:line-through;text-decoration-color:var(--coral-deep);text-decoration-thickness:2px;}
+  .pain-chip svg{width:18px;height:18px;color:var(--coral-deep);flex-shrink:0;}
+  .empathy-resolve{margin-top:22px;font-family:var(--serif);font-style:italic;font-weight:500;color:var(--coral-deep);font-size:19px;}
 
   /* ---------- flagship features ---------- */
   .feature-row{display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:center;padding:64px 0;}
+  .feature-row:first-child{padding-top:36px;}
   .feature-row + .feature-row{border-top:1px solid var(--cream-darker);}
   .feature-row.reverse .feature-art{order:2;}
   .feature-copy h3{font-family:var(--serif);font-weight:600;color:var(--teal);font-size:clamp(22px,2.6vw,30px);line-height:1.24;margin-top:12px;}
@@ -170,12 +181,18 @@
   .scan-chip{position:absolute;background:var(--teal);color:var(--cream);font-family:var(--sans);font-size:10px;font-weight:700;padding:6px 10px;border-radius:100px;box-shadow:0 10px 18px -8px rgba(13,62,70,.5);animation:chipin .6s var(--ease) both;}
   @keyframes chipin{from{opacity:0;transform:translateY(8px) scale(.9);}to{opacity:1;transform:translateY(0) scale(1);}}
 
-  /* patients illustration */
-  .art-patients{position:relative;width:220px;height:180px;}
-  .pat-hub{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:52px;height:52px;border-radius:50%;background:var(--teal);display:flex;align-items:center;justify-content:center;box-shadow:0 14px 26px -12px rgba(13,62,70,.55);}
-  .pat-hub svg{width:22px;height:22px;color:var(--cream);}
-  .pat-node{position:absolute;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-family:var(--sans);font-weight:700;font-size:12px;box-shadow:0 10px 20px -10px rgba(0,0,0,.35);}
-  .pat-line{position:absolute;border-top:1.5px dashed var(--cream-darker);transform-origin:left center;}
+  /* patients illustration — concrete stacked patient cards, echoing the hero mockup */
+  .art-family{width:266px;display:flex;flex-direction:column;gap:12px;}
+  .fam-card{display:flex;align-items:center;gap:13px;background:var(--cream);border:1px solid var(--cream-darker);border-radius:16px;padding:13px 16px;box-shadow:0 16px 28px -20px rgba(13,62,70,.45);}
+  .fam-card:nth-child(2){margin-left:18px;}
+  .fam-card:nth-child(3){margin-left:36px;}
+  .fam-card--add{background:transparent;border-style:dashed;box-shadow:none;}
+  .fam-avatar{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-family:var(--sans);font-size:14px;font-weight:700;flex-shrink:0;}
+  .fam-avatar--add{background:var(--cream-darker);color:var(--teal);font-size:20px;}
+  .fam-name{font-family:var(--sans);font-size:13.5px;font-weight:700;color:var(--teal);}
+  .fam-name--muted{color:var(--ink-soft);font-weight:500;}
+  .fam-tag{display:inline-block;margin-top:4px;background:var(--peach);color:var(--coral-deep);font-family:var(--sans);font-size:9px;font-weight:700;letter-spacing:.05em;padding:3px 8px;border-radius:100px;}
+  .fam-meta{font-size:11px;color:var(--ink-soft);margin-top:5px;}
 
   /* reminders illustration */
   .art-remind{width:230px;}
@@ -197,8 +214,11 @@
   .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;}
   .sec-card{background:var(--cream);border:1px solid var(--cream-darker);border-radius:20px;padding:26px 22px;transition:transform .28s var(--ease),box-shadow .28s var(--ease),border-color .28s var(--ease);}
   .sec-card:hover{transform:translateY(-5px);box-shadow:0 24px 40px -22px rgba(13,62,70,.25);border-color:var(--cream-darker);}
-  .sec-icon{width:38px;height:38px;border-radius:11px;background:var(--peach);display:flex;align-items:center;justify-content:center;color:var(--coral-deep);margin-bottom:16px;}
-  .sec-icon svg{width:19px;height:19px;}
+  /* Alternating chip tones + distinct glyphs per card, so the four scan apart fast */
+  .sec-icon{width:46px;height:46px;border-radius:14px;display:flex;align-items:center;justify-content:center;margin-bottom:18px;}
+  .sec-icon svg{width:23px;height:23px;}
+  .sec-icon--peach{background:var(--peach);color:var(--coral-deep);}
+  .sec-icon--teal{background:var(--teal-pale);color:var(--teal);}
   .sec-card h4{font-family:var(--sans);font-weight:700;font-size:15px;color:var(--teal);}
   .sec-card p{font-size:13.5px;color:var(--ink-soft);margin-top:8px;line-height:1.55;}
 
@@ -229,13 +249,27 @@
   .lock-badge svg{width:34px;height:34px;color:var(--teal-deep);}
 
   /* ---------- final cta ---------- */
-  .final-cta{position:relative;background:linear-gradient(155deg,var(--teal) 0%,var(--teal-deep) 85%);padding:120px 0;text-align:center;overflow:hidden;}
-  .final-cta::before{content:"";position:absolute;inset:0;background-image:radial-gradient(circle at 1px 1px, rgba(253,251,247,.05) 1px, transparent 0);background-size:26px 26px;}
-  .final-glow{position:absolute;width:520px;height:520px;border-radius:50%;background:radial-gradient(circle,rgba(234,161,95,.24) 0%,rgba(234,161,95,0) 68%);left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none;}
+  /* Deliberately not a repeat of the hero: lighter teal, opposite gradient angle,
+     diagonal hairlines instead of the dot grid, glow anchored bottom-left. */
+  .final-cta{position:relative;background:linear-gradient(115deg,var(--teal-light) 0%,var(--teal) 54%,var(--teal-deep) 100%);padding:100px 0 108px;text-align:center;overflow:hidden;}
+  .final-cta::before{content:"";position:absolute;inset:0;background-image:repeating-linear-gradient(45deg,rgba(253,251,247,.05) 0 1px,transparent 1px 15px);}
+  .final-cta::after{content:"";position:absolute;left:50%;bottom:-300px;width:660px;height:660px;transform:translateX(-50%);border-radius:50%;border:1px solid rgba(253,251,247,.13);pointer-events:none;}
+  .final-glow{position:absolute;width:560px;height:560px;border-radius:50%;background:radial-gradient(circle,rgba(234,161,95,.22) 0%,rgba(234,161,95,0) 70%);left:-150px;bottom:-210px;pointer-events:none;}
   .final-cta-inner{position:relative;max-width:640px;margin:0 auto;}
   .final-cta h2{font-family:var(--serif);font-weight:600;color:var(--cream);font-size:clamp(30px,4.4vw,48px);line-height:1.12;}
   .final-cta p{margin-top:18px;color:var(--cream-70);font-size:16px;}
   .final-cta .hero-cta{justify-content:center;margin-top:34px;}
+  /* small push-notification illustration — mirrors the app's real reminder copy */
+  .push-demo{display:flex;gap:12px;align-items:flex-start;text-align:left;max-width:352px;margin:0 auto 36px;background:rgba(253,251,247,.97);border:1px solid rgba(253,251,247,.6);border-radius:16px;padding:13px 15px;box-shadow:0 28px 52px -24px rgba(0,0,0,.6);transform:rotate(-1.6deg);}
+  .push-icon{width:34px;height:34px;border-radius:10px;background:var(--teal);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .push-icon svg{width:17px;height:17px;color:var(--coral-light);}
+  .push-app{display:flex;align-items:center;justify-content:space-between;gap:10px;font-family:var(--sans);font-size:9px;font-weight:700;letter-spacing:.12em;color:var(--coral-deep);}
+  .push-app span{letter-spacing:0;font-weight:500;color:var(--ink-soft);}
+  .push-title{font-family:var(--sans);font-size:13px;font-weight:700;color:var(--teal);margin-top:5px;}
+  .push-text{font-size:11.5px;color:var(--ink-soft);margin-top:2px;line-height:1.45;}
+  .final-signin{display:inline-block;margin-top:20px;font-family:var(--sans);font-size:13.5px;color:var(--cream-70);transition:color .2s;}
+  .final-signin strong{color:var(--coral-light);font-weight:700;border-bottom:1px solid rgba(243,188,139,.5);}
+  .final-signin:hover strong{border-bottom-color:var(--coral-light);}
 
   /* ---------- footer ---------- */
   footer{background:var(--cream-darker);padding:56px 0 30px;}
@@ -257,6 +291,7 @@
     .hero-sub{margin-left:auto;margin-right:auto;}
     .hero-cta,.hero-note{justify-content:center;}
     .phone-stage{order:2;margin-top:24px;}
+    .empathy-inner{grid-template-columns:1fr;gap:34px;}
     .feature-row{grid-template-columns:1fr;gap:32px;}
     .feature-row.reverse .feature-art{order:0;}
     .grid4{grid-template-columns:repeat(2,1fr);}
@@ -270,6 +305,9 @@
     .grid4{grid-template-columns:1fr;}
     .phone{width:240px;}
     .btn{font-size:13px;padding:12px 20px;}
+    .art-family{width:100%;}
+    .fam-card:nth-child(2),.fam-card:nth-child(3){margin-left:0;}
+    .pain-chip{font-size:13.5px;padding:12px 16px;}
   }
 </style>
 </head>
@@ -282,7 +320,10 @@
       <li><a href="#funcionalidades">Funcionalidades</a></li>
       <li><a href="#como-funciona">Como funciona</a></li>
       <li><a href="#seguranca">Segurança</a></li>
-      <li><a class="btn btn--coral" href="/app" onclick="sessionStorage.setItem('horacerta_desktop_enter','1')" style="margin-top:6px;">Acessar o app</a></li>
+      <li class="nav-actions">
+        <a class="btn btn--quiet" href="/app" onclick="sessionStorage.setItem('horacerta_desktop_enter','1')">Entrar</a>
+        <a class="btn btn--coral" href="/app#cadastro" onclick="sessionStorage.setItem('horacerta_desktop_enter','1')">Começar grátis</a>
+      </li>
     </ul>
     <button class="nav-toggle" id="navToggle" aria-label="Abrir menu" aria-expanded="false">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
@@ -301,12 +342,13 @@
         <h1 class="reveal">Cuidar de quem você ama,<br><em>na hora certa.</em></h1>
         <p class="hero-sub reveal">Hora Certa AI reúne remédios, receitas e consultas de toda a família em um só lugar — com leitura de receitas por inteligência artificial e lembretes que chegam no minuto certo.</p>
         <div class="hero-cta reveal">
-          <a class="btn btn--coral" href="/app" onclick="sessionStorage.setItem('horacerta_desktop_enter','1')">
-            Acessar o aplicativo
+          <a class="btn btn--coral" href="/app#cadastro" onclick="sessionStorage.setItem('horacerta_desktop_enter','1')">
+            Começar teste grátis de 7 dias
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
           </a>
           <a class="btn btn--ghost-cream" href="#funcionalidades">Ver como funciona</a>
         </div>
+        <p class="cta-fineprint reveal">Grátis por 7 dias — depois, assinatura mensal.</p>
         <div class="hero-note reveal">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
           Cada conta enxerga só os próprios dados. Sincronização segura na nuvem — funciona até offline.
@@ -396,14 +438,25 @@
   <!-- EMPATHY -->
   <section class="empathy">
     <div class="wrap empathy-inner reveal">
-      <p class="eyebrow eyebrow--coral">O QUE MOTIVOU O HORA CERTA</p>
-      <h2>Cuidar de várias pessoas ao mesmo tempo não devia ser tão difícil.</h2>
-      <div class="pain-chips">
-        <span class="pain-chip">Esquecer uma dose às 15h</span>
-        <span class="pain-chip">Receita amassada no fundo da bolsa</span>
-        <span class="pain-chip">Qual farmácia tinha o menor preço mesmo?</span>
+      <div>
+        <p class="eyebrow eyebrow--coral">O QUE MOTIVOU O HORA CERTA</p>
+        <h2>Cuidar de várias pessoas ao mesmo tempo não devia ser tão difícil.</h2>
+        <p class="empathy-resolve">É exatamente para isso que o Hora Certa existe.</p>
       </div>
-      <p class="empathy-resolve">É exatamente para isso que o Hora Certa existe.</p>
+      <ul class="pain-chips">
+        <li class="pain-chip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 12.2l2.4 2.4 4.6-5"/></svg>
+          <s>Esquecer uma dose às 15h</s>
+        </li>
+        <li class="pain-chip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 12.2l2.4 2.4 4.6-5"/></svg>
+          <s>Receita amassada no fundo da bolsa</s>
+        </li>
+        <li class="pain-chip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 12.2l2.4 2.4 4.6-5"/></svg>
+          <s>Qual farmácia tinha o menor preço mesmo?</s>
+        </li>
+      </ul>
     </div>
   </section>
 
@@ -442,14 +495,27 @@
           <p>Cadastre filhos, pais ou qualquer pessoa sob seus cuidados — cada um com seu próprio histórico de remédios, receitas e consultas, tudo organizado dentro da sua conta.</p>
         </div>
         <div class="feature-art reveal">
-          <div class="art-patients">
-            <div class="pat-line" style="width:70px;top:50px;left:70px;transform:rotate(-28deg);"></div>
-            <div class="pat-line" style="width:70px;top:95px;left:70px;transform:rotate(18deg);"></div>
-            <div class="pat-line" style="width:70px;top:130px;left:70px;transform:rotate(52deg);"></div>
-            <div class="pat-hub"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v9h14v-9"/></svg></div>
-            <div class="pat-node avatar--a" style="top:16px;left:20px;">LB</div>
-            <div class="pat-node avatar--b" style="top:70px;left:0;">SC</div>
-            <div class="pat-node" style="top:126px;left:24px;background:linear-gradient(135deg,var(--ink-soft),var(--teal));">+</div>
+          <div class="art-family">
+            <div class="fam-card">
+              <div class="fam-avatar avatar--a">LB</div>
+              <div>
+                <div class="fam-name">Lívia Barreto</div>
+                <span class="fam-tag">FILHA</span>
+                <div class="fam-meta">2 medicamentos ativos</div>
+              </div>
+            </div>
+            <div class="fam-card">
+              <div class="fam-avatar avatar--b">SC</div>
+              <div>
+                <div class="fam-name">Seu Carlos</div>
+                <span class="fam-tag">PAI</span>
+                <div class="fam-meta">4 medicamentos ativos</div>
+              </div>
+            </div>
+            <div class="fam-card fam-card--add">
+              <div class="fam-avatar fam-avatar--add">+</div>
+              <div class="fam-name fam-name--muted">Adicionar paciente</div>
+            </div>
           </div>
         </div>
       </div>
@@ -493,22 +559,22 @@
       </div>
       <div class="grid4 reveal-stagger">
         <div class="sec-card">
-          <div class="sec-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 3v3M16 3v3M8 12h8M8 16h5"/></svg></div>
+          <div class="sec-icon sec-icon--peach"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v5a4 4 0 0 0 8 0V3"/><path d="M4 3h3M13 3h3"/><path d="M10 12v3a5 5 0 0 0 10 0v-1.2"/><circle cx="20" cy="10.6" r="2.1"/></svg></div>
           <h4>Consultas Médicas</h4>
           <p>Agende e acompanhe as consultas de cada paciente, com médico, especialidade e local.</p>
         </div>
         <div class="sec-card">
-          <div class="sec-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-4.6-9.4-9A5.4 5.4 0 0 1 12 6a5.4 5.4 0 0 1 9.4 6c-2.4 4.4-9.4 9-9.4 9Z"/></svg></div>
+          <div class="sec-icon sec-icon--teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21.5s7-5.9 7-11.1a7 7 0 1 0-14 0c0 5.2 7 11.1 7 11.1Z"/><path d="M12 7.2v6M9 10.2h6"/></svg></div>
           <h4>Farmácias Favoritas</h4>
           <p>Salve as farmácias mais próximas e de confiança para cada tratamento.</p>
         </div>
         <div class="sec-card">
-          <div class="sec-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l3 3v15l-3-2-3 2-3-2-3 2V3Z"/><path d="M9 9h6M9 13h6"/></svg></div>
+          <div class="sec-icon sec-icon--peach"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h14v18l-2.3-1.6L14.3 21l-2.3-1.6L9.7 21l-2.4-1.6L5 21V3Z"/><path d="M9 8.5h6M9 12.5h6M9 16.5h3"/></svg></div>
           <h4>Cupons Fiscais</h4>
           <p>Fotografe a nota da farmácia e acompanhe quanto sua família gasta com saúde.</p>
         </div>
         <div class="sec-card">
-          <div class="sec-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l4 2"/></svg></div>
+          <div class="sec-icon sec-icon--teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21h16"/><path d="M7.5 21v-7M12 21V6.5M16.5 21v-4.5"/></svg></div>
           <h4>Histórico Completo</h4>
           <p>Veja o que foi tomado, quando, e compare com o horário planejado.</p>
         </div>
@@ -568,14 +634,26 @@
   <section class="final-cta">
     <div class="final-glow"></div>
     <div class="wrap final-cta-inner reveal">
+      <div class="push-demo">
+        <div class="push-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15v-4a6 6 0 1 0-12 0v4l-1.6 2.4h15.2L18 15Z"/><path d="M10 20.5h4"/></svg>
+        </div>
+        <div>
+          <div class="push-app">HORA CERTA AI <span>agora</span></div>
+          <div class="push-title">Lembrete de medicamento</div>
+          <div class="push-text">Você tem uma nova dose pendente. Abra o aplicativo para verificar os detalhes.</div>
+        </div>
+      </div>
       <h2>Comece a cuidar com a hora certa.</h2>
       <p>Leva menos de dois minutos para cadastrar o primeiro paciente.</p>
       <div class="hero-cta">
-        <a class="btn btn--coral" href="/app" onclick="sessionStorage.setItem('horacerta_desktop_enter','1')">
-          Acessar o aplicativo agora
+        <a class="btn btn--coral" href="/app#cadastro" onclick="sessionStorage.setItem('horacerta_desktop_enter','1')">
+          Começar teste grátis de 7 dias
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
         </a>
       </div>
+      <p class="cta-fineprint">Grátis por 7 dias — depois, assinatura mensal.</p>
+      <a class="final-signin" href="/app" onclick="sessionStorage.setItem('horacerta_desktop_enter','1')">Já tem conta? <strong>Entrar</strong></a>
     </div>
   </section>
 
@@ -592,7 +670,7 @@
         <li><a href="#funcionalidades">Funcionalidades</a></li>
         <li><a href="#como-funciona">Como funciona</a></li>
         <li><a href="#seguranca">Segurança</a></li>
-        <li><a href="/app" onclick="sessionStorage.setItem('horacerta_desktop_enter','1')">Acessar o app</a></li>
+        <li><a href="/app" onclick="sessionStorage.setItem('horacerta_desktop_enter','1')">Entrar</a></li>
       </ul>
     </div>
     <div class="footer-bottom">

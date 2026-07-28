@@ -25,13 +25,32 @@ interface AuthScreenProps {
 }
 
 export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
-  const [isLogin, setIsLogin] = useState(true);
+  // O CTA de cadastro da landing page aponta para /app#cadastro para já abrir
+  // esta tela na aba de criar conta. O hash é limpo logo após a leitura (efeito
+  // abaixo) para que um refresh não force a aba de novo se o usuário trocar.
+  const [isLogin, setIsLogin] = useState(
+    () => !window.location.hash.startsWith("#cadastro")
+  );
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  // O #cadastro NÃO é apagado ao ser lido: na primeira visita o service worker
+  // assume o controle e App.tsx recarrega a página (listener de
+  // "controllerchange"). Se o hash sumisse antes disso, o reload cairia na aba
+  // de login de novo. Ele é limpo apenas quando o usuário troca de aba à mão.
+  // replaceState não dispara hashchange, então a detecção da rota /app/admin
+  // em App.tsx não é afetada.
+  const selectTab = (login: boolean) => {
+    setIsLogin(login);
+    setError(null);
+    setSuccess(null);
+    const desired = login ? window.location.pathname : `${window.location.pathname}#cadastro`;
+    window.history.replaceState({}, "", desired);
+  };
 
   // "Esqueci minha senha": o projeto não usa sendPasswordResetEmail do
   // Firebase (ver CLAUDE.md). Em vez disso: se nome+e-mail baterem com o
@@ -317,11 +336,7 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
           <div className="flex bg-brand-cream p-1.5 rounded-2xl mb-6 relative z-10 border border-brand-cream-darker">
             <button
               type="button"
-              onClick={() => {
-                setIsLogin(true);
-                setError(null);
-                setSuccess(null);
-              }}
+              onClick={() => selectTab(true)}
               className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${
                 isLogin
                   ? "bg-brand-teal text-brand-cream shadow-md"
@@ -332,11 +347,7 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
             </button>
             <button
               type="button"
-              onClick={() => {
-                setIsLogin(false);
-                setError(null);
-                setSuccess(null);
-              }}
+              onClick={() => selectTab(false)}
               className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${
                 !isLogin
                   ? "bg-brand-teal text-brand-cream shadow-md"
