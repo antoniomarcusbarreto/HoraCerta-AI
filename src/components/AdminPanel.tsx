@@ -28,6 +28,7 @@ import {
 interface AdminPanelProps {
   users: User[];
   onUpdateUser: (user: User) => Promise<boolean>;
+  onSetUserStatus: (user: User, nextStatus: "active" | "suspended") => Promise<boolean>;
   onDeleteUser: (userId: string) => Promise<boolean>;
   onNotify: (message: string) => void;
   activeTab?: string;
@@ -37,6 +38,7 @@ interface AdminPanelProps {
 export default function AdminPanel({
   users,
   onUpdateUser,
+  onSetUserStatus,
   onDeleteUser,
   onNotify,
   activeTab,
@@ -108,15 +110,33 @@ export default function AdminPanel({
   // Every handler below awaits the Firestore write and only mutates local UI
   // state (closing modals, etc.) on confirmed success — onUpdateUser itself
   // shows the error toast and leaves everything untouched on failure.
+  // Suspender agora tem efeito real (bloqueia o login e encerra a sessão que
+  // estiver aberta no dispositivo da pessoa), então passa por confirmação —
+  // antes era só um rótulo no perfil e podia ser desfeito sem consequência.
   const handleToggleStatus = async (user: User) => {
     const nextStatus = user.status === "active" ? "suspended" : "active";
-    await onUpdateUser({ ...user, status: nextStatus });
+
+    if (nextStatus === "active") {
+      await onSetUserStatus(user, "active");
+      return;
+    }
+
+    setConfirmDialog({
+      title: "Suspender usuário",
+      message: `${user.name} perderá o acesso imediatamente: o login será bloqueado e a sessão aberta no dispositivo dele será encerrada. Os dados são preservados e você pode reativar a qualquer momento.`,
+      onConfirm: () => {
+        setConfirmDialog(null);
+        void onSetUserStatus(user, "suspended");
+      },
+    });
   };
 
-  const handleToggleRole = async (user: User) => {
-    const nextRole = user.role === "admin" ? "user" : "admin";
-    await onUpdateUser({ ...user, role: nextRole });
-  };
+  // NÃO existe promover/rebaixar: o antigo handleToggleRole gravava o campo
+  // `role`, que é apenas metadado de exibição e não concede nada — quem manda
+  // é a custom claim `admin` do Firebase Auth, definida só por
+  // server/setAdminClaim.js. O botão já tinha sido removido justamente por
+  // parecer que concedia acesso sem conceder; a função ficou órfã e foi
+  // apagada para não ser religada. Ver "Auth" no CLAUDE.md.
 
   // Bypasses the 1-scan-per-type trial cap (src/subscription.ts's
   // canPerformScan) for this user specifically — protects Gemini quota abuse

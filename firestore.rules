@@ -174,11 +174,16 @@ service cloud.firestore {
     }
 
     // Trilha de auditoria de alteração/exclusão de registros (Admin Portal).
-    // entityLabel é um resumo legível (ex.: nome do paciente), nunca o
-    // registro inteiro, para não duplicar dado de saúde sensível.
+    // entityLabel NÃO pode nomear dado de saúde de terceiro: para entidades de
+    // saúde (Medicado, Receita, Medicamento, Consulta, CupomFiscal) o cliente
+    // grava o próprio entityId — ver HEALTH_ENTITY_TYPES em src/App.tsx.
+    // `expiresAt` é opcional (e não obrigatório) de propósito: torná-lo
+    // obrigatório rejeitaria escritas de uma aba antiga com o JS anterior em
+    // cache. Alimenta a política de TTL nativa do Firestore.
     function isValidActionLog(data) {
       return data.keys().hasAll(['logId', 'actorId', 'actorName', 'actorEmail', 'action', 'entityType', 'entityId', 'entityLabel', 'page', 'createdAt']) &&
-             data.keys().hasOnly(['logId', 'actorId', 'actorName', 'actorEmail', 'action', 'entityType', 'entityId', 'entityLabel', 'page', 'createdAt']) &&
+             data.keys().hasOnly(['logId', 'actorId', 'actorName', 'actorEmail', 'action', 'entityType', 'entityId', 'entityLabel', 'page', 'createdAt', 'expiresAt']) &&
+             (!('expiresAt' in data) || data.expiresAt is timestamp) &&
              data.logId is string && data.logId.size() <= 128 &&
              data.actorId is string && data.actorId.size() <= 128 &&
              data.actorName is string && data.actorName.size() <= 128 &&

@@ -13,7 +13,7 @@ import cors from "cors";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { initializeApp, getApps, getApp, cert, type App } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
-import { getFirestore, FieldValue, type Firestore } from "firebase-admin/firestore";
+import { getFirestore, FieldValue, Timestamp, type Firestore } from "firebase-admin/firestore";
 import webpush from "web-push";
 import { MercadoPagoConfig, Payment, Preference } from "mercadopago";
 import { createHash, createHmac, timingSafeEqual, randomInt } from "node:crypto";
@@ -50,6 +50,26 @@ const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "onboarding@resend.de
 // address (proof of inbox access) before any password change is allowed.
 const PASSWORD_RESET_CODE_TTL_MS = 10 * 60 * 1000;
 const PASSWORD_RESET_CODE_MAX_ATTEMPTS = 5;
+
+// ==========================================
+// RETENÇÃO DAS TRILHAS DE AUDITORIA (LGPD art. 15/16)
+// ==========================================
+// Cada coleção de log carrega um `expiresAt` (Timestamp) para que o TTL NATIVO
+// do Firestore as expurgue sozinho — sem isso elas crescem para sempre, o que
+// é retenção indefinida de dado pessoal (LGPD art. 15: os dados devem ser
+// eliminados após o fim do tratamento).
+//
+// ATENÇÃO: gravar o campo não basta. A política de TTL precisa ser criada UMA
+// VEZ por coleção no console (Firestore > TTL) ou via:
+//   gcloud firestore fields ttls update expiresAt \
+//     --collection-group=loginLogs --enable-ttl --database=<DATABASE_ID>
+// Repita para errorLogs e actionLogs. Sem isso o campo é só um dado inerte.
+const LOGIN_LOG_RETENTION_DAYS = 180;  // Marco Civil da Internet, art. 15 (6 meses).
+const ERROR_LOG_RETENTION_DAYS = 90;   // Operacional: só precisa durar a investigação.
+
+function expiresInDays(days: number): Timestamp {
+  return Timestamp.fromDate(new Date(Date.now() + days * 24 * 60 * 60 * 1000));
+}
 
 // Lazily initialize Gemini to prevent crashes on startup if key is missing
 let aiClient: GoogleGenAI | null = null;
@@ -383,6 +403,75 @@ function getClientIp(req: express.Request): string {
   return req.ip || "unknown";
 }
 
+// Aplica `apply` a todos os docs em lotes de 400 (o limite do Firestore é 500
+// operações por batch).
+async function commitInChunks(
+  db: Firestore,
+  docs: FirebaseFirestore.QueryDocumentSnapshot[],
+  apply: (batch: FirebaseFirestore.WriteBatch, doc: FirebaseFirestore.QueryDocumentSnapshot) => void
+): Promise<void> {
+  const CHUNK = 400;
+  for (let i = 0; i < docs.length; i += CHUNK) {
+    const batch = db.batch();
+    for (const doc of docs.slice(i, i + CHUNK)) apply(batch, doc);
+    await batch.commit();
+  }
+}
+
+// Fecha o buraco de LGPD do hard-delete: o `recursiveDelete` da conta só
+// alcança `users/{uid}/**`, mas as três trilhas de auditoria são coleções
+// TOP-LEVEL e sobreviveriam à exclusão, ainda vinculadas ao titular.
+//
+// O tratamento é DIFERENCIADO em vez de um delete uniforme porque a base legal
+// de cada uma é diferente:
+//
+//   - actionLogs: consentimento (LGPD art. 11, I). O `entityLabel` descreve um
+//     registro de saúde e pode nomear um TERCEIRO (o medicado — filho, idoso)
+//     que nunca consentiu com nada => APAGA.
+//   - loginLogs: obrigação legal. O Marco Civil da Internet (art. 15) manda o
+//     provedor guardar registro de acesso por 6 meses, então o documento NÃO
+//     pode simplesmente sumir; mas o art. 16, I proíbe reter dado pessoal
+//     excessivo, e nome/e-mail não são exigidos => PSEUDONIMIZA, preservando
+//     apenas IP + timestamp (o TTL o elimina ao fim dos 6 meses).
+//   - errorLogs: legítimo interesse (operação/segurança). O stack trace tem
+//     valor diagnóstico sem o titular => ANONIMIZA, removendo o vínculo.
+async function purgeUserAuditTrail(uid: string): Promise<{
+  actionLogsDeleted: number;
+  loginLogsPseudonymized: number;
+  errorLogsAnonymized: number;
+}> {
+  const db = getDb();
+  const anonymizedAt = new Date().toISOString();
+
+  const [actionSnap, loginSnap, errorSnap] = await Promise.all([
+    db.collection("actionLogs").where("actorId", "==", uid).get(),
+    db.collection("loginLogs").where("userId", "==", uid).get(),
+    db.collection("errorLogs").where("userId", "==", uid).get(),
+  ]);
+
+  await commitInChunks(db, actionSnap.docs, (batch, doc) => batch.delete(doc.ref));
+
+  await commitInChunks(db, loginSnap.docs, (batch, doc) =>
+    batch.update(doc.ref, {
+      // Rótulo explícito em vez de string vazia: a aba Logs continua legível e
+      // deixa claro que a lacuna é uma exclusão atendida, não um bug.
+      userName: "(conta excluída)",
+      userEmail: "",
+      anonymizedAt,
+    })
+  );
+
+  await commitInChunks(db, errorSnap.docs, (batch, doc) =>
+    batch.update(doc.ref, { userId: FieldValue.delete(), anonymizedAt })
+  );
+
+  return {
+    actionLogsDeleted: actionSnap.size,
+    loginLogsPseudonymized: loginSnap.size,
+    errorLogsAnonymized: errorSnap.size,
+  };
+}
+
 // Persists a server-side failure for the Admin Portal's "Logs" tab.
 // Best-effort and swallows its own errors — a logging failure must never mask
 // or replace the original error response already sent to the caller.
@@ -396,6 +485,7 @@ async function logServerError(action: string, error: unknown, uid?: string | nul
       action,
       message: message.slice(0, 2000),
       createdAt: new Date().toISOString(),
+      expiresAt: expiresInDays(ERROR_LOG_RETENTION_DAYS),
     };
     if (stack) payload.stack = stack;
     if (uid) payload.userId = uid;
@@ -717,6 +807,7 @@ export function createApiApp(): express.Express {
         ip: getClientIp(req),
         userAgent: typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"].slice(0, 256) : null,
         createdAt: new Date().toISOString(),
+        expiresAt: expiresInDays(LOGIN_LOG_RETENTION_DAYS),
       });
       res.json({ success: true });
     } catch (error: any) {
@@ -797,6 +888,23 @@ export function createApiApp(): express.Express {
       const db = getDb();
       await db.recursiveDelete(db.collection("users").doc(targetUid));
 
+      // As trilhas de auditoria são top-level e NÃO são alcançadas acima —
+      // sem isto a exclusão deixaria para trás nome de paciente (actionLogs),
+      // IP + e-mail (loginLogs) e o vínculo do titular (errorLogs), quebrando
+      // a promessa da própria Política de Privacidade (seção 9).
+      // Best-effort e reportado: se falhar, a conta já foi removida e o
+      // operador precisa saber que a trilha ficou pendente — daí o flag na
+      // resposta em vez de um 500 que sugeriria que nada aconteceu.
+      let auditTrail: Awaited<ReturnType<typeof purgeUserAuditTrail>> | null = null;
+      let auditTrailPurged = false;
+      try {
+        auditTrail = await purgeUserAuditTrail(targetUid);
+        auditTrailPurged = true;
+      } catch (purgeErr) {
+        console.error("Falha ao expurgar trilha de auditoria:", purgeErr);
+        await logServerError("DELETE /api/admin/users/:uid (purga de logs)", purgeErr, actorUid);
+      }
+
       let authDeleted = false;
       try {
         await getAuth(getAdminApp()).deleteUser(targetUid);
@@ -805,7 +913,7 @@ export function createApiApp(): express.Express {
         if (err?.code !== "auth/user-not-found") throw err;
       }
 
-      res.json({ success: true, authDeleted });
+      res.json({ success: true, authDeleted, auditTrailPurged, auditTrail });
     } catch (error: any) {
       console.error("Admin delete-user error:", error);
       await logServerError("DELETE /api/admin/users/:uid", error, actorUid);
@@ -813,6 +921,78 @@ export function createApiApp(): express.Express {
         error: "Falha ao excluir o usuário.",
         details: error instanceof Error ? error.message : String(error),
       });
+    }
+  });
+
+  // Suspende / reativa uma conta DE VERDADE.
+  //
+  // Antes, "suspender" só gravava status:"suspended" no doc do Firestore. Isso
+  // é apenas um rótulo: as regras de segurança consultam isUserActive() somente
+  // nos `allow create/update`, nunca nos `allow get/list`, e o token do usuário
+  // continuava válido — ou seja, quem já estava logado seguia lendo o próprio
+  // prontuário e chamando os endpoints normalmente. Só o Admin SDK corta acesso
+  // de fato, daí este endpoint.
+  //
+  // disabled:true impede novos logins; revokeRefreshTokens invalida a sessão já
+  // existente, fazendo o getIdToken(true) do cliente falhar com
+  // auth/user-disabled | auth/user-token-expired — dois códigos que
+  // isDeadSessionError (src/firebase.ts) já reconhece, então o app derruba a
+  // sessão sozinho no próximo foreground.
+  app.post("/api/admin/users/:uid/status", requireAdmin, adminActionRateLimiter, async (req, res) => {
+    const targetUid = req.params.uid;
+    const actorUid = (req as any).uid as string;
+
+    try {
+      const { status } = req.body || {};
+      if (status !== "active" && status !== "suspended") {
+        res.status(400).json({ error: "Parâmetro 'status' deve ser 'active' ou 'suspended'." });
+        return;
+      }
+      if (!targetUid || typeof targetUid !== "string") {
+        res.status(400).json({ error: "Parâmetro 'uid' ausente ou inválido." });
+        return;
+      }
+      // Mesma proteção do delete: suspender a si mesmo tranca o portal, e
+      // reativar exigiria acesso a shell.
+      if (targetUid === actorUid) {
+        res.status(400).json({ error: "Não é possível suspender a própria conta de administrador." });
+        return;
+      }
+
+      const adminAuth = getAuth(getAdminApp());
+      const suspend = status === "suspended";
+
+      try {
+        const target = await adminAuth.getUser(targetUid);
+        if (target.customClaims?.admin === true) {
+          res.status(403).json({ error: "Não é possível suspender uma conta de administrador." });
+          return;
+        }
+      } catch (err: any) {
+        // Sem conta de Auth (perfil órfão): ainda vale refletir no Firestore.
+        if (err?.code !== "auth/user-not-found") throw err;
+      }
+
+      let authUpdated = false;
+      try {
+        await adminAuth.updateUser(targetUid, { disabled: suspend });
+        if (suspend) {
+          // Sem isto o ID token já emitido continua aceito até expirar (~1h).
+          await adminAuth.revokeRefreshTokens(targetUid);
+        }
+        authUpdated = true;
+      } catch (err: any) {
+        if (err?.code !== "auth/user-not-found") throw err;
+      }
+
+      // Espelha no perfil para o painel e as regras continuarem coerentes.
+      await getDb().collection("users").doc(targetUid).set({ status }, { merge: true });
+
+      res.json({ success: true, status, authUpdated });
+    } catch (error: any) {
+      console.error("Admin set-user-status error:", error);
+      await logServerError("POST /api/admin/users/:uid/status", error, actorUid);
+      res.status(500).json({ error: "Falha ao alterar o status do usuário." });
     }
   });
 

@@ -54,11 +54,6 @@ export function getAccessState(user: Pick<User, "freeTrialUntil" | "subscription
   return "blocked";
 }
 
-/** Os scanners (receita/nota) só são liberados fora do estado `blocked`. */
-export function isScanAllowed(user: Pick<User, "freeTrialUntil" | "subscriptionCurrentPeriodEnd"> | null | undefined, now: Date = new Date()): boolean {
-  return getAccessState(user, now) !== "blocked";
-}
-
 /** Cada usuário sem assinatura paga tem direito a 1 scan de cada tipo durante o trial. */
 export const TRIAL_SCAN_LIMIT = 1;
 

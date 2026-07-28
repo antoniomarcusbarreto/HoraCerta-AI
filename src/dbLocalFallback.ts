@@ -470,15 +470,10 @@ class DBLocalFallback {
       console.warn("Firestore: erro ao criar/atualizar perfil de usuário.", e);
     });
   }
-  deleteUser(userId: string) {
-    const users = this.getUsers().filter(u => u.userId !== userId);
-    this.set("users", users);
-
-    // Sync to Firestore
-    dbFirebase.deleteUserProfile(userId).catch(e => {
-      console.warn("Firestore: erro ao remover perfil de usuário.", e);
-    });
-  }
+  // Não existe deleteUser aqui: apagar só o doc de perfil deixava a conta de
+  // Auth viva e todas as subcoleções órfãs — inútil para um pedido de exclusão
+  // (LGPD). A exclusão real é DELETE /api/admin/users/:uid (Admin SDK), e o
+  // cache local é ajustado depois via removeUserCache().
 
   // Local-cache-only writes (no Firestore call). Used by admin flows that have
   // already awaited the Firestore write themselves and only want the cache to
@@ -787,4 +782,3 @@ class DBLocalFallback {
 purgeSeedDataOnce();
 
 export const dbLocal = new DBLocalFallback();
-export const currentUserAntonioId = "user_antonio";

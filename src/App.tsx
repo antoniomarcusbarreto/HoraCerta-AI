@@ -26,6 +26,29 @@ import { Shield, Sparkles, Heart, HelpCircle, LogOut, ShieldAlert, CheckCircle2,
 // app isn't bounced straight back to the landing page below.
 const DESKTOP_ENTER_FLAG = "horacerta_desktop_enter";
 
+// Entidades cujo rótulo legível descreveria um registro de SAÚDE — e, nos
+// quatro primeiros casos, nomearia um TERCEIRO (o medicado: um filho, um pai
+// idoso) que nunca consentiu com nada.
+//
+// A trilha de auditoria (`actionLogs`) é lida pelo admin no Portal, e um
+// entityLabel como "Lívia Barreto" ou "Dr. Roberto - 2026-07-30T14:00"
+// reabriria exatamente a exposição que a remoção do simulador de sessão
+// fechou (ver CLAUDE.md). Para estas, a trilha guarda só tipo + id: preserva
+// o valor forense (quem fez o quê, quando, em qual registro) sem carregar o
+// dado sensível. `User`/`Farmacia` descrevem ações do admin sobre a própria
+// base, sem dado de saúde de terceiro, e seguem legíveis.
+const HEALTH_ENTITY_TYPES = new Set([
+  "Medicado",
+  "Receita",
+  "Medicamento",
+  "Consulta",
+  "CupomFiscal",
+]);
+
+function auditLabelFor(entityType: string, entityId: string, label: string): string {
+  return HEALTH_ENTITY_TYPES.has(entityType) ? entityId : label;
+}
+
 export default function App() {
   const isDesktop = useIsDesktop();
   // Read once: the landing page CTA sets this flag right before a full page
@@ -784,7 +807,9 @@ export default function App() {
         action,
         entityType,
         entityId,
-        entityLabel,
+        // Minimização na origem: dado que não sai do navegador não precisa
+        // ser expurgado depois nem aparece para o admin.
+        entityLabel: auditLabelFor(entityType, entityId, entityLabel),
         page,
       })
       .catch((e) => console.warn("Falha ao registrar log de ação:", e));
@@ -984,6 +1009,56 @@ export default function App() {
     return true;
   };
 
+  // Suspender/reativar NÃO passa por handleUpdateUser: gravar status no
+  // Firestore é só um rótulo — as regras não consultam isUserActive() na
+  // leitura e o token do usuário continua válido. Quem corta acesso de fato é
+  // o Admin SDK (disabled + revokeRefreshTokens), daí o endpoint dedicado.
+  const handleSetUserStatus = async (
+    user: User,
+    nextStatus: "active" | "suspended"
+  ): Promise<boolean> => {
+    try {
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) {
+        showToast("Sessão expirada. Faça login novamente no portal.");
+        return false;
+      }
+
+      const response = await fetch(`/api/admin/users/${encodeURIComponent(user.userId)}/status`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        throw new Error(errJson.error || "Falha ao alterar o status do usuário.");
+      }
+    } catch (err: any) {
+      console.error("Erro ao alterar status do usuário:", err);
+      showToast(err.message || "Não foi possível alterar o status do usuário.");
+      return false;
+    }
+
+    const updated: User = { ...user, status: nextStatus };
+    dbLocal.setUserCache(updated);
+    if (activeAdminUser) {
+      await refreshUsersFromFirestore();
+    } else {
+      setUsers(dbLocal.getUsers());
+    }
+    logAction("update", "User", user.userId, `${user.name} (${user.email})`, "Painel Admin", activeAdminUser ?? activeUser);
+    showToast(
+      nextStatus === "suspended"
+        ? `${user.name} foi suspenso: login bloqueado e sessões ativas encerradas.`
+        : `${user.name} foi reativado e já pode acessar novamente.`
+    );
+    return true;
+  };
+
   const handleDeleteUser = async (userId: string): Promise<boolean> => {
     const targetUser = users.find((u) => u.userId === userId);
 
@@ -1100,18 +1175,12 @@ export default function App() {
     showToast("Receita médica e seus medicamentos associados foram removidos.");
   };
 
-  // Switch between Admin Antonio (full control) and Normal User Maria (tenant isolated)
-  const handleSwitchUserSession = (user: User) => {
-    if (user.status === "suspended") {
-      showToast("Acesso negado: Sua conta está marcada como SUSPENSA pelo Administrador no Painel RBAC.");
-      return;
-    }
-    setActiveUser(user);
-    localStorage.setItem("horacerta_active_user_id", user.userId);
-    setActiveTab("home");
-    showToast(`Sessão alterada: Logado como ${user.name} (${user.role.toUpperCase()})`);
-  };
-
+  // NÃO existe troca/simulação de sessão: o antigo handleSwitchUserSession
+  // chamava setActiveUser() com qualquer conta do diretório, abrindo o
+  // prontuário de terceiros para o admin sem consentimento (LGPD). O botão que
+  // o acionava já tinha sido removido; a função ficou órfã e foi apagada para
+  // não ser religada por engano. A única forma de entrar numa conta é o login
+  // real dela. Ver "Admin panel scope" no CLAUDE.md.
   const handleLoginSuccess = (user: User) => {
     setActiveUser(user);
     // Reload users in memory so that newly registered users are visible in the user switching lists/admin panel
@@ -1386,6 +1455,7 @@ export default function App() {
               <AdminPanel
                 users={users}
                 onUpdateUser={handleUpdateUser}
+                onSetUserStatus={handleSetUserStatus}
                 onDeleteUser={handleDeleteUser}
                 onNotify={showToast}
               />

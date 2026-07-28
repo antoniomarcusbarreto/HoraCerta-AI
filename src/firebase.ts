@@ -100,6 +100,11 @@ function normalizeCreatedAt<T extends { createdAt?: any }>(data: T): T {
   return data;
 }
 
+// Retenção da trilha de ações (LGPD art. 15 — os dados devem ser eliminados
+// ao fim do tratamento). Os equivalentes de loginLogs/errorLogs vivem em
+// server/app.ts, que é quem escreve essas duas.
+const ACTION_LOG_RETENTION_DAYS = 365;
+
 export type LogDateRange = { start?: Date; end?: Date };
 
 // `createdAt` não tem o mesmo tipo de valor em todas as coleções de log:
@@ -188,10 +193,10 @@ export const dbFirebase = {
     await updateDoc(docRef, payload);
   },
 
-  async deleteUserProfile(userId: string): Promise<void> {
-    const docRef = doc(db, "users", userId);
-    await deleteDoc(docRef);
-  },
+  // Não existe deleteUserProfile: apagar o doc pelo client deixa a conta de
+  // Auth funcionando e as subcoleções órfãs. Exclusão real de usuário é
+  // DELETE /api/admin/users/:uid (Admin SDK + recursiveDelete + purga da
+  // trilha de auditoria).
 
   // --- Medicados (Patients) ---
   async getMedicados(userId: string): Promise<Medicado[]> {
@@ -512,7 +517,14 @@ export const dbFirebase = {
       entityId: entry.entityId,
       entityLabel: entry.entityLabel,
       page: entry.page,
-      createdAt: serverTimestamp()
+      createdAt: serverTimestamp(),
+      // Alimenta a política de TTL nativa do Firestore (retenção de 12 meses),
+      // para a trilha não virar acúmulo indefinido de dado pessoal — LGPD
+      // art. 15. Precisa da política habilitada no console; ver
+      // ACTION_LOG_RETENTION_DAYS e as instruções em server/app.ts.
+      expiresAt: Timestamp.fromDate(
+        new Date(Date.now() + ACTION_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000)
+      )
     });
   },
 

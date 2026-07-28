@@ -9,7 +9,7 @@ interface Section {
   paragraphs: string[];
 }
 
-const LAST_UPDATED = "17 de julho de 2026";
+const LAST_UPDATED = "28 de julho de 2026";
 
 const SECTIONS: Section[] = [
   {
@@ -25,6 +25,7 @@ const SECTIONS: Section[] = [
       "Dados sensíveis de saúde (Art. 5º, II da LGPD): medicamentos cadastrados, dosagens, horários, histórico de doses tomadas ou puladas, e receitas médicas associadas ao seu perfil e aos perfis de pessoas medicadas sob seus cuidados.",
       "Imagens enviadas para extração automática por Inteligência Artificial: fotos de receitas médicas e de comprovantes/cupons fiscais de farmácia, usadas para preencher os dados automaticamente.",
       "Token de notificação push: gerado apenas se você ativar os alertas de medicação, para permitir o envio de lembretes mesmo com o aplicativo fechado.",
+      "Registros de acesso e de auditoria: a cada login registramos data/hora, endereço IP e identificação do navegador (user-agent), como exige o Art. 15 do Marco Civil da Internet (Lei nº 12.965/2014). Também registramos alterações e exclusões de registros feitas na sua conta, para fins de segurança e rastreabilidade — esse registro guarda o tipo e o identificador do item alterado, nunca o nome do paciente nem o conteúdo do dado de saúde.",
     ],
   },
   {
@@ -62,7 +63,10 @@ const SECTIONS: Section[] = [
   {
     title: "8. Retenção de dados",
     paragraphs: [
-      "Seus dados são mantidos enquanto sua conta estiver ativa. Ao excluir uma receita médica, os medicamentos e o histórico de doses vinculados a ela também são removidos automaticamente. Ao solicitar a exclusão da conta, todos os dados pessoais associados são apagados.",
+      "Seus dados são mantidos enquanto sua conta estiver ativa. Ao excluir uma receita médica, os medicamentos e o histórico de doses vinculados a ela também são removidos automaticamente.",
+      "Ao solicitar a exclusão da conta, apagamos definitivamente o seu login e todos os dados de saúde: perfis de pessoas medicadas, medicamentos, receitas, histórico de doses, consultas, farmácias e cupons. O registro de auditoria das alterações feitas na sua conta também é apagado.",
+      "Exceção prevista em lei: os registros de acesso (data/hora e endereço IP dos seus logins) são mantidos por 6 meses mesmo após a exclusão da conta, porque o Art. 15 do Marco Civil da Internet obriga sua guarda. Nesse caso removemos o seu nome e e-mail desses registros, preservando apenas o mínimo exigido, e eles são eliminados automaticamente ao fim do prazo.",
+      "Registros técnicos de erro do sistema são mantidos por até 90 dias para diagnóstico e segurança, e o vínculo com a sua conta é removido caso você solicite a exclusão.",
     ],
   },
   {
