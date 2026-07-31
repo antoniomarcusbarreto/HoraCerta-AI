@@ -93,6 +93,35 @@ export interface DoseScheduleInput {
  * dose menos `reminderOffset` minutos) dentro do minuto atual de `nowMs`?
  * Retorna o instante (ms) da dose, ou null. Timezone-independente.
  */
+/**
+ * Qual dose deste medicamento estava marcada para o minuto que contém `atMs`?
+ * Retorna o instante (ms) da dose, ou null.
+ *
+ * Diferente de `dueDoseMs`, ignora o `reminderOffset` de propósito: aqui a
+ * pergunta é "que horas a dose era", não "que horas avisar". É o que o alerta
+ * de dose perdida usa, olhando para um instante no passado.
+ */
+export function doseSlotAtMs(med: DoseScheduleInput, atMs: number): number | null {
+  const startMs = toStartMs(med.createdAt);
+  if (!Number.isFinite(startMs)) return null;
+
+  const intervalHours = Number(med.intervalHours) || 8;
+  const durationDays = Number(med.durationDays) || 7;
+
+  const intervalMs = intervalHours * 3600_000;
+  const endMs = startMs + durationDays * 24 * 3600_000;
+  const targetMinute = Math.floor(atMs / 60_000);
+
+  const approxK = Math.round((atMs - startMs) / intervalMs);
+  for (const k of [approxK - 1, approxK, approxK + 1]) {
+    if (k < 0) continue;
+    const doseMs = startMs + k * intervalMs;
+    if (doseMs < startMs || doseMs >= endMs) continue;
+    if (Math.floor(doseMs / 60_000) === targetMinute) return doseMs;
+  }
+  return null;
+}
+
 export function dueDoseMs(med: DoseScheduleInput, nowMs: number): number | null {
   const startMs = toStartMs(med.createdAt);
   if (!Number.isFinite(startMs)) return null;

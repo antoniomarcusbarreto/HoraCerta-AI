@@ -10,7 +10,7 @@
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js server-build",
     "lint": "tsc --noEmit",
-    "test:rules": "firebase emulators:exec --only firestore \"node --test tests/\"",
+    "test:rules": "firebase emulators:exec --only firestore \"node --test tests/*.test.mjs\"",
     "deploy:rules": "firebase deploy --only firestore:rules"
   },
   "//overrides": "jwks-rsa (via firebase-admin) faz require('jose'), mas declara jose ^6 — que é ESM-only. Em Node >=22.12 (nosso local) require(ESM) funciona e o problema não aparece; no runtime da Vercel NÃO, e a função morre com ERR_REQUIRE_ESM no carregamento. jose 5 publica build CJS e mantém importJWK/exportSPKI (as duas únicas APIs que o jwks-rsa usa).",

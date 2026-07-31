@@ -92,6 +92,18 @@ export function isDeadSessionError(err: unknown): boolean {
 // object forever, silently breaking any `new Date(entity.createdAt)` call
 // downstream (e.g. Schedule.tsx's active-date-range math). Normalize on read
 // so every entity leaving this module always has a real ISO string.
+// Um documento criado dentro de um paciente COMPARTILHADO precisa nascer já
+// carregando as listas de acesso do medicado pai, senão ele fica invisível para
+// os outros cuidadores — as regras filtram por `memberUids` e o documento novo
+// não teria nenhum. As regras também exigem que estes valores sejam IDÊNTICOS
+// aos do pai (inheritsShareLists), então quem chama tem de copiá-los do
+// medicado, nunca inventá-los.
+function applyShareLists(payload: any, entity: { memberUids?: string[]; editorUids?: string[] }): any {
+  if (entity.memberUids) payload.memberUids = entity.memberUids;
+  if (entity.editorUids) payload.editorUids = entity.editorUids;
+  return payload;
+}
+
 function normalizeCreatedAt<T extends { createdAt?: any }>(data: T): T {
   const raw = data.createdAt;
   if (raw && typeof raw === "object" && typeof raw.toDate === "function") {
@@ -266,7 +278,7 @@ export const dbFirebase = {
     if (r.imageUrl) payload.imageUrl = r.imageUrl;
     if (r.notes) payload.notes = r.notes;
 
-    await setDoc(docRef, payload);
+    await setDoc(docRef, applyShareLists(payload, r));
   },
 
   async updateReceita(r: Receita): Promise<void> {
@@ -318,7 +330,7 @@ export const dbFirebase = {
     if (m.reminderOffset !== undefined) payload.reminderOffset = Number(m.reminderOffset);
     if (m.pricePlaceholder !== undefined) payload.pricePlaceholder = Number(m.pricePlaceholder);
 
-    await setDoc(docRef, payload);
+    await setDoc(docRef, applyShareLists(payload, m));
   },
 
   async updateMedicamento(m: Medicamento): Promise<void> {
@@ -357,7 +369,7 @@ export const dbFirebase = {
 
   async saveDoseLog(l: DoseLog): Promise<void> {
     const docRef = doc(db, "users", l.userId, "medicados", l.medicadoId, "medicamentos", l.medicamentoId, "doseLogs", l.logId);
-    await setDoc(docRef, {
+    const payload: any = {
       logId: l.logId,
       medicamentoId: l.medicamentoId,
       medicadoId: l.medicadoId,
@@ -365,15 +377,26 @@ export const dbFirebase = {
       plannedTime: l.plannedTime,
       takenTime: l.takenTime,
       status: l.status
-    });
+    };
+    // Sempre o uid de QUEM ESTÁ ESCREVENDO, nunca o que veio no objeto. As
+    // regras exigem `registradoPor == request.auth.uid`, então repassar o valor
+    // do cache faria um cuidador ser bloqueado ao editar o registro de outro —
+    // e carimbar aqui é também o que impede registrar dose em nome alheio.
+    const actorUid = auth.currentUser?.uid;
+    if (actorUid) payload.registradoPor = actorUid;
+    await setDoc(docRef, applyShareLists(payload, l));
   },
 
   async updateDoseLog(l: DoseLog): Promise<void> {
     const docRef = doc(db, "users", l.userId, "medicados", l.medicadoId, "medicamentos", l.medicamentoId, "doseLogs", l.logId);
-    await updateDoc(docRef, {
+    const payload: any = {
       takenTime: l.takenTime,
       status: l.status
-    });
+    };
+    // Quem edita passa a ser o responsável pela afirmação — ver saveDoseLog.
+    const actorUid = auth.currentUser?.uid;
+    if (actorUid) payload.registradoPor = actorUid;
+    await updateDoc(docRef, payload);
   },
 
   async deleteDoseLog(userId: string, medicadoId: string, medicamentoId: string, logId: string): Promise<void> {
@@ -406,7 +429,7 @@ export const dbFirebase = {
     if (c.location) payload.location = c.location;
     if (c.notes) payload.notes = c.notes;
 
-    await setDoc(docRef, payload);
+    await setDoc(docRef, applyShareLists(payload, c));
   },
 
   async updateConsulta(c: Consulta): Promise<void> {
@@ -497,6 +520,63 @@ export const dbFirebase = {
   async deleteCupom(userId: string, cupomId: string): Promise<void> {
     const docRef = doc(db, "users", userId, "cupons", cupomId);
     await deleteDoc(docRef);
+  },
+
+  // --- Leitura de dados COMPARTILHADOS (árvore de outro titular) ---
+  //
+  // Os getters acima varrem a coleção inteira, o que só funciona para o dono.
+  // Um convidado que fizesse o mesmo receberia permission-denied no primeiro
+  // documento fora do seu alcance — e o Firestore reprova a consulta INTEIRA,
+  // não os documentos individualmente.
+  //
+  // Por isso aqui todo acesso é filtrado por `array-contains`: a consulta já
+  // nasce restrita ao que as regras permitem. Efeito colateral valioso — se um
+  // fan-out de convite tiver ficado pela metade, os documentos ainda não
+  // carimbados simplesmente não aparecem, em vez de derrubar a sincronização
+  // toda com erro de permissão.
+  async getSharedMedicados(ownerUid: string, myUid: string): Promise<Medicado[]> {
+    const q = query(
+      collection(db, "users", ownerUid, "medicados"),
+      where("memberUids", "array-contains", myUid)
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => normalizeCreatedAt(d.data()) as Medicado);
+  },
+
+  async getSharedReceitas(ownerUid: string, medicadoId: string, myUid: string): Promise<Receita[]> {
+    const q = query(
+      collection(db, "users", ownerUid, "medicados", medicadoId, "receitas"),
+      where("memberUids", "array-contains", myUid)
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => normalizeCreatedAt(d.data()) as Receita);
+  },
+
+  async getSharedMedicamentos(ownerUid: string, medicadoId: string, myUid: string): Promise<Medicamento[]> {
+    const q = query(
+      collection(db, "users", ownerUid, "medicados", medicadoId, "medicamentos"),
+      where("memberUids", "array-contains", myUid)
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => normalizeCreatedAt(d.data()) as Medicamento);
+  },
+
+  async getSharedDoseLogs(ownerUid: string, medicadoId: string, medicamentoId: string, myUid: string): Promise<DoseLog[]> {
+    const q = query(
+      collection(db, "users", ownerUid, "medicados", medicadoId, "medicamentos", medicamentoId, "doseLogs"),
+      where("memberUids", "array-contains", myUid)
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => d.data() as DoseLog);
+  },
+
+  async getSharedConsultas(ownerUid: string, myUid: string): Promise<Consulta[]> {
+    const q = query(
+      collection(db, "users", ownerUid, "consultas"),
+      where("memberUids", "array-contains", myUid)
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => normalizeCreatedAt(d.data()) as Consulta);
   },
 
   // --- Admin Audit Logs ---

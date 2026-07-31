@@ -451,6 +451,121 @@ class DBLocalFallback {
     }
   }
 
+  // ==========================================
+  // DADOS COMPARTILHADOS POR OUTRO TITULAR
+  // ==========================================
+
+  // Traz para o cache local os pacientes que OUTRAS contas compartilharam com
+  // este usuário. Os documentos chegam com `userId` do titular original — e é
+  // isso que faz `mergeUserCollection` funcionar de graça aqui: ele já
+  // particiona o cache por dono, então dados de vários titulares convivem sem
+  // um pisar no outro, e uma revogação some do cache no próximo sync.
+  //
+  // Roda DEPOIS de syncFromFirebase (dados próprios), nunca no lugar dele.
+  async syncSharedFromFirebase(
+    myUid: string,
+    shares: { ownerUid: string; medicadoId: string }[],
+  ): Promise<boolean> {
+    if (shares.length === 0) return true;
+
+    // Um titular pode ter compartilhado mais de um paciente.
+    const owners = [...new Set(shares.map((s) => s.ownerUid))].filter((o) => o !== myUid);
+    if (owners.length === 0) return true;
+
+    try {
+      for (const ownerUid of owners) {
+        try {
+          const [medicados, consultas] = await Promise.all([
+            dbFirebase.getSharedMedicados(ownerUid, myUid),
+            dbFirebase.getSharedConsultas(ownerUid, myUid),
+          ]);
+
+          const receitas: Receita[] = [];
+          const medicamentos: Medicamento[] = [];
+          const doseLogs: DoseLog[] = [];
+
+          // Cada paciente isolado: um que falhe não descarta os já carregados.
+          await Promise.all(medicados.map(async (m) => {
+            try {
+              const [rs, ms] = await Promise.all([
+                dbFirebase.getSharedReceitas(ownerUid, m.medicadoId, myUid),
+                dbFirebase.getSharedMedicamentos(ownerUid, m.medicadoId, myUid),
+              ]);
+              receitas.push(...rs);
+              medicamentos.push(...ms);
+
+              const logsArrays = await Promise.all(
+                ms.map((med) => dbFirebase.getSharedDoseLogs(ownerUid, m.medicadoId, med.medicamentoId, myUid))
+              );
+              for (const logs of logsArrays) doseLogs.push(...logs);
+            } catch (err) {
+              console.warn(`[Compartilhado] Falha nas subcoleções de ${m.medicadoId}:`, err);
+            }
+          }));
+
+          this.set("medicados", this.mergeUserCollection(
+            this.get<Medicado>("medicados", SEED_MEDICADOS), medicados, ownerUid, "medicadoId"
+          ));
+          this.set("receitas", this.mergeUserCollection(
+            this.get<Receita>("receitas", SEED_RECEITAS), receitas, ownerUid, "receitaId"
+          ));
+          this.set("medicamentos", this.mergeUserCollection(
+            this.get<Medicamento>("medicamentos", SEED_MEDICAMENTOS), medicamentos, ownerUid, "medicamentoId"
+          ));
+          this.set("dose_logs", this.mergeUserCollection(
+            this.get<DoseLog>("dose_logs", SEED_DOSE_LOGS), doseLogs, ownerUid, "logId"
+          ));
+          this.set("consultas", this.mergeUserCollection(
+            this.get<Consulta>("consultas", SEED_CONSULTAS), consultas, ownerUid, "consultaId"
+          ));
+        } catch (err) {
+          console.warn(`[Compartilhado] Falha ao sincronizar o titular ${ownerUid}:`, err);
+        }
+      }
+      return true;
+    } catch (err) {
+      console.error("[Compartilhado] Falha na sincronização:", err);
+      return false;
+    }
+  }
+
+  // Remove do cache tudo que pertence a outros titulares. Chamado quando a
+  // lista de compartilhamentos aceitos volta vazia — sem isto, um acesso
+  // revogado continuaria visível offline por tempo indeterminado.
+  dropSharedData(myUid: string) {
+    const prune = <T extends { userId: string }>(key: string, seed: T[]) => {
+      this.set(key, this.get<T>(key, seed).filter((item) => item.userId === myUid));
+    };
+    prune<Medicado>("medicados", SEED_MEDICADOS);
+    prune<Receita>("receitas", SEED_RECEITAS);
+    prune<Medicamento>("medicamentos", SEED_MEDICAMENTOS);
+    prune<DoseLog>("dose_logs", SEED_DOSE_LOGS);
+    prune<Consulta>("consultas", SEED_CONSULTAS);
+  }
+
+  // Leitura que enxerga o próprio + o compartilhado. Os getters por `userId`
+  // continuam existindo e com o mesmo significado de antes (só o que é meu);
+  // estes são os que a UI usa para montar a lista de pacientes.
+  private visibleTo<T extends { userId: string; memberUids?: string[] }>(list: T[], myUid: string): T[] {
+    return list.filter((item) => item.userId === myUid || item.memberUids?.includes(myUid));
+  }
+
+  getVisibleMedicados(myUid: string): Medicado[] {
+    return this.visibleTo(this.get<Medicado>("medicados", SEED_MEDICADOS), myUid);
+  }
+  getVisibleReceitas(myUid: string): Receita[] {
+    return this.visibleTo(this.get<Receita>("receitas", SEED_RECEITAS), myUid);
+  }
+  getVisibleMedicamentos(myUid: string): Medicamento[] {
+    return this.visibleTo(this.get<Medicamento>("medicamentos", SEED_MEDICAMENTOS), myUid);
+  }
+  getVisibleDoseLogs(myUid: string): DoseLog[] {
+    return this.visibleTo(this.get<DoseLog>("dose_logs", SEED_DOSE_LOGS), myUid);
+  }
+  getVisibleConsultas(myUid: string): Consulta[] {
+    return this.visibleTo(this.get<Consulta>("consultas", SEED_CONSULTAS), myUid);
+  }
+
   // Users
   getUsers(): User[] {
     return this.get<User>("users", SEED_USERS);

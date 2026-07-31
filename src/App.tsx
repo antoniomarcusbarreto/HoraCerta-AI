@@ -8,7 +8,10 @@ import { normalizeEmail } from "./utils/normalizeEmail";
 import { processImageFile } from "./imageUtils";
 import { reportLogin } from "./loginLog";
 import { signInWithEmailAndPassword, signOut as firebaseSignOut, updatePassword, onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
-import { User, Medicado, Receita, Medicamento, DoseLog, Consulta, Farmacia, MedicineCategory, CupomFiscal } from "./types";
+import { User, Medicado, Receita, Medicamento, DoseLog, Consulta, Farmacia, MedicineCategory, CupomFiscal, Share } from "./types";
+import { listShares, createShare, acceptShare, revokeShare, canEditMedicado } from "./shares";
+import SharingScreen from "./components/SharingScreen";
+import { ShareRole } from "./types";
 import BottomNavBar from "./components/BottomNavBar";
 import Dashboard from "./components/Dashboard";
 import Schedule from "./components/Schedule";
@@ -69,6 +72,9 @@ export default function App() {
   const [consultas, setConsultas] = useState<Consulta[]>([]);
   const [farmacias, setFarmacias] = useState<Farmacia[]>([]);
   const [cupons, setCupons] = useState<CupomFiscal[]>([]);
+  // Compartilhamento: os convites que este usuário concedeu e os que recebeu.
+  const [sharesAsOwner, setSharesAsOwner] = useState<Share[]>([]);
+  const [sharesAsGrantee, setSharesAsGrantee] = useState<Share[]>([]);
 
   // 3. Navigation State
   const [activeTab, setActiveTab] = useState<string>("home");
@@ -156,6 +162,8 @@ export default function App() {
     setConsultas([]);
     setFarmacias([]);
     setCupons([]);
+    setSharesAsOwner([]);
+    setSharesAsGrantee([]);
     localStorage.removeItem("horacerta_active_user_id");
     localStorage.removeItem("horacerta_active_admin_id");
     setUsers(dbLocal.getUsers());
@@ -265,12 +273,17 @@ export default function App() {
   useEffect(() => {
     if (!activeUser) return;
     
+    // As coleções de saúde usam os getters "visible": além do que é do próprio
+    // usuário, incluem os pacientes que outros titulares compartilharam com
+    // ele. Farmácias e cupons ficam de fora de propósito — são da conta, não do
+    // paciente, e acompanhar a medicação de alguém não dá acesso ao quanto essa
+    // pessoa gasta na farmácia.
     const loadFromCache = () => {
-      setMedicados(dbLocal.getMedicados(activeUser.userId));
-      setReceitas(dbLocal.getReceitas(activeUser.userId));
-      setMedicamentos(dbLocal.getMedicamentos(activeUser.userId));
-      setDoseLogs(dbLocal.getDoseLogs(activeUser.userId));
-      setConsultas(dbLocal.getConsultas(activeUser.userId));
+      setMedicados(dbLocal.getVisibleMedicados(activeUser.userId));
+      setReceitas(dbLocal.getVisibleReceitas(activeUser.userId));
+      setMedicamentos(dbLocal.getVisibleMedicamentos(activeUser.userId));
+      setDoseLogs(dbLocal.getVisibleDoseLogs(activeUser.userId));
+      setConsultas(dbLocal.getVisibleConsultas(activeUser.userId));
       setFarmacias(dbLocal.getFarmacias(activeUser.userId));
       setCupons(dbLocal.getCupons(activeUser.userId));
     };
@@ -285,6 +298,30 @@ export default function App() {
         loadFromCache();
       }
     });
+
+    // 3. Por fim, o que outras contas compartilharam. Vem depois e em separado
+    //    porque depende de uma chamada ao servidor (a lista de convites) e não
+    //    pode atrasar a renderização dos dados próprios.
+    listShares()
+      .then(({ asOwner, asGrantee }) => {
+        setSharesAsOwner(asOwner);
+        setSharesAsGrantee(asGrantee);
+        const accepted = asGrantee.filter((s) => s.status === "accepted");
+        if (accepted.length === 0) {
+          // Nada compartilhado (ou acesso revogado): limpa resquício do cache.
+          dbLocal.dropSharedData(activeUser.userId);
+          loadFromCache();
+          return;
+        }
+        return dbLocal
+          .syncSharedFromFirebase(activeUser.userId, accepted.map((s) => ({ ownerUid: s.ownerUid, medicadoId: s.medicadoId })))
+          .then(() => loadFromCache());
+      })
+      .catch((err) => {
+        // Offline ou servidor fora: mantém o que já está em cache. Não é erro
+        // que mereça interromper o app.
+        console.warn("Falha ao carregar compartilhamentos:", err);
+      });
   }, [activeUser]);
 
   // Reconcile subscription/trial state with the server. Grants the 7-day trial
@@ -515,6 +552,26 @@ export default function App() {
       window.removeEventListener("hashchange", handleLocationChange);
     };
   }, []);
+
+  // Link do e-mail de convite (`#/convite/{shareId}`): leva para a aba onde o
+  // convite pendente aparece com os botões de aceitar/recusar. Não aceita nada
+  // sozinho — o consentimento tem de ser um clique explícito de quem recebeu.
+  // Depende de `activeUser` porque quem chega pelo e-mail costuma cair antes na
+  // tela de login; o efeito reroda assim que a sessão existe.
+  useEffect(() => {
+    if (!activeUser) return;
+    const goToInvite = () => {
+      if (window.location.hash.startsWith("#/convite/")) {
+        setActiveTab("profile");
+        // Limpa o hash para o convite não reabrir a cada refresh depois de
+        // resolvido, preservando o resto da URL.
+        window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      }
+    };
+    goToInvite();
+    window.addEventListener("hashchange", goToInvite);
+    return () => window.removeEventListener("hashchange", goToInvite);
+  }, [activeUser]);
 
   // Desktop visitors land on /app only if they explicitly chose to (via the
   // landing page CTA, which sets DESKTOP_ENTER_FLAG). Otherwise send them to
@@ -819,6 +876,38 @@ export default function App() {
   // ==========================================
   // PATIENTS (MEDICADOS) CRUD HANDLERS
   // ==========================================
+  // Um registro criado DENTRO de um paciente compartilhado precisa nascer com
+  // dois valores herdados do medicado pai, ou o Firestore recusa a escrita:
+  //   - `userId` = o TITULAR (é a árvore dele), não quem está escrevendo;
+  //   - as listas de acesso idênticas às do pai (regra inheritsShareLists),
+  //     sem o que o registro nasceria invisível para os outros cuidadores.
+  const inheritFromPatient = (medicadoId: string) => {
+    const patient = medicados.find((m) => m.medicadoId === medicadoId);
+    return {
+      userId: patient?.userId ?? activeUser!.userId,
+      ...(patient?.memberUids ? { memberUids: patient.memberUids } : {}),
+      ...(patient?.editorUids ? { editorUids: patient.editorUids } : {}),
+    };
+  };
+
+  // Bloqueia a ação de quem só acompanha. As regras já recusariam a escrita —
+  // isto existe para o acompanhante receber uma explicação em vez de ver a
+  // alteração aparecer na tela (cache local otimista) e sumir no próximo sync.
+  //
+  // Se o paciente não for encontrado no estado, LIBERA em vez de bloquear: o
+  // gate de verdade é o firestore.rules, e barrar aqui por uma lista ainda não
+  // carregada quebraria um usuário comum sem ganho nenhum de segurança.
+  const assertCanEdit = (medicadoId: string): boolean => {
+    if (!activeUser) return false;
+    const patient = medicados.find((m) => m.medicadoId === medicadoId);
+    if (!patient) return true;
+    if (canEditMedicado(patient, activeUser.userId)) return true;
+    showToast("Você acompanha este paciente e não pode alterar os registros.");
+    return false;
+  };
+
+  const refreshPatients = () => setMedicados(dbLocal.getVisibleMedicados(activeUser!.userId));
+
   const handleAddPatient = (patientData: Omit<Medicado, "medicadoId" | "createdAt" | "userId">) => {
     if (!activeUser) return;
     const newPatient: Medicado = {
@@ -828,14 +917,15 @@ export default function App() {
       createdAt: new Date().toISOString(),
     };
     dbLocal.addMedicado(newPatient);
-    setMedicados(dbLocal.getMedicados(activeUser.userId));
+    refreshPatients();
     showToast(`Paciente ${newPatient.name} cadastrado com sucesso!`);
   };
 
   const handleUpdatePatient = (updatedPatient: Medicado) => {
     if (!activeUser) return;
+    if (!assertCanEdit(updatedPatient.medicadoId)) return;
     dbLocal.updateMedicado(updatedPatient);
-    setMedicados(dbLocal.getMedicados(activeUser.userId));
+    refreshPatients();
     logAction("update", "Medicado", updatedPatient.medicadoId, updatedPatient.name, "Pacientes");
     showToast(`Dados de ${updatedPatient.name} atualizados!`);
   };
@@ -843,8 +933,15 @@ export default function App() {
   const handleDeletePatient = (patientId: string) => {
     if (!activeUser) return;
     const patient = medicados.find((m) => m.medicadoId === patientId);
+    // Excluir o paciente é só do titular: um coadministrador cuida do
+    // tratamento, não descarta o prontuário de quem não é dele. Mesma regra do
+    // `allow delete` em firestore.rules.
+    if (patient && patient.userId !== activeUser.userId) {
+      showToast("Só o titular da conta pode remover este paciente.");
+      return;
+    }
     dbLocal.deleteMedicado(patientId);
-    setMedicados(dbLocal.getMedicados(activeUser.userId));
+    refreshPatients();
     logAction("delete", "Medicado", patientId, patient?.name ?? patientId, "Pacientes");
     showToast("Paciente removido com sucesso.");
   };
@@ -852,31 +949,36 @@ export default function App() {
   // ==========================================
   // MEDICINES (MEDICAMENTOS) CRUD HANDLERS
   // ==========================================
+  const refreshMedicines = () => setMedicamentos(dbLocal.getVisibleMedicamentos(activeUser!.userId));
+
   const handleAddMedicine = (medData: Omit<Medicamento, "medicamentoId" | "createdAt" | "userId"> & { createdAt?: string }) => {
     if (!activeUser) return;
+    if (!assertCanEdit(medData.medicadoId)) return;
     const newMed: Medicamento = {
       ...medData,
       medicamentoId: `med_${Date.now()}`,
-      userId: activeUser.userId,
+      ...inheritFromPatient(medData.medicadoId),
       createdAt: medData.createdAt || new Date().toISOString(),
     };
     dbLocal.addMedicamento(newMed);
-    setMedicamentos(dbLocal.getMedicamentos(activeUser.userId));
+    refreshMedicines();
     showToast(`Medicamento ${newMed.name} agendado!`);
   };
 
   const handleUpdateMedicine = (updatedMed: Medicamento) => {
     if (!activeUser) return;
+    if (!assertCanEdit(updatedMed.medicadoId)) return;
     dbLocal.updateMedicamento(updatedMed);
-    setMedicamentos(dbLocal.getMedicamentos(activeUser.userId));
+    refreshMedicines();
     logAction("update", "Medicamento", updatedMed.medicamentoId, updatedMed.name, "Medicamentos");
   };
 
   const handleDeleteMedicine = (medId: string) => {
     if (!activeUser) return;
     const med = medicamentos.find((m) => m.medicamentoId === medId);
+    if (med && !assertCanEdit(med.medicadoId)) return;
     dbLocal.deleteMedicamento(medId);
-    setMedicamentos(dbLocal.getMedicamentos(activeUser.userId));
+    refreshMedicines();
     logAction("delete", "Medicamento", medId, med?.name ?? medId, "Medicamentos");
     showToast("Medicamento removido da programação.");
   };
@@ -886,30 +988,42 @@ export default function App() {
   // ==========================================
   const handleAddDoseLog = (log: Omit<DoseLog, "userId">) => {
     if (!activeUser) return;
-    dbLocal.addDoseLog({ ...log, userId: activeUser.userId });
-    setDoseLogs(dbLocal.getDoseLogs(activeUser.userId));
+    if (!assertCanEdit(log.medicadoId)) return;
+    dbLocal.addDoseLog({
+      ...log,
+      ...inheritFromPatient(log.medicadoId),
+      // Quem clicou. É o campo que responde "o cuidador deu o remédio das 14h?"
+      // — as regras o amarram ao uid autenticado, então não é falsificável.
+      registradoPor: activeUser.userId,
+    });
+    setDoseLogs(dbLocal.getVisibleDoseLogs(activeUser.userId));
     showToast("Medicamento marcado como TOMADO! Saúde garantida.");
   };
 
   // ==========================================
   // APPOINTMENTS (CONSULTAS) CRUD HANDLERS
   // ==========================================
+  const refreshAppointments = () => setConsultas(dbLocal.getVisibleConsultas(activeUser!.userId));
+
   const handleAddAppointment = (apptData: Omit<Consulta, "consultaId" | "createdAt">) => {
     if (!activeUser) return;
+    if (!assertCanEdit(apptData.medicadoId)) return;
     const newAppt: Consulta = {
       ...apptData,
       consultaId: `appt_${Date.now()}`,
+      ...inheritFromPatient(apptData.medicadoId),
       createdAt: new Date().toISOString(),
     };
     dbLocal.addConsulta(newAppt);
-    setConsultas(dbLocal.getConsultas(activeUser.userId));
+    refreshAppointments();
     showToast(`Consulta agendada com ${newAppt.doctorName}.`);
   };
 
   const handleUpdateAppointment = (updatedAppt: Consulta) => {
     if (!activeUser) return;
+    if (!assertCanEdit(updatedAppt.medicadoId)) return;
     dbLocal.updateConsulta(updatedAppt);
-    setConsultas(dbLocal.getConsultas(activeUser.userId));
+    refreshAppointments();
     logAction("update", "Consulta", updatedAppt.consultaId, `${updatedAppt.doctorName} - ${updatedAppt.dateTime}`, "Agenda");
     showToast("Consulta atualizada.");
   };
@@ -917,8 +1031,9 @@ export default function App() {
   const handleDeleteAppointment = (apptId: string) => {
     if (!activeUser) return;
     const appt = consultas.find((c) => c.consultaId === apptId);
+    if (appt && !assertCanEdit(appt.medicadoId)) return;
     dbLocal.deleteConsulta(apptId);
-    setConsultas(dbLocal.getConsultas(activeUser.userId));
+    refreshAppointments();
     logAction("delete", "Consulta", apptId, appt ? `${appt.doctorName} - ${appt.dateTime}` : apptId, "Agenda");
     showToast("Consulta desmarcada.");
   };
@@ -1124,12 +1239,18 @@ export default function App() {
   ) => {
     if (!activeUser) return;
 
+    if (!assertCanEdit(medicadoId)) return;
+    // O titular e as listas de acesso saem do paciente, não de quem escaneou —
+    // é o que permite um coadministrador cadastrar a receita do paciente
+    // compartilhado sem que ela nasça fora do alcance dos outros cuidadores.
+    const inherited = inheritFromPatient(medicadoId);
+
     // 1. Register Receipt Record
     const recipeId = `rec_${Date.now()}`;
     const newReceita: Receita = {
       receitaId: recipeId,
       medicadoId,
-      userId: activeUser.userId,
+      ...inherited,
       date,
       doctorName,
       extracted: true,
@@ -1143,7 +1264,7 @@ export default function App() {
         medicamentoId: `med_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
         receitaId: recipeId,
         medicadoId,
-        userId: activeUser.userId,
+        ...inherited,
         name: med.name,
         dosage: med.dosage,
         intervalHours: med.intervalHours || 12,
@@ -1159,8 +1280,8 @@ export default function App() {
     });
 
     // Refresh layout queries
-    setReceitas(dbLocal.getReceitas(activeUser.userId));
-    setMedicamentos(dbLocal.getMedicamentos(activeUser.userId));
+    setReceitas(dbLocal.getVisibleReceitas(activeUser.userId));
+    refreshMedicines();
 
     showToast(`Receita de ${doctorName} lida e agendada com sucesso por Inteligência Artificial!`);
   };
@@ -1168,10 +1289,11 @@ export default function App() {
   const handleDeleteReceita = (receitaId: string) => {
     if (!activeUser) return;
     const receita = receitas.find((r) => r.receitaId === receitaId);
+    if (receita && !assertCanEdit(receita.medicadoId)) return;
     dbLocal.deleteReceita(receitaId);
-    setReceitas(dbLocal.getReceitas(activeUser.userId));
-    setMedicamentos(dbLocal.getMedicamentos(activeUser.userId));
-    setDoseLogs(dbLocal.getDoseLogs(activeUser.userId));
+    setReceitas(dbLocal.getVisibleReceitas(activeUser.userId));
+    refreshMedicines();
+    setDoseLogs(dbLocal.getVisibleDoseLogs(activeUser.userId));
     logAction("delete", "Receita", receitaId, receita ? `${receita.doctorName || "Receita"} - ${receita.date}` : receitaId, "Receitas");
     showToast("Receita médica e seus medicamentos associados foram removidos.");
   };
@@ -1214,10 +1336,66 @@ export default function App() {
     setConsultas([]);
     setFarmacias([]);
     setCupons([]);
+    setSharesAsOwner([]);
+    setSharesAsGrantee([]);
     setActiveUser(null);
     localStorage.removeItem("horacerta_active_user_id");
     setActiveTab("home");
     showToast("Sessão encerrada com sucesso!");
+  };
+
+  // ==========================================
+  // COMPARTILHAMENTO ENTRE CUIDADORES
+  // ==========================================
+
+  // Recarrega os convites e, com eles, os dados dos pacientes compartilhados.
+  // Chamado depois de toda mutação porque aceitar ou revogar muda o que este
+  // usuário enxerga — não só a lista de convites.
+  const reloadShares = useCallback(async () => {
+    if (!activeUser) return;
+    const { asOwner, asGrantee } = await listShares();
+    setSharesAsOwner(asOwner);
+    setSharesAsGrantee(asGrantee);
+
+    const accepted = asGrantee.filter((s) => s.status === "accepted");
+    if (accepted.length === 0) {
+      dbLocal.dropSharedData(activeUser.userId);
+    } else {
+      await dbLocal.syncSharedFromFirebase(
+        activeUser.userId,
+        accepted.map((s) => ({ ownerUid: s.ownerUid, medicadoId: s.medicadoId })),
+      );
+    }
+    setMedicados(dbLocal.getVisibleMedicados(activeUser.userId));
+    setReceitas(dbLocal.getVisibleReceitas(activeUser.userId));
+    setMedicamentos(dbLocal.getVisibleMedicamentos(activeUser.userId));
+    setDoseLogs(dbLocal.getVisibleDoseLogs(activeUser.userId));
+    setConsultas(dbLocal.getVisibleConsultas(activeUser.userId));
+  }, [activeUser]);
+
+  const handleInviteShare = async (medicadoId: string, email: string, role: ShareRole) => {
+    const result = await createShare({ medicadoId, granteeEmail: email, role });
+    await reloadShares();
+    // O convite é gravado mesmo se o e-mail falhar (ver POST /api/shares), então
+    // o aviso precisa distinguir os dois casos — senão o titular fica esperando
+    // uma resposta que nunca vai chegar.
+    showToast(
+      result.emailSent
+        ? `Convite enviado para ${email}.`
+        : `Convite criado, mas o e-mail para ${email} não saiu. Reenvie mais tarde.`,
+    );
+  };
+
+  const handleRevokeShare = async (shareId: string) => {
+    await revokeShare(shareId);
+    await reloadShares();
+    showToast("Compartilhamento encerrado.");
+  };
+
+  const handleAcceptShare = async (shareId: string) => {
+    await acceptShare(shareId);
+    await reloadShares();
+    showToast("Convite aceito! O paciente já aparece na sua lista.");
   };
 
   // ==========================================
@@ -1778,6 +1956,17 @@ export default function App() {
                   </span>
                 </button>
               </div>
+
+              {/* Compartilhamento entre cuidadores */}
+              <SharingScreen
+                myUid={activeUser.userId}
+                medicados={medicados}
+                sharesAsOwner={sharesAsOwner}
+                sharesAsGrantee={sharesAsGrantee}
+                onInvite={handleInviteShare}
+                onRevoke={handleRevokeShare}
+                onAccept={handleAcceptShare}
+              />
 
               {/* Subscription & Trial Information Card */}
               <div className="bg-white border border-brand-cream-darker rounded-3xl p-5 shadow-xs space-y-4">

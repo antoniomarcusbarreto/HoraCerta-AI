@@ -16,10 +16,10 @@ import { getAuth } from "firebase-admin/auth";
 import { getFirestore, FieldValue, Timestamp, type Firestore } from "firebase-admin/firestore";
 import webpush from "web-push";
 import { MercadoPagoConfig, Payment, Preference } from "mercadopago";
-import { createHash, createHmac, timingSafeEqual, randomInt } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual, randomInt, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { PLANS, getAccessState, canPerformScan, TRIAL_DAYS, type PlanId, type ScanType } from "../src/subscription.js";
-import { dueDoseMs } from "../src/utils/doseSchedule.js";
+import { dueDoseMs, doseSlotAtMs } from "../src/utils/doseSchedule.js";
 
 // dotenv.config() alone only reads ".env" — this project's docs/README tell
 // users to put secrets in ".env.local" (Vite convention), so load that first.
@@ -51,6 +51,15 @@ const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "onboarding@resend.de
 const PASSWORD_RESET_CODE_TTL_MS = 10 * 60 * 1000;
 const PASSWORD_RESET_CODE_MAX_ATTEMPTS = 5;
 
+// Compartilhamento de um medicado entre cuidadores. Um convite pendente expira
+// sozinho: convite de acesso a dado de saúde não pode ficar aceitável para
+// sempre numa caixa de e-mail antiga.
+const SHARE_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// Teto de cuidadores por paciente. Precisa ficar ABAIXO do limite de 20 que
+// isValidShareLists() impõe em firestore.rules, senão o fan-out gera um
+// documento que as próprias regras passam a rejeitar em qualquer edição.
+const MAX_SHARES_PER_MEDICADO = 10;
+
 // ==========================================
 // RETENÇÃO DAS TRILHAS DE AUDITORIA (LGPD art. 15/16)
 // ==========================================
@@ -66,6 +75,10 @@ const PASSWORD_RESET_CODE_MAX_ATTEMPTS = 5;
 // Repita para errorLogs e actionLogs. Sem isso o campo é só um dado inerte.
 const LOGIN_LOG_RETENTION_DAYS = 180;  // Marco Civil da Internet, art. 15 (6 meses).
 const ERROR_LOG_RETENTION_DAYS = 90;   // Operacional: só precisa durar a investigação.
+// Espelha ACTION_LOG_RETENTION_DAYS em src/firebase.ts: a mesma coleção é
+// escrita pelo cliente (mutações no painel) e por aqui (compartilhamento), e
+// duas retenções diferentes na mesma trilha seriam impossíveis de auditar.
+const ACTION_LOG_RETENTION_DAYS = 365;
 
 function expiresInDays(days: number): Timestamp {
   return Timestamp.fromDate(new Date(Date.now() + days * 24 * 60 * 60 * 1000));
@@ -472,6 +485,64 @@ async function purgeUserAuditTrail(uid: string): Promise<{
   };
 }
 
+// Mesmo buraco do purgeUserAuditTrail, para a coleção `shares`: ela é
+// top-level e o recursiveDelete de `users/{uid}/**` não a alcança.
+//
+// São duas pontas com consequências bem diferentes:
+//
+//   - Convites que o excluído CONCEDEU: a árvore dele acabou de ser apagada,
+//     então só resta remover os documentos — que guardam o nome de um paciente
+//     (terceiro) e o e-mail do convidado.
+//   - Convites que o excluído RECEBEU: a árvore do OUTRO titular continua de
+//     pé, com o uid do excluído gravado em `memberUids` de cada documento. Só
+//     apagar o convite deixaria esse uid para trás; é preciso reprocessar as
+//     listas de cada paciente afetado, e por isso o sync roda DEPOIS da
+//     exclusão dos convites (ele recalcula a partir do que sobrou).
+async function purgeUserShares(uid: string): Promise<{ sharesDeleted: number; medicadosResynced: number }> {
+  const db = getDb();
+
+  let email = "";
+  try {
+    const authUser = await getAuth(getAdminApp()).getUser(uid);
+    email = normalizeEmail(authUser.email || "");
+  } catch {
+    // Registro do Auth já removido: seguimos pelos convites achados por uid.
+  }
+
+  const [ownedSnap, grantedSnap, pendingSnap] = await Promise.all([
+    db.collection("shares").where("ownerUid", "==", uid).get(),
+    db.collection("shares").where("granteeUid", "==", uid).get(),
+    email ? db.collection("shares").where("granteeEmail", "==", email).get() : Promise.resolve(null),
+  ]);
+
+  // Pares (titular, paciente) cujas listas precisam ser recalculadas depois.
+  const toResync = new Map<string, { ownerUid: string; medicadoId: string }>();
+  for (const docSnap of [...grantedSnap.docs, ...(pendingSnap ? pendingSnap.docs : [])]) {
+    const share = docSnap.data();
+    if (share.ownerUid === uid) continue; // árvore própria já foi apagada
+    toResync.set(`${share.ownerUid}/${share.medicadoId}`, {
+      ownerUid: share.ownerUid,
+      medicadoId: share.medicadoId,
+    });
+  }
+
+  const allDocs = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
+  for (const docSnap of [...ownedSnap.docs, ...grantedSnap.docs, ...(pendingSnap ? pendingSnap.docs : [])]) {
+    allDocs.set(docSnap.id, docSnap);
+  }
+  await commitInChunks(db, [...allDocs.values()], (batch, doc) => batch.delete(doc.ref));
+
+  for (const { ownerUid, medicadoId } of toResync.values()) {
+    try {
+      await syncMedicadoShareLists(ownerUid, medicadoId);
+    } catch (err) {
+      console.warn(`Falha ao reprocessar listas de ${ownerUid}/${medicadoId}:`, err);
+    }
+  }
+
+  return { sharesDeleted: allDocs.size, medicadosResynced: toResync.size };
+}
+
 // Persists a server-side failure for the Admin Portal's "Logs" tab.
 // Best-effort and swallows its own errors — a logging failure must never mask
 // or replace the original error response already sent to the caller.
@@ -705,6 +776,153 @@ const passwordResetConfirmRateLimiter = rateLimit({
   message: { error: "Muitas tentativas. Tente novamente mais tarde." },
 });
 
+// Convidar dispara e-mail para terceiro e um fan-out de escrita na subárvore
+// do paciente — as duas coisas que não se quer em laço apertado.
+const shareWriteRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey,
+  message: { error: "Muitas operações de compartilhamento. Tente novamente mais tarde." },
+});
+
+// ==========================================
+// COMPARTILHAMENTO ENTRE CUIDADORES
+// ==========================================
+
+// A fonte da verdade de quem tem acesso a um medicado é a coleção `shares`.
+// As listas `memberUids`/`editorUids` gravadas nos documentos são apenas um
+// índice desnormalizado, existente para que firestore.rules decida sem precisar
+// de um get() por documento lido.
+//
+// Esta função reconstrói as listas a partir dos convites ACEITOS e as replica
+// pela subárvore inteira do paciente. É idempotente de propósito: recalcula
+// tudo do zero em vez de aplicar deltas, então basta reexecutá-la para reparar
+// um fan-out que tenha ficado pela metade.
+//
+// LIMITE CONHECIDO: em serverless isto roda dentro do timeout da invocação. Um
+// paciente com histórico muito longo (milhares de doseLogs) pode não terminar
+// numa tacada. Como a operação é idempotente, o conserto é reexecutar — mas se
+// isso virar rotina, o caminho certo é mover o fan-out para um job de fundo.
+async function syncMedicadoShareLists(ownerUid: string, medicadoId: string): Promise<{ memberUids: string[]; editorUids: string[]; docsWritten: number }> {
+  const db = getDb();
+
+  const acceptedSnap = await db
+    .collection("shares")
+    .where("ownerUid", "==", ownerUid)
+    .where("medicadoId", "==", medicadoId)
+    .where("status", "==", "accepted")
+    .get();
+
+  const memberUids: string[] = [];
+  const editorUids: string[] = [];
+  acceptedSnap.forEach((docSnap) => {
+    const share = docSnap.data();
+    const uid: string | undefined = share.granteeUid;
+    if (!uid) return; // convite aceito sem uid resolvido não deveria existir
+    if (!memberUids.includes(uid)) memberUids.push(uid);
+    if (share.role === "coadministrador" && !editorUids.includes(uid)) editorUids.push(uid);
+  });
+
+  // Revogação grava listas VAZIAS em vez de apagar o campo: `isMember()` testa
+  // a pertinência ao array, então [] nega acesso do mesmo jeito e o documento
+  // continua com um formato único, mais fácil de inspecionar.
+  const lists = { memberUids, editorUids };
+
+  const userRef = db.collection("users").doc(ownerUid);
+  const medicadoRef = userRef.collection("medicados").doc(medicadoId);
+
+  // BulkWriter em vez de WriteBatch: batch estoura em 500 escritas e a
+  // subárvore de doseLogs passa disso com facilidade.
+  const writer = db.bulkWriter();
+  let docsWritten = 0;
+  const stamp = (ref: FirebaseFirestore.DocumentReference) => {
+    writer.set(ref, lists, { merge: true });
+    docsWritten++;
+  };
+
+  stamp(medicadoRef);
+
+  const [receitasSnap, medicamentosSnap, consultasSnap] = await Promise.all([
+    medicadoRef.collection("receitas").get(),
+    medicadoRef.collection("medicamentos").get(),
+    userRef.collection("consultas").where("medicadoId", "==", medicadoId).get(),
+  ]);
+
+  receitasSnap.forEach((d) => stamp(d.ref));
+  consultasSnap.forEach((d) => stamp(d.ref));
+
+  for (const medDoc of medicamentosSnap.docs) {
+    stamp(medDoc.ref);
+    const logsSnap = await medDoc.ref.collection("doseLogs").get();
+    logsSnap.forEach((d) => stamp(d.ref));
+  }
+
+  await writer.close();
+  return { memberUids, editorUids, docsWritten };
+}
+
+// Trilha de acesso a dado de saúde. Segue a mesma regra de privacidade dos
+// actionLogs escritos pelo cliente: `entityLabel` NUNCA nomeia o paciente —
+// só o id — porque a trilha é lida no painel admin por alguém que não tem
+// (nem deve ter) acesso ao prontuário.
+async function logShareAction(
+  action: "update" | "delete",
+  actor: { uid: string; name: string; email: string },
+  medicadoId: string,
+  detail: string,
+): Promise<void> {
+  try {
+    const db = getDb();
+    const logId = randomUUID();
+    await db.collection("actionLogs").doc(logId).set({
+      logId,
+      actorId: actor.uid,
+      actorName: actor.name,
+      actorEmail: actor.email,
+      action,
+      entityType: "Share",
+      entityId: medicadoId,
+      entityLabel: detail,
+      page: "compartilhamento",
+      createdAt: Timestamp.now(),
+      expiresAt: expiresInDays(ACTION_LOG_RETENTION_DAYS),
+    });
+  } catch (err) {
+    // Trilha é best-effort: não pode derrubar a operação principal.
+    console.warn("Falha ao registrar actionLog de compartilhamento:", err);
+  }
+}
+
+function renderShareInviteEmailHtml(params: {
+  ownerName: string;
+  medicadoName: string;
+  roleLabel: string;
+  roleDescription: string;
+  acceptUrl: string;
+  ttlDays: number;
+}): string {
+  return renderBrandedEmailHtml(`
+    <p style="font-size:14px;color:#0D3E46;line-height:1.6;margin:0 0 16px 0;">
+      <strong>${escapeHtml(params.ownerName)}</strong> convidou você para acompanhar a medicação de
+      <strong>${escapeHtml(params.medicadoName)}</strong> no Hora Certa AI.
+    </p>
+    <div style="background-color:#FFF1E6;border-radius:16px;padding:16px;margin-bottom:20px;">
+      <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Seu acesso</div>
+      <div style="font-size:16px;font-weight:700;color:#0D3E46;">${escapeHtml(params.roleLabel)}</div>
+      <div style="font-size:12px;color:#6b7280;margin-top:6px;line-height:1.5;">${escapeHtml(params.roleDescription)}</div>
+    </div>
+    <p style="margin:0 0 20px 0;">
+      <a href="${escapeHtml(params.acceptUrl)}" style="display:inline-block;background-color:#EAA15F;color:#FDFBF7;text-decoration:none;font-weight:700;font-size:14px;padding:14px 24px;border-radius:16px;">Revisar convite</a>
+    </p>
+    <p style="font-size:12px;color:#6b7280;line-height:1.6;margin:0;">
+      O acesso só começa depois que você aceitar. O convite expira em ${params.ttlDays} dias, e
+      quem convidou pode encerrá-lo a qualquer momento. Se você não esperava este convite, ignore este e-mail.
+    </p>
+  `);
+}
+
 // ==========================================
 // WEB PUSH DISPATCHER (per-user isolated)
 // ==========================================
@@ -719,19 +937,62 @@ const DISPATCH_TTL_MS = 15 * 60 * 1000;
 // Which dose is due this minute is computed by the SHARED src/doseSchedule.ts
 // (`dueDoseMs`), so the server dispatcher and the in-app poller agree exactly.
 
-// One dispatch pass: find every active medicine whose reminder is due this
-// minute and push a generic (no-PHI) reminder to THAT owner's devices only.
-// Isolation holds because each subscription lives under its owner's uid tree
-// and we send strictly to subscriptions grouped under the medicine's userId.
-export async function dispatchDueReminders(): Promise<number> {
-  if (!pushEnabled) return 0;
-  const db = getDb();
-  const nowMs = Date.now();
+// Quanto tempo depois do horário previsto uma dose sem registro vira alerta.
+const MISSED_DOSE_GRACE_MS = 30 * 60 * 1000;
 
-  // Only users who actually have a subscription are worth processing.
+// Envia um push para cada destinatário que tenha dispositivo registrado,
+// desduplicando por (destinatário, chave). A dedupe É POR DESTINATÁRIO de
+// propósito: com uma chave única por dose, o primeiro envio criaria o marcador
+// e todos os outros cuidadores seriam silenciosamente pulados.
+async function pushToRecipients(
+  db: Firestore,
+  subsByUser: Map<string, any[]>,
+  recipients: string[],
+  dedupeKey: string,
+  payload: string,
+  nowMs: number,
+): Promise<number> {
+  let sent = 0;
+  for (const recipientUid of recipients) {
+    const subs = subsByUser.get(recipientUid);
+    if (!subs || subs.length === 0) continue;
+
+    const dispatchRef = db
+      .collection("users").doc(recipientUid)
+      .collection("pushDispatches").doc(subIdFromEndpoint(`${recipientUid}_${dedupeKey}`));
+    try {
+      await dispatchRef.create({
+        userId: recipientUid,
+        dedupeKey,
+        expiresAt: new Date(nowMs + DISPATCH_TTL_MS).toISOString(),
+        createdAt: new Date(nowMs).toISOString(),
+      });
+    } catch {
+      continue; // já despachado para este destinatário
+    }
+
+    for (const sub of subs) {
+      try {
+        await webpush.sendNotification({ endpoint: sub.data.endpoint, keys: sub.data.keys }, payload);
+        sent++;
+      } catch (err: any) {
+        if (err && (err.statusCode === 404 || err.statusCode === 410)) {
+          try { await sub.ref.delete(); } catch { /* best-effort */ }
+        } else {
+          console.warn("Falha ao enviar push:", err?.statusCode || err?.message || err);
+        }
+      }
+    }
+  }
+  return sent;
+}
+
+// Carrega as inscrições de push agrupadas por uid — extraído para os dois jobs
+// não duplicarem a lógica de agrupamento. Cada job faz a sua própria varredura
+// (são duas por minuto de cron); se isso pesar, o passo seguinte é receber o
+// mapa por parâmetro em vez de recarregá-lo.
+async function loadSubscriptionsByUser(db: Firestore): Promise<Map<string, any[]>> {
   const subsSnap = await db.collectionGroup("pushSubscriptions").get();
-  if (subsSnap.empty) return 0;
-
   const subsByUser = new Map<string, any[]>();
   subsSnap.forEach((docSnap) => {
     const data = docSnap.data();
@@ -740,40 +1001,103 @@ export async function dispatchDueReminders(): Promise<number> {
     if (!subsByUser.has(uid)) subsByUser.set(uid, []);
     subsByUser.get(uid)!.push({ ref: docSnap.ref, data });
   });
+  return subsByUser;
+}
+
+// Alerta de dose NÃO tomada: a dose venceu há MISSED_DOSE_GRACE_MS e ninguém
+// registrou nada. É o que o acompanhante à distância realmente quer saber — o
+// lembrete de "está na hora" é para quem ministra, não para quem observa —, e
+// por isso aqui o destino é a lista INTEIRA de membros, incluindo quem só lê.
+export async function dispatchMissedDoseAlerts(): Promise<number> {
+  if (!pushEnabled) return 0;
+  const db = getDb();
+  const nowMs = Date.now();
+  const targetMs = nowMs - MISSED_DOSE_GRACE_MS;
+
+  const subsByUser = await loadSubscriptionsByUser(db);
+  if (subsByUser.size === 0) return 0;
 
   const medsSnap = await db.collectionGroup("medicamentos").where("status", "==", "active").get();
   let sent = 0;
 
   for (const medDoc of medsSnap.docs) {
     const med = medDoc.data();
-    const uid: string | undefined = med.userId;
-    if (!uid || !subsByUser.has(uid)) continue;
+    const ownerUid: string | undefined = med.userId;
+    if (!ownerUid) continue;
+
+    // SÓ para paciente compartilhado. Disparar isto para todo mundo criaria um
+    // segundo fluxo de notificação para cada usuário que já existe — gente que
+    // nunca pediu por ele e que hoje só recebe o lembrete da dose. Quem tem um
+    // paciente sozinho não passa a ser cobrado por não ter marcado a dose.
+    const members: string[] = Array.isArray(med.memberUids) ? med.memberUids : [];
+    if (members.length === 0) continue;
+
+    // A dose que ESTAVA marcada para o minuto de `targetMs`.
+    const doseMs = doseSlotAtMs(med, targetMs);
+    if (doseMs == null) continue;
+
+    const recipients = [ownerUid, ...members]
+      .filter((uid, i, arr) => arr.indexOf(uid) === i && subsByUser.has(uid));
+    if (recipients.length === 0) continue;
+
+    // Só consulta os doseLogs dos poucos medicamentos com dose vencida neste
+    // minuto — não de todos os ativos.
+    const doseMinute = Math.floor(doseMs / 60_000);
+    const logsSnap = await medDoc.ref.collection("doseLogs").get();
+    const alreadyLogged = logsSnap.docs.some((logDoc) => {
+      const t = new Date(logDoc.data().plannedTime).getTime();
+      return Number.isFinite(t) && Math.floor(t / 60_000) === doseMinute;
+    });
+    if (alreadyLogged) continue;
+
+    const medId = med.medicamentoId || medDoc.id;
+    // Sem PHI no corpo, pela mesma política do lembrete comum: isto aparece na
+    // tela de bloqueio de um cuidador que pode estar em público.
+    const payload = JSON.stringify({
+      title: "Dose sem registro",
+      body: "Uma dose passou do horário e ainda não foi marcada como tomada. Abra o aplicativo para verificar.",
+      tag: `missed_${medId}_${doseMs}`,
+      data: { url: "/app" },
+    });
+
+    sent += await pushToRecipients(db, subsByUser, recipients, `missed_${medId}_${doseMs}`, payload, nowMs);
+  }
+
+  return sent;
+}
+
+// One dispatch pass: find every active medicine whose reminder is due this
+// minute and push a generic (no-PHI) reminder to the people who ADMINISTER it —
+// the owner plus any coadministrador (`editorUids`). Quem só acompanha
+// (acompanhante) fica de fora daqui de propósito: receber um alerta a cada dose
+// de outra pessoa é ruído, e o que essa pessoa quer é o alerta de dose perdida.
+export async function dispatchDueReminders(): Promise<number> {
+  if (!pushEnabled) return 0;
+  const db = getDb();
+  const nowMs = Date.now();
+
+  // Only users who actually have a subscription are worth processing.
+  const subsByUser = await loadSubscriptionsByUser(db);
+  if (subsByUser.size === 0) return 0;
+
+  const medsSnap = await db.collectionGroup("medicamentos").where("status", "==", "active").get();
+  let sent = 0;
+
+  for (const medDoc of medsSnap.docs) {
+    const med = medDoc.data();
+    const ownerUid: string | undefined = med.userId;
+    if (!ownerUid) continue;
 
     const doseMs = dueDoseMs(med, nowMs);
     if (doseMs == null) continue;
 
+    // Titular + coadministradores. O isolamento continua de pé: `editorUids` só
+    // é gravado pelo aceite de um convite, do lado do servidor.
+    const recipients = [ownerUid, ...(Array.isArray(med.editorUids) ? med.editorUids : [])]
+      .filter((uid, i, arr) => arr.indexOf(uid) === i && subsByUser.has(uid));
+    if (recipients.length === 0) continue;
+
     const medId = med.medicamentoId || medDoc.id;
-
-    // Cross-invocation dedupe via Firestore. A transaction-free create with a
-    // deterministic id + `create()` fails if the marker already exists, so only
-    // the first pass for this (uid, med, dose) proceeds to send.
-    const dedupeId = subIdFromEndpoint(`${uid}_${medId}_${doseMs}`);
-    const dispatchRef = db
-      .collection("users").doc(uid)
-      .collection("pushDispatches").doc(dedupeId);
-    try {
-      await dispatchRef.create({
-        userId: uid,
-        medicamentoId: medId,
-        doseMs,
-        expiresAt: new Date(nowMs + DISPATCH_TTL_MS).toISOString(),
-        createdAt: new Date(nowMs).toISOString(),
-      });
-    } catch {
-      // Already dispatched (doc exists) — skip this dose.
-      continue;
-    }
-
     const offsetMin = Number(med.reminderOffset) || 0;
     // Generic body — no patient name / medicine / dosage (PHI) on the lock screen.
     const body = offsetMin > 0
@@ -786,22 +1110,7 @@ export async function dispatchDueReminders(): Promise<number> {
       data: { url: "/app" },
     });
 
-    for (const sub of subsByUser.get(uid)!) {
-      try {
-        await webpush.sendNotification(
-          { endpoint: sub.data.endpoint, keys: sub.data.keys },
-          payload
-        );
-        sent++;
-      } catch (err: any) {
-        // 404/410 => the subscription expired or was unsubscribed: clean it up.
-        if (err && (err.statusCode === 404 || err.statusCode === 410)) {
-          try { await sub.ref.delete(); } catch { /* best-effort */ }
-        } else {
-          console.warn("Falha ao enviar push:", err?.statusCode || err?.message || err);
-        }
-      }
-    }
+    sent += await pushToRecipients(db, subsByUser, recipients, `dose_${medId}_${doseMs}`, payload, nowMs);
   }
   return sent;
 }
@@ -984,6 +1293,20 @@ export function createApiApp(): express.Express {
         await logServerError("DELETE /api/admin/users/:uid (purga de logs)", purgeErr, actorUid);
       }
 
+      // Também top-level, e com um efeito que o recursiveDelete não cobre: se o
+      // excluído era CONVIDADO na conta de outra pessoa, o uid dele continuaria
+      // gravado nas listas de acesso da árvore alheia. Roda antes do
+      // deleteUser porque precisa ler o e-mail do registro do Auth.
+      let shares: Awaited<ReturnType<typeof purgeUserShares>> | null = null;
+      let sharesPurged = false;
+      try {
+        shares = await purgeUserShares(targetUid);
+        sharesPurged = true;
+      } catch (shareErr) {
+        console.error("Falha ao expurgar compartilhamentos:", shareErr);
+        await logServerError("DELETE /api/admin/users/:uid (purga de shares)", shareErr, actorUid);
+      }
+
       let authDeleted = false;
       try {
         await getAuth(getAdminApp()).deleteUser(targetUid);
@@ -992,7 +1315,7 @@ export function createApiApp(): express.Express {
         if (err?.code !== "auth/user-not-found") throw err;
       }
 
-      res.json({ success: true, authDeleted, auditTrailPurged, auditTrail });
+      res.json({ success: true, authDeleted, auditTrailPurged, auditTrail, sharesPurged, shares });
     } catch (error: any) {
       console.error("Admin delete-user error:", error);
       await logServerError("DELETE /api/admin/users/:uid", error, actorUid);
@@ -1581,7 +1904,16 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
     }
     try {
       const sent = await dispatchDueReminders();
-      res.json({ success: true, sent });
+      // Roda em try próprio: uma falha no alerta de dose perdida não pode
+      // impedir o lembrete comum, que é a função principal do cron.
+      let missed = 0;
+      try {
+        missed = await dispatchMissedDoseAlerts();
+      } catch (missedErr) {
+        console.error("Missed-dose dispatch error:", missedErr);
+        await logServerError("POST /api/push/dispatch (dose perdida)", missedErr);
+      }
+      res.json({ success: true, sent, missed });
     } catch (error: any) {
       console.error("Push dispatch error:", error);
       await logServerError("POST /api/push/dispatch", error);
@@ -1609,11 +1941,314 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
     }
     try {
       const sent = await dispatchDueReminders();
-      res.json({ success: true, sent });
+      let missed = 0;
+      try {
+        missed = await dispatchMissedDoseAlerts();
+      } catch (missedErr) {
+        console.error("Missed-dose dispatch error:", missedErr);
+        await logServerError("GET /api/push/dispatch (dose perdida)", missedErr);
+      }
+      res.json({ success: true, sent, missed });
     } catch (error: any) {
       console.error("Push dispatch error:", error);
       await logServerError("GET /api/push/dispatch", error);
       res.status(500).json({ error: "Falha ao despachar lembretes." });
+    }
+  });
+
+  // ==========================================
+  // COMPARTILHAMENTO ENTRE CUIDADORES
+  // ==========================================
+  //
+  // Todo o ciclo do convite passa por aqui, e não pelo cliente, por um motivo
+  // só: aceitar um convite propaga listas de acesso por toda a subárvore do
+  // paciente. firestore.rules dá escrita ZERO ao cliente em `shares` — se não
+  // desse, qualquer um poderia se autoconceder acesso ao prontuário de outra
+  // pessoa forjando um documento.
+
+  const SHARE_ROLE_LABELS: Record<string, { label: string; description: string }> = {
+    coadministrador: {
+      label: "Coadministrador",
+      description: "Pode registrar doses e cuidar dos medicamentos, receitas e consultas deste paciente.",
+    },
+    acompanhante: {
+      label: "Acompanhante",
+      description: "Pode acompanhar a adesão ao tratamento, sem alterar nada.",
+    },
+  };
+
+  // Nome e e-mail do ator para a trilha de auditoria.
+  async function loadActor(uid: string): Promise<{ uid: string; name: string; email: string }> {
+    const snap = await getDb().collection("users").doc(uid).get();
+    const data = snap.data() || {};
+    return {
+      uid,
+      name: typeof data.name === "string" ? data.name : "(sem nome)",
+      email: typeof data.email === "string" ? data.email : "(sem e-mail)",
+    };
+  }
+
+  // Lista os compartilhamentos que dizem respeito ao chamador, nas duas pontas:
+  // os que ele concedeu e os que recebeu. É por `asGrantee` que o cliente
+  // descobre de quais árvores alheias ele precisa sincronizar dados.
+  app.get("/api/shares", requireAuth, async (req, res) => {
+    const uid = (req as any).uid as string;
+    try {
+      const db = getDb();
+      // Sem orderBy de propósito: só filtros de igualdade dispensam índice
+      // composto no Firestore. São poucos registros — a ordenação é do cliente.
+      const [ownerSnap, granteeSnap] = await Promise.all([
+        db.collection("shares").where("ownerUid", "==", uid).get(),
+        db.collection("shares").where("granteeUid", "==", uid).where("status", "==", "accepted").get(),
+      ]);
+
+      // Convites ainda pendentes não têm granteeUid resolvido, então só podem
+      // ser achados pelo e-mail — que vem do registro do Auth, nunca do corpo
+      // da requisição.
+      const authUser = await getAuth(getAdminApp()).getUser(uid);
+      const myEmail = normalizeEmail(authUser.email || "");
+      const pendingSnap = myEmail
+        ? await db.collection("shares").where("granteeEmail", "==", myEmail).where("status", "==", "pending").get()
+        : null;
+
+      const asGrantee = [
+        ...granteeSnap.docs.map((d) => d.data()),
+        ...(pendingSnap ? pendingSnap.docs.map((d) => d.data()) : []),
+      ];
+
+      res.json({
+        asOwner: ownerSnap.docs.map((d) => d.data()),
+        asGrantee,
+      });
+    } catch (error: any) {
+      console.error("List shares error:", error);
+      await logServerError("GET /api/shares", error, uid);
+      res.status(500).json({ error: "Falha ao carregar os compartilhamentos." });
+    }
+  });
+
+  // Convida alguém para acompanhar UM paciente.
+  app.post("/api/shares", requireAuth, shareWriteRateLimiter, async (req, res) => {
+    const uid = (req as any).uid as string;
+    try {
+      const { medicadoId, granteeEmail, role } = req.body || {};
+
+      if (typeof medicadoId !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(medicadoId)) {
+        res.status(400).json({ error: "Paciente inválido." });
+        return;
+      }
+      if (role !== "coadministrador" && role !== "acompanhante") {
+        res.status(400).json({ error: "Papel inválido." });
+        return;
+      }
+      if (typeof granteeEmail !== "string" || !granteeEmail.includes("@") || granteeEmail.length > 128) {
+        res.status(400).json({ error: "E-mail do convidado inválido." });
+        return;
+      }
+
+      const db = getDb();
+      const email = normalizeEmail(granteeEmail);
+
+      const ownerAuth = await getAuth(getAdminApp()).getUser(uid);
+      if (normalizeEmail(ownerAuth.email || "") === email) {
+        res.status(400).json({ error: "Você já tem acesso a este paciente." });
+        return;
+      }
+
+      // O convite só existe para um paciente que é mesmo do titular.
+      const medicadoRef = db.collection("users").doc(uid).collection("medicados").doc(medicadoId);
+      const medicadoSnap = await medicadoRef.get();
+      if (!medicadoSnap.exists) {
+        res.status(404).json({ error: "Paciente não encontrado." });
+        return;
+      }
+      const medicadoName = String(medicadoSnap.data()?.name || "Paciente");
+
+      const existingSnap = await db
+        .collection("shares")
+        .where("ownerUid", "==", uid)
+        .where("medicadoId", "==", medicadoId)
+        .get();
+      const live = existingSnap.docs.map((d) => d.data()).filter((s) => s.status !== "revoked");
+
+      if (live.some((s) => s.granteeEmail === email)) {
+        res.status(409).json({ error: "Já existe um convite ativo para este e-mail." });
+        return;
+      }
+      if (live.length >= MAX_SHARES_PER_MEDICADO) {
+        res.status(409).json({ error: `Limite de ${MAX_SHARES_PER_MEDICADO} cuidadores por paciente atingido.` });
+        return;
+      }
+
+      const owner = await loadActor(uid);
+      const shareId = randomUUID();
+      const now = new Date();
+      const share = {
+        shareId,
+        ownerUid: uid,
+        ownerName: owner.name,
+        medicadoId,
+        medicadoName,
+        granteeEmail: email,
+        role,
+        status: "pending" as const,
+        createdAt: now.toISOString(),
+        expiresAt: new Date(now.getTime() + SHARE_INVITE_TTL_MS).toISOString(),
+      };
+      await db.collection("shares").doc(shareId).set(share);
+
+      // O convite é gravado ANTES do e-mail e o resultado do envio é reportado
+      // em vez de derrubar a operação: sem RESEND_API_KEY (dev) o fluxo segue
+      // testável, e em produção o titular vê que precisa reenviar em vez de
+      // achar que deu tudo certo.
+      const appUrl = (process.env.APP_URL || "").replace(/\/+$/, "");
+      const acceptUrl = `${appUrl}/app#/convite/${shareId}`;
+      const roleInfo = SHARE_ROLE_LABELS[role];
+      let emailSent = false;
+      let emailError: string | undefined;
+      try {
+        await sendResendEmail(
+          email,
+          `${owner.name} convidou você para acompanhar ${medicadoName}`,
+          `${owner.name} convidou você para acompanhar a medicação de ${medicadoName} no Hora Certa AI, como ${roleInfo.label}.\n\n${roleInfo.description}\n\nAcesse para revisar o convite: ${acceptUrl}\n\nO acesso só começa depois que você aceitar. O convite expira em 7 dias.`,
+          renderShareInviteEmailHtml({
+            ownerName: owner.name,
+            medicadoName,
+            roleLabel: roleInfo.label,
+            roleDescription: roleInfo.description,
+            acceptUrl,
+            ttlDays: Math.round(SHARE_INVITE_TTL_MS / (24 * 60 * 60 * 1000)),
+          }),
+        );
+        emailSent = true;
+      } catch (err: any) {
+        emailError = err instanceof Error ? err.message : String(err);
+        console.warn("Falha ao enviar convite de compartilhamento:", emailError);
+      }
+
+      await logShareAction("update", owner, medicadoId, `convite ${role} enviado`);
+      res.json({ success: true, share, emailSent, emailError });
+    } catch (error: any) {
+      console.error("Create share error:", error);
+      await logServerError("POST /api/shares", error, uid);
+      res.status(500).json({ error: "Falha ao criar o convite." });
+    }
+  });
+
+  // Aceite do convidado — é aqui que o acesso passa a existir de fato.
+  app.post("/api/shares/:shareId/accept", requireAuth, shareWriteRateLimiter, async (req, res) => {
+    const uid = (req as any).uid as string;
+    const shareId = req.params.shareId;
+    try {
+      const db = getDb();
+      const shareRef = db.collection("shares").doc(shareId);
+      const snap = await shareRef.get();
+      if (!snap.exists) {
+        res.status(404).json({ error: "Convite não encontrado." });
+        return;
+      }
+      const share = snap.data()!;
+
+      if (share.status === "accepted" && share.granteeUid === uid) {
+        res.json({ success: true, alreadyAccepted: true });
+        return;
+      }
+      if (share.status !== "pending") {
+        res.status(409).json({ error: "Este convite não está mais disponível." });
+        return;
+      }
+
+      // O e-mail vem do registro do Auth, não do token: um ID token em cache
+      // pode carregar um e-mail já trocado desde então.
+      const authUser = await getAuth(getAdminApp()).getUser(uid);
+      if (normalizeEmail(authUser.email || "") !== share.granteeEmail) {
+        res.status(403).json({ error: "Este convite foi enviado para outro e-mail." });
+        return;
+      }
+      if (share.expiresAt && new Date(share.expiresAt).getTime() < Date.now()) {
+        res.status(410).json({ error: "Este convite expirou. Peça um novo." });
+        return;
+      }
+
+      const medicadoSnap = await db
+        .collection("users").doc(share.ownerUid)
+        .collection("medicados").doc(share.medicadoId)
+        .get();
+      if (!medicadoSnap.exists) {
+        res.status(404).json({ error: "O paciente deste convite não existe mais." });
+        return;
+      }
+
+      // expiresAt PRECISA sair no aceite. Se ficasse, o TTL nativo do Firestore
+      // apagaria o documento do convite dias depois enquanto os memberUids
+      // continuariam gravados na subárvore — acesso ativo sem registro que o
+      // explique, e sem nada que o titular consiga revogar pela UI.
+      await shareRef.update({
+        granteeUid: uid,
+        status: "accepted",
+        acceptedAt: new Date().toISOString(),
+        expiresAt: FieldValue.delete(),
+      });
+
+      const result = await syncMedicadoShareLists(share.ownerUid, share.medicadoId);
+      const actor = await loadActor(uid);
+      await logShareAction("update", actor, share.medicadoId, `convite ${share.role} aceito`);
+
+      res.json({ success: true, docsWritten: result.docsWritten });
+    } catch (error: any) {
+      console.error("Accept share error:", error);
+      await logServerError("POST /api/shares/:shareId/accept", error, uid);
+      res.status(500).json({ error: "Falha ao aceitar o convite." });
+    }
+  });
+
+  // Revogação pelo titular, ou saída/recusa pelo próprio convidado.
+  app.delete("/api/shares/:shareId", requireAuth, shareWriteRateLimiter, async (req, res) => {
+    const uid = (req as any).uid as string;
+    const shareId = req.params.shareId;
+    try {
+      const db = getDb();
+      const shareRef = db.collection("shares").doc(shareId);
+      const snap = await shareRef.get();
+      if (!snap.exists) {
+        res.status(404).json({ error: "Convite não encontrado." });
+        return;
+      }
+      const share = snap.data()!;
+
+      const isOwner = share.ownerUid === uid;
+      let isGrantee = share.granteeUid === uid;
+      if (!isOwner && !isGrantee) {
+        // Convite ainda pendente: o convidado só é identificável pelo e-mail.
+        const authUser = await getAuth(getAdminApp()).getUser(uid);
+        isGrantee = normalizeEmail(authUser.email || "") === share.granteeEmail;
+      }
+      if (!isOwner && !isGrantee) {
+        res.status(403).json({ error: "Você não pode encerrar este compartilhamento." });
+        return;
+      }
+
+      if (share.status !== "revoked") {
+        await shareRef.update({
+          status: "revoked",
+          revokedAt: new Date().toISOString(),
+          // Volta a ter expiresAt para o TTL limpar o registro depois. Aqui é
+          // seguro: sem status "accepted" o fan-out abaixo já tirou o acesso.
+          expiresAt: new Date(Date.now() + SHARE_INVITE_TTL_MS).toISOString(),
+        });
+      }
+
+      // Roda sempre, mesmo se já estava revogado: é a rede de segurança para um
+      // fan-out anterior que tenha falhado no meio.
+      const result = await syncMedicadoShareLists(share.ownerUid, share.medicadoId);
+      const actor = await loadActor(uid);
+      await logShareAction("delete", actor, share.medicadoId, isOwner ? "acesso revogado pelo titular" : "acesso encerrado pelo convidado");
+
+      res.json({ success: true, docsWritten: result.docsWritten });
+    } catch (error: any) {
+      console.error("Revoke share error:", error);
+      await logServerError("DELETE /api/shares/:shareId", error, uid);
+      res.status(500).json({ error: "Falha ao encerrar o compartilhamento." });
     }
   });
 

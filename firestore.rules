@@ -41,6 +41,65 @@ service cloud.firestore {
              request.auth.token.admin == true;
     }
 
+    // ------------------------------------------
+    // COMPARTILHAMENTO ENTRE CUIDADORES
+    // ------------------------------------------
+    // Um medicado pode ser compartilhado com outros cuidadores. Cada documento
+    // da subárvore carrega duas listas: `memberUids` (quem lê) e `editorUids`
+    // (subconjunto que também escreve).
+    //
+    // O TITULAR nunca entra nessas listas — o acesso dele vem do caminho
+    // (`request.auth.uid == userId`). Consequência deliberada: todo documento
+    // criado antes desta feature, sem os campos, continua válido e acessível
+    // pelo dono. Não existe migração, nem janela de inconsistência.
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isMember(data) {
+      return isSignedIn() &&
+             'memberUids' in data &&
+             request.auth.uid in data.memberUids;
+    }
+
+    function isEditor(data) {
+      return isSignedIn() &&
+             'editorUids' in data &&
+             request.auth.uid in data.editorUids;
+    }
+
+    // As listas de acesso são gravadas EXCLUSIVAMENTE pelo servidor (Admin SDK,
+    // que bypassa estas regras) no aceite e na revogação do convite. Nenhum
+    // cliente pode alterá-las em um update — nem o titular. Deixar o cliente
+    // escrever aqui seria permitir conceder acesso a dado de saúde de terceiro
+    // sem o consentimento de quem recebe.
+    function shareListsUnchanged() {
+      return !incoming().diff(existing()).affectedKeys().hasAny(['memberUids', 'editorUids']);
+    }
+
+    // Na CRIAÇÃO um coadministrador precisa carimbar as listas no documento
+    // novo, senão o registro que ele cria nasce invisível para os demais
+    // cuidadores. Para que isso não vire escalação de privilégio, as listas têm
+    // de ser idênticas às do medicado pai — nunca escolhidas pelo cliente.
+    function medicadoData(userId, medicadoId) {
+      return get(/databases/$(database)/documents/users/$(userId)/medicados/$(medicadoId)).data;
+    }
+
+    function inheritsShareLists(data, parent) {
+      return (!('memberUids' in data) || data.memberUids == parent.memberUids) &&
+             (!('editorUids' in data) || data.editorUids == parent.editorUids);
+    }
+
+    function hasNoShareLists(data) {
+      return !('memberUids' in data) && !('editorUids' in data);
+    }
+
+    // Aplicado a toda entidade compartilhável: tipos e teto de tamanho.
+    function isValidShareLists(data) {
+      return (!('memberUids' in data) || (data.memberUids is list && data.memberUids.size() <= 20)) &&
+             (!('editorUids' in data) || (data.editorUids is list && data.editorUids.size() <= 20));
+    }
+
     // Check if the current user profile is active (not suspended)
     function isUserActive(userId) {
       // Allow if the user has an active document or during user creation
@@ -80,8 +139,9 @@ service cloud.firestore {
 
     function isValidMedicado(data, userId) {
       return data.keys().hasAll(['medicadoId', 'userId', 'name', 'relationship', 'createdAt']) &&
-             data.keys().hasOnly(['medicadoId', 'userId', 'name', 'relationship', 'createdAt', 'photoUrl', 'birthDate']) &&
+             data.keys().hasOnly(['medicadoId', 'userId', 'name', 'relationship', 'createdAt', 'photoUrl', 'birthDate', 'memberUids', 'editorUids']) &&
              data.userId == userId &&
+             isValidShareLists(data) &&
              data.medicadoId is string && data.medicadoId.size() <= 128 &&
              data.name is string && data.name.size() <= 128 &&
              data.relationship is string && data.relationship.size() <= 64 &&
@@ -92,8 +152,9 @@ service cloud.firestore {
 
     function isValidReceita(data, userId, medicadoId) {
       return data.keys().hasAll(['receitaId', 'medicadoId', 'userId', 'date', 'extracted', 'createdAt']) &&
-             data.keys().hasOnly(['receitaId', 'medicadoId', 'userId', 'date', 'extracted', 'createdAt', 'doctorName', 'imageUrl', 'notes']) &&
+             data.keys().hasOnly(['receitaId', 'medicadoId', 'userId', 'date', 'extracted', 'createdAt', 'doctorName', 'imageUrl', 'notes', 'memberUids', 'editorUids']) &&
              data.userId == userId &&
+             isValidShareLists(data) &&
              data.medicadoId == medicadoId &&
              data.receitaId is string && data.receitaId.size() <= 128 &&
              data.date is string && data.date.size() <= 32 &&
@@ -106,8 +167,9 @@ service cloud.firestore {
 
     function isValidMedicamento(data, userId, medicadoId) {
       return data.keys().hasAll(['medicamentoId', 'receitaId', 'medicadoId', 'userId', 'name', 'dosage', 'intervalHours', 'durationDays', 'category', 'status', 'createdAt']) &&
-             data.keys().hasOnly(['medicamentoId', 'receitaId', 'medicadoId', 'userId', 'name', 'dosage', 'intervalHours', 'durationDays', 'category', 'status', 'createdAt', 'instructions', 'pharmacyId', 'reminderOffset', 'pricePlaceholder']) &&
+             data.keys().hasOnly(['medicamentoId', 'receitaId', 'medicadoId', 'userId', 'name', 'dosage', 'intervalHours', 'durationDays', 'category', 'status', 'createdAt', 'instructions', 'pharmacyId', 'reminderOffset', 'pricePlaceholder', 'memberUids', 'editorUids']) &&
              data.userId == userId &&
+             isValidShareLists(data) &&
              data.medicadoId == medicadoId &&
              data.medicamentoId is string && data.medicamentoId.size() <= 128 &&
              data.receitaId is string && data.receitaId.size() <= 128 &&
@@ -124,12 +186,18 @@ service cloud.firestore {
              (!('pricePlaceholder' in data) || (data.pricePlaceholder is number && data.pricePlaceholder >= 0));
     }
 
+    // `registradoPor` é forçado a ser o uid autenticado que está escrevendo, e
+    // não um valor livre. Essa é a garantia que sustenta o cenário do cuidador
+    // contratado: "quem marcou esta dose" não é falsificável pelo cliente, nem
+    // pelo titular em nome do cuidador, nem pelo cuidador em nome do titular.
     function isValidDoseLog(data, userId, medicadoId, medicamentoId) {
       return data.keys().hasAll(['logId', 'medicamentoId', 'medicadoId', 'userId', 'plannedTime', 'takenTime', 'status']) &&
-             data.keys().hasOnly(['logId', 'medicamentoId', 'medicadoId', 'userId', 'plannedTime', 'takenTime', 'status']) &&
+             data.keys().hasOnly(['logId', 'medicamentoId', 'medicadoId', 'userId', 'plannedTime', 'takenTime', 'status', 'registradoPor', 'memberUids', 'editorUids']) &&
              data.userId == userId &&
              data.medicadoId == medicadoId &&
              data.medicamentoId == medicamentoId &&
+             isValidShareLists(data) &&
+             (!('registradoPor' in data) || data.registradoPor == request.auth.uid) &&
              data.logId is string && data.logId.size() <= 128 &&
              data.plannedTime is string && data.plannedTime.size() <= 64 &&
              data.takenTime is string && data.takenTime.size() <= 64 &&
@@ -138,8 +206,9 @@ service cloud.firestore {
 
     function isValidConsulta(data, userId) {
       return data.keys().hasAll(['consultaId', 'userId', 'medicadoId', 'doctorName', 'dateTime', 'createdAt']) &&
-             data.keys().hasOnly(['consultaId', 'userId', 'medicadoId', 'doctorName', 'dateTime', 'createdAt', 'specialty', 'location', 'notes']) &&
+             data.keys().hasOnly(['consultaId', 'userId', 'medicadoId', 'doctorName', 'dateTime', 'createdAt', 'specialty', 'location', 'notes', 'memberUids', 'editorUids']) &&
              data.userId == userId &&
+             isValidShareLists(data) &&
              data.consultaId is string && data.consultaId.size() <= 128 &&
              data.medicadoId is string && data.medicadoId.size() <= 128 &&
              data.doctorName is string && data.doctorName.size() <= 128 &&
@@ -237,114 +306,153 @@ service cloud.firestore {
 
       // 2. Medicados Subcollection (Patients)
       match /medicados/{medicadoId} {
-        allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(medicadoId);
-        allow list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+        allow get: if isSignedIn() && (isOwner(userId) || isMember(existing()) || isAdmin()) && isValidId(medicadoId);
+        allow list: if isSignedIn() && (isOwner(userId) || isMember(existing()) || isAdmin());
 
-        allow create: if isSignedIn() && 
-                         request.auth.uid == userId && 
+        // Só o titular cadastra pacientes; um convidado não traz gente nova
+        // para dentro da conta de outra pessoa. As listas de acesso não podem
+        // vir do cliente nem aqui — quem as escreve é o aceite do convite.
+        allow create: if isOwner(userId) &&
                          isUserActive(userId) &&
-                         isValidId(medicadoId) && 
-                         isValidMedicado(incoming(), userId);
+                         isValidId(medicadoId) &&
+                         isValidMedicado(incoming(), userId) &&
+                         hasNoShareLists(incoming());
 
-        allow update: if isSignedIn() && 
-                         request.auth.uid == userId && 
+        allow update: if isSignedIn() &&
+                         (isOwner(userId) || isEditor(existing())) &&
                          isUserActive(userId) &&
-                         isValidId(medicadoId) && 
+                         isValidId(medicadoId) &&
                          isValidMedicado(incoming(), userId) &&
                          incoming().createdAt == existing().createdAt &&
+                         shareListsUnchanged() &&
                          incoming().diff(existing()).affectedKeys().hasAny(['name', 'relationship', 'photoUrl', 'birthDate']);
 
-        allow delete: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(medicadoId);
+        // Excluir o paciente é do titular. Um coadministrador cuida do
+        // tratamento, não descarta o prontuário de quem não é dele.
+        allow delete: if isSignedIn() && (isOwner(userId) || isAdmin()) && isValidId(medicadoId);
 
         // 3. Receitas Subcollection (Prescriptions)
         match /receitas/{receitaId} {
-          allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(receitaId);
-          allow list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+          allow get: if isSignedIn() && (isOwner(userId) || isMember(existing()) || isAdmin()) && isValidId(receitaId);
+          allow list: if isSignedIn() && (isOwner(userId) || isMember(existing()) || isAdmin());
 
-          allow create: if isSignedIn() && 
-                           request.auth.uid == userId && 
+          // O `exists()` do medicado pai PRECISA ficar aqui, explícito. Não dá
+          // para confiar que `inheritsShareLists` leia o pai e falhe sozinho
+          // quando o paciente não existe: para o titular, `incoming()` não tem
+          // as listas de acesso, o `||` de dentro dela curto-circuita e o
+          // `get()` nunca chega a ser avaliado. Deixar por conta dela reabre o
+          // Payload 8 do security_spec.md (receita para paciente fantasma).
+          allow create: if isSignedIn() &&
                            isUserActive(userId) &&
-                           isValidId(receitaId) && 
+                           isValidId(receitaId) &&
                            isValidReceita(incoming(), userId, medicadoId) &&
-                           exists(/databases/$(database)/documents/users/$(userId)/medicados/$(medicadoId));
+                           exists(/databases/$(database)/documents/users/$(userId)/medicados/$(medicadoId)) &&
+                           (isOwner(userId) || isEditor(medicadoData(userId, medicadoId))) &&
+                           inheritsShareLists(incoming(), medicadoData(userId, medicadoId));
 
-          allow update: if isSignedIn() && 
-                           request.auth.uid == userId && 
+          allow update: if isSignedIn() &&
+                           (isOwner(userId) || isEditor(existing())) &&
                            isUserActive(userId) &&
-                           isValidId(receitaId) && 
+                           isValidId(receitaId) &&
                            isValidReceita(incoming(), userId, medicadoId) &&
                            incoming().createdAt == existing().createdAt &&
+                           shareListsUnchanged() &&
                            incoming().diff(existing()).affectedKeys().hasAny(['date', 'doctorName', 'imageUrl', 'notes', 'extracted']);
 
-          allow delete: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(receitaId);
+          allow delete: if isSignedIn() && (isOwner(userId) || isEditor(existing()) || isAdmin()) && isValidId(receitaId);
         }
 
         // 4. Medicamentos Subcollection (Medicines)
         match /medicamentos/{medicamentoId} {
-          allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(medicamentoId);
-          allow list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+          allow get: if isSignedIn() && (isOwner(userId) || isMember(existing()) || isAdmin()) && isValidId(medicamentoId);
+          allow list: if isSignedIn() && (isOwner(userId) || isMember(existing()) || isAdmin());
 
-          allow create: if isSignedIn() && 
-                           request.auth.uid == userId && 
+          // exists() explícito pelo mesmo motivo da receita acima.
+          allow create: if isSignedIn() &&
                            isUserActive(userId) &&
-                           isValidId(medicamentoId) && 
+                           isValidId(medicamentoId) &&
                            isValidMedicamento(incoming(), userId, medicadoId) &&
-                           exists(/databases/$(database)/documents/users/$(userId)/medicados/$(medicadoId));
+                           exists(/databases/$(database)/documents/users/$(userId)/medicados/$(medicadoId)) &&
+                           (isOwner(userId) || isEditor(medicadoData(userId, medicadoId))) &&
+                           inheritsShareLists(incoming(), medicadoData(userId, medicadoId));
 
-          allow update: if isSignedIn() && 
-                           request.auth.uid == userId && 
+          allow update: if isSignedIn() &&
+                           (isOwner(userId) || isEditor(existing())) &&
                            isUserActive(userId) &&
-                           isValidId(medicamentoId) && 
+                           isValidId(medicamentoId) &&
                            isValidMedicamento(incoming(), userId, medicadoId) &&
                            incoming().createdAt == existing().createdAt &&
+                           shareListsUnchanged() &&
                            incoming().diff(existing()).affectedKeys().hasAny(['name', 'dosage', 'intervalHours', 'durationDays', 'instructions', 'category', 'pharmacyId', 'status', 'reminderOffset', 'pricePlaceholder']);
 
-          allow delete: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(medicamentoId);
+          allow delete: if isSignedIn() && (isOwner(userId) || isEditor(existing()) || isAdmin()) && isValidId(medicamentoId);
 
           // 5. DoseLogs Subcollection (Logs of medication intake)
+          // Registrar dose é privativo do titular e do coadministrador. O
+          // acompanhante (filho à distância) lê a adesão e não escreve nada:
+          // é o `isEditor` — e não o `isMember` — que aparece aqui.
+          //
+          // `registradoPor` fica OPCIONAL de propósito, pelo mesmo motivo do
+          // `expiresAt` em isValidActionLog: torná-lo obrigatório rejeitaria a
+          // escrita de uma aba antiga com o JS anterior em cache. Falsificar
+          // não dá — o validador amarra o campo ao uid autenticado.
           match /doseLogs/{logId} {
-            allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(logId);
-            allow list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+            allow get: if isSignedIn() && (isOwner(userId) || isMember(existing()) || isAdmin()) && isValidId(logId);
+            allow list: if isSignedIn() && (isOwner(userId) || isMember(existing()) || isAdmin());
 
-            allow create: if isSignedIn() && 
-                             request.auth.uid == userId && 
+            allow create: if isSignedIn() &&
                              isUserActive(userId) &&
-                             isValidId(logId) && 
+                             isValidId(logId) &&
                              isValidDoseLog(incoming(), userId, medicadoId, medicamentoId) &&
+                             (isOwner(userId) || isEditor(medicadoData(userId, medicadoId))) &&
+                             inheritsShareLists(incoming(), medicadoData(userId, medicadoId)) &&
                              exists(/databases/$(database)/documents/users/$(userId)/medicados/$(medicadoId)/medicamentos/$(medicamentoId));
 
-            allow update: if isSignedIn() && 
-                             request.auth.uid == userId && 
+            allow update: if isSignedIn() &&
+                             (isOwner(userId) || isEditor(existing())) &&
                              isUserActive(userId) &&
-                             isValidId(logId) && 
+                             isValidId(logId) &&
                              isValidDoseLog(incoming(), userId, medicadoId, medicamentoId) &&
-                             incoming().diff(existing()).affectedKeys().hasAny(['takenTime', 'status']);
+                             shareListsUnchanged() &&
+                             incoming().diff(existing()).affectedKeys().hasAny(['takenTime', 'status', 'registradoPor']);
 
-            allow delete: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(logId);
+            allow delete: if isSignedIn() && (isOwner(userId) || isEditor(existing()) || isAdmin()) && isValidId(logId);
           }
         }
       }
 
       // 6. Consultas Subcollection (Doctor Appointments)
+      // Consultas ficam soltas sob /users/{userId} e apontam para o paciente via
+      // `medicadoId`, então o pai contra o qual as listas de acesso são
+      // conferidas vem do próprio documento.
+      //
+      // Aqui NÃO há `exists()` do medicado — como não havia antes. A criação de
+      // consulta pelo titular segue sem exigir paciente existente; só o caminho
+      // compartilhado acaba lendo o pai (porque aí `incoming()` traz as listas e
+      // a comparação em inheritsShareLists é de fato avaliada). Manter a paridade
+      // é deliberado: apertar isto agora mudaria comportamento sem necessidade.
       match /consultas/{consultaId} {
-        allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(consultaId);
-        allow list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+        allow get: if isSignedIn() && (isOwner(userId) || isMember(existing()) || isAdmin()) && isValidId(consultaId);
+        allow list: if isSignedIn() && (isOwner(userId) || isMember(existing()) || isAdmin());
 
-        allow create: if isSignedIn() && 
-                         request.auth.uid == userId && 
+        allow create: if isSignedIn() &&
                          isUserActive(userId) &&
-                         isValidId(consultaId) && 
-                         isValidConsulta(incoming(), userId);
+                         isValidId(consultaId) &&
+                         isValidConsulta(incoming(), userId) &&
+                         isValidId(incoming().medicadoId) &&
+                         (isOwner(userId) || isEditor(medicadoData(userId, incoming().medicadoId))) &&
+                         inheritsShareLists(incoming(), medicadoData(userId, incoming().medicadoId));
 
-        allow update: if isSignedIn() && 
-                         request.auth.uid == userId && 
+        allow update: if isSignedIn() &&
+                         (isOwner(userId) || isEditor(existing())) &&
                          isUserActive(userId) &&
-                         isValidId(consultaId) && 
+                         isValidId(consultaId) &&
                          isValidConsulta(incoming(), userId) &&
                          incoming().createdAt == existing().createdAt &&
+                         shareListsUnchanged() &&
                          incoming().diff(existing()).affectedKeys().hasAny(['doctorName', 'specialty', 'dateTime', 'location', 'notes', 'medicadoId']);
 
-        allow delete: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(consultaId);
+        allow delete: if isSignedIn() && (isOwner(userId) || isEditor(existing()) || isAdmin()) && isValidId(consultaId);
       }
 
       // 7. Farmacias Subcollection (Pharmacy database entries)
@@ -403,6 +511,33 @@ service cloud.firestore {
       match /pushDispatches/{dispatchId} {
         allow read, write: if false;
       }
+    }
+
+    // ==========================================
+    // COMPARTILHAMENTO ENTRE CUIDADORES (top-level, cross-user)
+    // ==========================================
+
+    // Convite de acesso a UM medicado. Precisa ser top-level porque o convidado
+    // ainda não tem permissão nenhuma dentro da árvore do titular no momento em
+    // que recebe o convite — é justamente este documento que ele lê para saber
+    // que existe algo a aceitar.
+    //
+    // Legível pelo titular e pelo convidado, por uid quando ele já aceitou e
+    // por e-mail enquanto o convite está pendente (antes do aceite não há uid
+    // resolvido). `granteeUid` e o e-mail do token são acessados sob guarda:
+    // ler campo ausente em regra é erro, e erro nega a operação inteira.
+    //
+    // Escrita ZERO para o cliente. Não é excesso de zelo: aceitar um convite
+    // propaga as listas de acesso por toda a subárvore do medicado, e só o
+    // Admin SDK (que bypassa estas regras) pode fazer isso de forma atômica.
+    // Se o cliente pudesse escrever aqui, poderia se autoconceder acesso.
+    match /shares/{shareId} {
+      allow get, list: if isSignedIn() && (
+                          resource.data.ownerUid == request.auth.uid ||
+                          (('granteeUid' in resource.data) && resource.data.granteeUid == request.auth.uid) ||
+                          (request.auth.token.email != null && resource.data.granteeEmail == request.auth.token.email)
+                       );
+      allow create, update, delete: if false;
     }
 
     // ==========================================

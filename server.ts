@@ -8,7 +8,7 @@
 
 import express from "express";
 import path from "path";
-import { createApiApp, dispatchDueReminders, pushEnabled } from "./server/app";
+import { createApiApp, dispatchDueReminders, dispatchMissedDoseAlerts, pushEnabled } from "./server/app";
 
 async function startServer() {
   const app = createApiApp();
@@ -76,6 +76,11 @@ async function startServer() {
     setInterval(() => {
       dispatchDueReminders().catch((e) =>
         console.warn("Scheduler dispatch falhou:", e?.message || e)
+      );
+      // Independente do lembrete comum, pelo mesmo motivo do endpoint de cron:
+      // uma falha aqui não pode calar o lembrete principal.
+      dispatchMissedDoseAlerts().catch((e) =>
+        console.warn("Scheduler dose perdida falhou:", e?.message || e)
       );
     }, 60_000);
     console.log("Push scheduler ativo (dispatch a cada 60s).");

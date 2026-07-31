@@ -15,7 +15,21 @@ export interface User {
   trialReceiptScansUsed?: number; // quantos scans de nota fiscal já foram usados durante o trial
 }
 
-export interface Medicado {
+// Compartilhamento de um medicado entre cuidadores (ver interface Share).
+// Estas duas listas são gravadas EXCLUSIVAMENTE pelo servidor, no aceite e na
+// revogação do convite, e replicadas em toda a subárvore daquele medicado.
+//
+// O TITULAR não entra nelas: o acesso dele continua vindo do caminho
+// (`users/{userId}/...`). É justamente por isso que os documentos que já
+// existem, sem estes campos, seguem funcionando sem nenhuma migração — e que o
+// convidado consegue achar o que lhe foi compartilhado com uma única consulta
+// `collectionGroup(...).where('memberUids', 'array-contains', uid)`.
+export interface SharedAccess {
+  memberUids?: string[]; // quem enxerga (coadministradores + acompanhantes)
+  editorUids?: string[]; // subconjunto de memberUids que também escreve
+}
+
+export interface Medicado extends SharedAccess {
   medicadoId: string;
   userId: string;
   name: string;
@@ -25,7 +39,7 @@ export interface Medicado {
   createdAt: string;
 }
 
-export interface Receita {
+export interface Receita extends SharedAccess {
   receitaId: string;
   medicadoId: string;
   userId: string;
@@ -39,7 +53,7 @@ export interface Receita {
 
 export type MedicineCategory = 'pill' | 'syrup' | 'drop' | 'cream' | 'injection' | 'other';
 
-export interface Medicamento {
+export interface Medicamento extends SharedAccess {
   medicamentoId: string;
   receitaId: string;
   medicadoId: string;
@@ -57,17 +71,23 @@ export interface Medicamento {
   createdAt: string;
 }
 
-export interface DoseLog {
+export interface DoseLog extends SharedAccess {
   logId: string;
   medicamentoId: string;
   medicadoId: string;
-  userId: string;
+  userId: string; // titular da conta (dono da árvore), NÃO quem registrou
   plannedTime: string; // ISO string
   takenTime: string; // ISO string
   status: 'taken' | 'missed' | 'skipped';
+  // Quem de fato marcou a dose. Sem isto, um medicado com mais de um cuidador
+  // não consegue responder "o cuidador deu o remédio das 14h?" — que é a
+  // pergunta inteira da feature. As regras forçam este campo a ser igual ao uid
+  // autenticado, então não é falsificável pelo cliente. Opcional porque os
+  // registros anteriores ao compartilhamento não têm ator conhecido.
+  registradoPor?: string;
 }
 
-export interface Consulta {
+export interface Consulta extends SharedAccess {
   consultaId: string;
   userId: string;
   medicadoId: string;
@@ -96,6 +116,42 @@ export interface CupomFiscal {
   items: { name: string; price: number }[];
   totalPrice: number;
   createdAt: string;
+}
+
+// ==========================================
+// COMPARTILHAMENTO ENTRE CUIDADORES
+// ==========================================
+
+// Farmacia e CupomFiscal NÃO recebem SharedAccess de propósito: são da conta,
+// não do paciente. Compartilhar o acompanhamento de um medicado não pode expor
+// a lista de farmácias nem quanto o titular gasta com saúde.
+
+export type ShareRole =
+  | 'coadministrador' // registra doses, cria e edita medicamentos/receitas/consultas
+  | 'acompanhante';   // só leitura + notificações de adesão
+
+export type ShareStatus = 'pending' | 'accepted' | 'revoked';
+
+// Um convite de acesso a UM medicado — nunca à conta inteira. O escopo por
+// paciente é o que permite o cuidador contratado enxergar o idoso sem enxergar
+// os outros pacientes do titular.
+export interface Share {
+  shareId: string;
+  ownerUid: string;
+  ownerName: string;
+  medicadoId: string;
+  // Guardado fora da árvore do titular para que o convidado saiba de quem vai
+  // cuidar ANTES de aceitar. O documento só é legível pelo titular e pelo
+  // próprio convidado.
+  medicadoName: string;
+  granteeEmail: string;
+  granteeUid?: string; // resolvido no aceite
+  role: ShareRole;
+  status: ShareStatus;
+  createdAt: string;
+  acceptedAt?: string;
+  revokedAt?: string;
+  expiresAt?: string; // convite pendente expira (alimenta o TTL do Firestore)
 }
 
 // ==========================================
