@@ -4,6 +4,7 @@ import { auth, dbFirebase, isDeadSessionError } from "./firebase";
 import { subscribeToPush, unsubscribeFromPush, isIOSDevice } from "./push";
 import { canPerformScan, getAccessState, daysRemaining } from "./subscription";
 import { dueDoseMs } from "./utils/doseSchedule";
+import { normalizeEmail } from "./utils/normalizeEmail";
 import { processImageFile } from "./imageUtils";
 import { reportLogin } from "./loginLog";
 import { signInWithEmailAndPassword, signOut as firebaseSignOut, updatePassword, onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
@@ -1223,7 +1224,7 @@ export default function App() {
   // SEPARATE ADMIN PORTAL HANDLERS
   // ==========================================
   const handleAdminLogin = async (email: string, pass: string) => {
-    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedEmail = normalizeEmail(email);
 
     let firebaseUser: FirebaseUser;
     try {

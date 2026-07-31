@@ -502,6 +502,18 @@ function normalizeForCompare(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+// Firebase enforces exact-string email uniqueness for the password provider,
+// so two accounts can only ever share a "visually identical" email if the
+// strings aren't actually byte-identical — typically an invisible/zero-width
+// Unicode character (mobile keyboard autocomplete, copy-paste) that plain
+// .trim() doesn't strip since it isn't ASCII/Unicode whitespace. Stripping
+// these before every Auth/Firestore lookup keeps such near-duplicates from
+// silently resolving to different accounts.
+const INVISIBLE_CHARS_RE = new RegExp(`[${[0x200B, 0x200C, 0x200D, 0x200E, 0x200F, 0x2060, 0xFEFF, 0x00AD, 0x00A0].map((c) => String.fromCodePoint(c)).join("")}]`, "g");
+function normalizeEmail(email: string): string {
+  return email.replace(INVISIBLE_CHARS_RE, "").trim().toLowerCase();
+}
+
 // One-time codes are short-lived and single-use, so a plain SHA-256 digest
 // (no per-code salt) is sufficient — the value is never persisted anywhere
 // an attacker could offline-brute-force it, only compared via timingSafeEqual.
@@ -599,6 +611,19 @@ const logWriteRateLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: userOrIpKey,
   message: { error: "Limite de registros de log excedido. Tente novamente mais tarde." },
+});
+
+// Unauthenticated by nature (runs before the account exists), so IP/email is
+// the only key available. Generous ceiling since a normal signup flow may
+// retry this a couple of times (typo in the email, resubmission after a
+// validation error) before actually registering.
+const checkEmailRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey,
+  message: { error: "Muitas verificações de e-mail. Tente novamente mais tarde." },
 });
 
 // Unauthenticated by nature (it's for people who can't log in), so this is
@@ -996,6 +1021,40 @@ export function createApiApp(): express.Express {
     }
   });
 
+  // Pré-checagem de cadastro: o client chama isto ANTES de
+  // createUserWithEmailAndPassword para evitar criar uma segunda conta
+  // Firebase Auth para um e-mail já cadastrado — o SDK client-side rejeita
+  // duplicidade na maioria dos casos (auth/email-already-in-use), mas isso
+  // depende inteiramente da configuração do projeto no Firebase Console; esta
+  // é uma trava própria da aplicação, via Admin SDK (getUserByEmail).
+  // Best-effort: erros aqui não bloqueiam o cadastro (fail open), já que o
+  // SDK do Firebase continua sendo a defesa autoritativa.
+  app.post("/api/auth/check-email", checkEmailRateLimiter, async (req, res) => {
+    try {
+      const { email } = req.body || {};
+      if (!email || typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        res.status(400).json({ error: "Informe um e-mail válido." });
+        return;
+      }
+
+      const trimmedEmail = normalizeEmail(email);
+      try {
+        await getAuth(getAdminApp()).getUserByEmail(trimmedEmail);
+        res.json({ available: false });
+      } catch (err: any) {
+        if (err?.code === "auth/user-not-found") {
+          res.json({ available: true });
+          return;
+        }
+        throw err;
+      }
+    } catch (error: any) {
+      console.error("Check-email error:", error);
+      await logServerError("POST /api/auth/check-email", error);
+      res.status(500).json({ error: "Falha ao verificar o e-mail." });
+    }
+  });
+
   // "Esqueci minha senha": the project deliberately does not use Firebase's
   // sendPasswordResetEmail/sendEmailVerification (see CLAUDE.md). Instead:
   //   - If the submitted name+email match a real account (name is compared
@@ -1024,7 +1083,7 @@ export function createApiApp(): express.Express {
         return;
       }
 
-      const trimmedEmail = email.trim();
+      const trimmedEmail = normalizeEmail(email);
 
       let matchedUid: string | null = null;
       try {
@@ -1133,7 +1192,7 @@ export function createApiApp(): express.Express {
 
       let uid: string;
       try {
-        uid = (await getAuth(getAdminApp()).getUserByEmail(email.trim())).uid;
+        uid = (await getAuth(getAdminApp()).getUserByEmail(normalizeEmail(email))).uid;
       } catch (err: any) {
         if (err?.code === "auth/user-not-found") {
           res.status(400).json(INVALID_CODE_RESPONSE);

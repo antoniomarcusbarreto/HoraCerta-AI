@@ -18,6 +18,7 @@ import {
   Award,
   Key,
   Lock,
+  Pencil,
   X,
   Sparkles,
   CheckCircle,
@@ -51,6 +52,11 @@ export default function AdminPanel({
   const [editingPasswordUser, setEditingPasswordUser] = useState<User | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [isSubmittingPassword, setIsSubmittingPassword] = useState(false);
+
+  // Name Edit states
+  const [editingNameUser, setEditingNameUser] = useState<User | null>(null);
+  const [nameInput, setNameInput] = useState("");
+  const [isSubmittingName, setIsSubmittingName] = useState(false);
 
   // Trial Extension states
   const [editingTrialUser, setEditingTrialUser] = useState<User | null>(null);
@@ -209,6 +215,28 @@ export default function AdminPanel({
 
     if (success) {
       setEditingSubscriptionUser(null);
+    }
+  };
+
+  const handleNameSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingNameUser) return;
+
+    const trimmedName = nameInput.trim();
+    if (!trimmedName) {
+      onNotify("Informe um nome válido.");
+      return;
+    }
+
+    setIsSubmittingName(true);
+    try {
+      const success = await onUpdateUser({ ...editingNameUser, name: trimmedName });
+      if (success) {
+        setEditingNameUser(null);
+        setNameInput("");
+      }
+    } finally {
+      setIsSubmittingName(false);
     }
   };
 
@@ -386,6 +414,16 @@ export default function AdminPanel({
                     <div>
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <h4 className="text-sm font-bold text-brand-teal leading-tight">{u.name}</h4>
+                        <button
+                          onClick={() => {
+                            setEditingNameUser(u);
+                            setNameInput(u.name);
+                          }}
+                          className="p-0.5 rounded-md text-gray-400 hover:text-brand-teal hover:bg-brand-cream transition-colors"
+                          title="Editar Nome"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
                         {isAdmin && (
                           <span className="text-[10px] font-extrabold bg-brand-coral/15 text-brand-coral px-1.5 py-0.5 rounded-sm uppercase tracking-wider">
                             Admin
@@ -717,6 +755,60 @@ export default function AdminPanel({
                   className="flex-1 bg-brand-teal text-brand-cream rounded-xl py-2.5 text-xs font-semibold hover:bg-brand-teal-light transition-all shadow-md"
                 >
                   Salvar Assinatura
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Editar Nome */}
+      {editingNameUser && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-brand-cream rounded-3xl max-w-sm w-full p-6 shadow-xl border border-brand-cream-darker animate-scale-up">
+            <div className="w-10 h-10 rounded-full bg-brand-teal-pale text-brand-teal flex items-center justify-center mx-auto mb-3 border border-brand-cream-darker">
+              <Pencil className="w-5 h-5 text-brand-teal" />
+            </div>
+
+            <h3 className="text-base font-display font-bold text-brand-teal text-center mb-1">
+              Editar Nome do Usuário
+            </h3>
+            <p className="text-[11px] text-gray-500 text-center mb-4">
+              Corrige o nome exibido para <strong className="text-brand-teal">{editingNameUser.email}</strong>. Isso atualiza o perfil real no Firestore.
+            </p>
+
+            <form onSubmit={handleNameSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
+                  Nome Completo
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Nome do usuário"
+                  value={nameInput}
+                  onChange={(e) => setNameInput(e.target.value)}
+                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden text-center font-sans"
+                />
+              </div>
+
+              <div className="flex space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingNameUser(null);
+                    setNameInput("");
+                  }}
+                  className="flex-1 border border-brand-cream-darker text-gray-500 rounded-xl py-2.5 text-xs font-semibold hover:bg-gray-50 transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingName}
+                  className="flex-1 bg-brand-teal text-brand-cream rounded-xl py-2.5 text-xs font-semibold hover:bg-brand-teal-light transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSubmittingName ? "Salvando..." : "Salvar Nome"}
                 </button>
               </div>
             </form>

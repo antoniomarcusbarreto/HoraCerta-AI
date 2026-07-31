@@ -2,9 +2,10 @@ import React, { useState } from "react";
 import { User } from "../types";
 import { dbLocal } from "../dbLocalFallback";
 import { auth, dbFirebase } from "../firebase";
+import { normalizeEmail } from "../utils/normalizeEmail";
 import { TRIAL_DAYS } from "../subscription";
 import { reportLogin } from "../loginLog";
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { 
   Mail, 
   Lock, 
@@ -99,7 +100,7 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
     setError(null);
     setSuccess(null);
 
-    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedEmail = normalizeEmail(email);
     const trimmedName = name.trim();
 
     if (!trimmedEmail || !password) {
@@ -175,9 +176,30 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
           return;
         }
 
+        // Pré-checagem no servidor: evita criar uma segunda conta Firebase
+        // Auth para um e-mail que já existe (o SDK client-side rejeita isso
+        // sozinho na maioria dos casos, mas essa é uma trava própria da
+        // aplicação, sem depender de configuração do projeto Firebase).
+        const checkResponse = await fetch("/api/auth/check-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: trimmedEmail }),
+        });
+        const checkData = await checkResponse.json().catch(() => ({}));
+        if (checkResponse.ok && checkData.available === false) {
+          setError("Este e-mail já está cadastrado. Faça login ou use \"Esqueci minha senha\".");
+          return;
+        }
+
         // Create Firebase Auth Account
         const userCredential = await createUserWithEmailAndPassword(auth, trimmedEmail, password);
         const firebaseUser = userCredential.user;
+
+        // Grava o nome também no próprio Firebase Auth (displayName). É uma
+        // rede de segurança: se a escrita do perfil no Firestore abaixo falhar
+        // por qualquer motivo, o fallback de login (que hoje recorre ao
+        // prefixo do e-mail) recupera o nome real em vez de um placeholder.
+        await updateProfile(firebaseUser, { displayName: trimmedName }).catch(() => {});
 
         // Create Firestore Profile Document — inicia o período de 7 dias grátis.
         const now = new Date();
@@ -193,8 +215,19 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
           subscriptionPlan: "none",
         };
 
-        // Write both locally and to Firestore
-        dbLocal.updateUser(newUser);
+        // Aguarda a escrita real no Firestore antes de liberar o login: um
+        // registro fire-and-forget podia ser interrompido por um fechamento
+        // rápido do app (comum em PWA/mobile), deixando o documento do
+        // usuário ausente e disparando o fallback de nome quebrado no login
+        // seguinte.
+        try {
+          await dbFirebase.createUserProfile(newUser);
+        } catch (err) {
+          console.error("Erro ao criar perfil do usuário no Firestore:", err);
+          setError("Conta criada, mas houve um problema ao salvar seu perfil. Tente fazer login novamente em instantes.");
+          return;
+        }
+        dbLocal.setUserCache(newUser);
 
         firebaseUser.getIdToken().then((idToken: string) => reportLogin(idToken, newUser.name, newUser.email));
 
@@ -220,7 +253,7 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
     if (!forceSend) setSuccess(null);
 
     const trimmedName = resetName.trim();
-    const trimmedResetEmail = resetEmail.trim().toLowerCase();
+    const trimmedResetEmail = normalizeEmail(resetEmail);
 
     if (!trimmedName || !trimmedResetEmail) {
       setError("Por favor, informe seu nome e o e-mail cadastrado.");
@@ -284,7 +317,7 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: resetEmail.trim().toLowerCase(),
+          email: normalizeEmail(resetEmail),
           code: resetCode.trim(),
           newPassword: resetNewPassword,
         }),
