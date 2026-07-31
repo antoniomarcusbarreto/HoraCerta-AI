@@ -495,13 +495,6 @@ async function logServerError(action: string, error: unknown, uid?: string | nul
   }
 }
 
-// Loose equality for "is this the same name" — trims, lowercases, and
-// collapses internal whitespace so casing/spacing typos don't block a
-// legitimate self-service password reset.
-function normalizeForCompare(s: string): string {
-  return s.trim().toLowerCase().replace(/\s+/g, " ");
-}
-
 // Firebase enforces exact-string email uniqueness for the password provider,
 // so two accounts can only ever share a "visually identical" email if the
 // strings aren't actually byte-identical — typically an invisible/zero-width
@@ -521,10 +514,13 @@ function hashResetCode(code: string): string {
   return createHash("sha256").update(code).digest("hex");
 }
 
-// Sends a plain notification email via Resend's HTTP API (no SDK needed — a
-// single fetch call, which plays nicer with serverless than holding an SMTP
-// connection open). Throws on failure; callers decide whether that's fatal.
-async function sendResendEmail(to: string, subject: string, text: string): Promise<void> {
+// Sends a notification email via Resend's HTTP API (no SDK needed — a single
+// fetch call, which plays nicer with serverless than holding an SMTP
+// connection open). `html` is optional so callers that don't need branding
+// (there are none left, but keeps the helper honest) can skip it; Resend
+// falls back to rendering `text` when `html` is omitted. Throws on failure;
+// callers decide whether that's fatal.
+async function sendResendEmail(to: string, subject: string, text: string, html?: string): Promise<void> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
     throw new Error("RESEND_API_KEY is not defined in the environment secrets.");
@@ -537,10 +533,11 @@ async function sendResendEmail(to: string, subject: string, text: string): Promi
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: RESEND_FROM_EMAIL,
+      from: `Hora Certa AI <${RESEND_FROM_EMAIL}>`,
       to: [to],
       subject,
       text,
+      ...(html ? { html } : {}),
     }),
   });
 
@@ -548,6 +545,63 @@ async function sendResendEmail(to: string, subject: string, text: string): Promi
     const body = await response.text().catch(() => "");
     throw new Error(`Resend respondeu ${response.status}: ${body.slice(0, 500)}`);
   }
+}
+
+// Values interpolated into the HTML email templates below can come from user
+// input (e.g. the submitted email on the admin-notification path) — escape
+// before interpolating so a crafted string can't inject markup into an email
+// client that renders it.
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+}
+
+// Shared branded shell for outbound emails — mirrors AuthScreen.tsx's card
+// (brand-cream background, brand-teal heading, rounded card) so the code
+// email doesn't look like generic/unstyled transactional spam. Table-based
+// layout with inline styles for compatibility with Outlook's rendering engine.
+function renderBrandedEmailHtml(bodyHtml: string): string {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#EFECE1;padding:32px 16px;font-family:Arial,Helvetica,sans-serif;">
+  <tr>
+    <td align="center">
+      <table role="presentation" width="100%" style="max-width:480px;background-color:#FDFBF7;border-radius:24px;border:1px solid #EFECE1;">
+        <tr>
+          <td style="padding:32px 32px 8px 32px;text-align:center;">
+            <div style="font-size:28px;line-height:1;">&#10084;&#65039;</div>
+            <div style="font-size:20px;font-weight:700;color:#0D3E46;margin-top:8px;">Hora Certa</div>
+            <div style="font-size:12px;color:#6b7280;margin-top:4px;">Gestão inteligente de medicamentos e receitas médicas</div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:8px 32px 32px 32px;">${bodyHtml}</td>
+        </tr>
+      </table>
+      <div style="font-size:11px;color:#9ca3af;margin-top:16px;">Hora Certa AI</div>
+    </td>
+  </tr>
+</table>`;
+}
+
+function renderResetCodeEmailHtml(code: string, ttlMinutes: number): string {
+  return renderBrandedEmailHtml(`
+    <p style="font-size:14px;color:#0D3E46;line-height:1.6;margin:0 0 20px 0;">Use o código abaixo para redefinir sua senha:</p>
+    <div style="background-color:#FFF1E6;border-radius:16px;padding:20px;text-align:center;margin-bottom:20px;">
+      <span style="font-size:32px;font-weight:700;letter-spacing:8px;color:#EAA15F;">${escapeHtml(code)}</span>
+    </div>
+    <p style="font-size:12px;color:#6b7280;line-height:1.6;margin:0;">Ele expira em ${ttlMinutes} minutos. Se você não solicitou a redefinição de senha, ignore este e-mail.</p>
+  `);
+}
+
+function renderAdminNotificationEmailHtml(introHtml: string, rows: [string, string][]): string {
+  const rowsHtml = rows
+    .map(
+      ([label, value]) =>
+        `<tr><td style="padding:6px 0;color:#6b7280;font-size:13px;">${escapeHtml(label)}</td><td style="padding:6px 0;text-align:right;font-size:13px;font-weight:600;color:#0D3E46;">${escapeHtml(value)}</td></tr>`,
+    )
+    .join("");
+  return renderBrandedEmailHtml(`
+    <p style="font-size:14px;color:#0D3E46;line-height:1.6;margin:0 0 16px 0;">${introHtml}</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${rowsHtml}</table>
+  `);
 }
 
 // NOTE (serverless): express-rate-limit's default store is IN-MEMORY and does
@@ -1057,27 +1111,24 @@ export function createApiApp(): express.Express {
 
   // "Esqueci minha senha": the project deliberately does not use Firebase's
   // sendPasswordResetEmail/sendEmailVerification (see CLAUDE.md). Instead:
-  //   - If the submitted name+email match a real account (name is compared
-  //     against the Firestore profile's `name`, since these Auth accounts
-  //     never get displayName set), a one-time code is emailed to that
-  //     account's OWN registered address via Resend — proof of inbox access
-  //     — unlocking self-service password change via the confirm endpoint
-  //     below. Name alone is guessable/public, so email-in-hand is the real
-  //     verification factor here, not the name match.
-  //   - If they don't match (wrong name, or no such account at all — both
-  //     cases are handled identically so this endpoint never reveals which
-  //     emails are registered), nothing is sent on the first call. The
-  //     caller may explicitly opt in via `forceSend` to notify the single
-  //     admin anyway, who can investigate and reset manually via the
-  //     existing /api/admin/change-user-password flow.
+  //   - If the submitted email matches a real account, a one-time code is
+  //     emailed to that account's OWN registered address via Resend. Only
+  //     someone with inbox access can ever complete the reset (see the
+  //     confirm endpoint below), so that possession is the real verification
+  //     factor — an earlier version of this endpoint also required the
+  //     account's registered name to match before sending, but that only
+  //     added friction (people forget the exact name/format they signed up
+  //     with) without adding real security, since the OTP already gates the
+  //     actual password change.
+  //   - If the email doesn't match any account, nothing is sent on the first
+  //     call. The caller may explicitly opt in via `forceSend` to notify the
+  //     single admin anyway (e.g. the user isn't sure which email they used),
+  //     who can investigate and reset manually via the existing
+  //     /api/admin/change-user-password flow.
   app.post("/api/auth/request-password-reset", passwordResetRequestRateLimiter, async (req, res) => {
     try {
-      const { name, email, forceSend } = req.body || {};
+      const { email, forceSend } = req.body || {};
 
-      if (!name || typeof name !== "string" || !name.trim()) {
-        res.status(400).json({ error: "Informe seu nome." });
-        return;
-      }
       if (!email || typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         res.status(400).json({ error: "Informe um e-mail válido." });
         return;
@@ -1087,12 +1138,7 @@ export function createApiApp(): express.Express {
 
       let matchedUid: string | null = null;
       try {
-        const rec = await getAuth(getAdminApp()).getUserByEmail(trimmedEmail);
-        const profileSnap = await getDb().collection("users").doc(rec.uid).get();
-        const registeredName = profileSnap.exists ? (profileSnap.data()?.name as string | undefined) : undefined;
-        if (registeredName && normalizeForCompare(registeredName) === normalizeForCompare(name)) {
-          matchedUid = rec.uid;
-        }
+        matchedUid = (await getAuth(getAdminApp()).getUserByEmail(trimmedEmail)).uid;
       } catch (err: any) {
         if (err?.code !== "auth/user-not-found") throw err;
       }
@@ -1118,6 +1164,7 @@ export function createApiApp(): express.Express {
               `Ele expira em ${PASSWORD_RESET_CODE_TTL_MS / 60000} minutos.`,
               "Se você não solicitou a redefinição de senha, ignore este e-mail.",
             ].join("\n"),
+            renderResetCodeEmailHtml(code, PASSWORD_RESET_CODE_TTL_MS / 60000),
           );
         } catch (emailErr) {
           console.error("Falha ao enviar código de redefinição:", emailErr);
@@ -1134,18 +1181,24 @@ export function createApiApp(): express.Express {
       }
 
       // No match: only notify the admin if the caller explicitly asked to,
-      // after already being told the automatic check failed.
+      // after already being told the email wasn't found.
       if (forceSend === true) {
         try {
           await sendResendEmail(
             ADMIN_NOTIFICATION_EMAIL,
-            "HoraCerta AI — solicitação de redefinição de senha (não confirmada automaticamente)",
+            "HoraCerta AI — solicitação de redefinição de senha (e-mail não encontrado)",
             [
-              "Os dados abaixo NÃO bateram com o cadastro automaticamente — confirme a identidade antes de trocar a senha.",
-              `Nome informado: ${name.trim().slice(0, 200)}`,
+              "O e-mail abaixo NÃO foi encontrado no cadastro automaticamente — confirme a identidade antes de agir.",
               `E-mail informado: ${trimmedEmail.slice(0, 200)}`,
               `Data/hora: ${new Date().toISOString()}`,
             ].join("\n"),
+            renderAdminNotificationEmailHtml(
+              "O e-mail abaixo <strong>NÃO</strong> foi encontrado no cadastro automaticamente — confirme a identidade antes de agir.",
+              [
+                ["E-mail informado", trimmedEmail.slice(0, 200)],
+                ["Data/hora", new Date().toLocaleString("pt-BR")],
+              ],
+            ),
           );
         } catch (emailErr) {
           console.error("Falha ao enviar e-mail de solicitação de reset:", emailErr);
@@ -1157,7 +1210,7 @@ export function createApiApp(): express.Express {
 
       res.json({
         matched: false,
-        message: "Não conseguimos confirmar automaticamente esses dados com o nosso cadastro. Você pode solicitar o envio mesmo assim para uma verificação manual.",
+        message: "Não encontramos esse e-mail no nosso cadastro. Você pode solicitar o envio mesmo assim para uma verificação manual.",
       });
     } catch (error: any) {
       console.error("Password reset request error:", error);

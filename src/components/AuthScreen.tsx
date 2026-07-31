@@ -54,14 +54,15 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
   };
 
   // "Esqueci minha senha": o projeto não usa sendPasswordResetEmail do
-  // Firebase (ver CLAUDE.md). Em vez disso: se nome+e-mail baterem com o
-  // cadastro, um código de verificação é enviado para o PRÓPRIO e-mail
-  // cadastrado (prova de acesso à caixa de entrada — nome sozinho é
-  // adivinhável) e o usuário troca a senha ali mesmo. Se não baterem, o
+  // Firebase (ver CLAUDE.md). Em vez disso: se o e-mail existir no cadastro,
+  // um código de verificação é enviado para o PRÓPRIO e-mail cadastrado
+  // (prova de acesso à caixa de entrada é a única verificação necessária — já
+  // pedimos nome também numa primeira versão, mas isso só criava fricção sem
+  // segurança real, já que o código é quem garante a posse do e-mail) e o
+  // usuário troca a senha ali mesmo. Se o e-mail não for encontrado, o
   // usuário pode optar por notificar o administrador para verificação manual.
   const [forgotPasswordMode, setForgotPasswordMode] = useState(false);
   const [resetStage, setResetStage] = useState<"form" | "otp" | "unmatched" | "done">("form");
-  const [resetName, setResetName] = useState("");
   const [resetEmail, setResetEmail] = useState("");
   const [resetCode, setResetCode] = useState("");
   const [resetNewPassword, setResetNewPassword] = useState("");
@@ -79,7 +80,6 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
   const exitForgotPasswordMode = () => {
     setForgotPasswordMode(false);
     setResetStage("form");
-    setResetName("");
     setResetEmail("");
     setResetCode("");
     setResetNewPassword("");
@@ -252,11 +252,10 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
     setResetInfo(null);
     if (!forceSend) setSuccess(null);
 
-    const trimmedName = resetName.trim();
     const trimmedResetEmail = normalizeEmail(resetEmail);
 
-    if (!trimmedName || !trimmedResetEmail) {
-      setError("Por favor, informe seu nome e o e-mail cadastrado.");
+    if (!trimmedResetEmail) {
+      setError("Por favor, informe o e-mail cadastrado.");
       return;
     }
 
@@ -265,7 +264,7 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
       const response = await fetch("/api/auth/request-password-reset", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: trimmedName, email: trimmedResetEmail, forceSend }),
+        body: JSON.stringify({ email: trimmedResetEmail, forceSend }),
       });
 
       const data = await response.json().catch(() => ({}));
@@ -274,8 +273,8 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
       }
 
       if (data.matched) {
-        // Nome + e-mail confirmados: código de verificação a caminho do
-        // próprio e-mail cadastrado.
+        // E-mail encontrado: código de verificação a caminho da própria
+        // caixa de entrada cadastrada.
         setResetEmail(trimmedResetEmail);
         setResetStage("otp");
         setSuccess(data.message);
@@ -579,32 +578,9 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
           ) : (
             <form onSubmit={(e) => submitPasswordResetRequest(e, false)} className="space-y-4 relative z-10">
               <p className="text-xs text-gray-500 font-sans leading-snug -mt-1 mb-2">
-                Informe seu nome e o e-mail cadastrado. Se os dados conferirem, enviamos um código de verificação
-                para você redefinir a senha na hora.
+                Informe o e-mail cadastrado. Se ele existir na nossa base, enviamos um código de verificação para
+                você redefinir a senha na hora.
               </p>
-
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block ml-1">
-                  Nome Completo
-                </label>
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-gray-400">
-                    <UserIcon className="w-4 h-4" />
-                  </span>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Seu nome"
-                    value={resetName}
-                    onChange={(e) => {
-                      setResetName(e.target.value);
-                      setResetStage("form");
-                      setResetInfo(null);
-                    }}
-                    className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl pl-10 pr-4 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline-none focus:border-brand-teal/50 transition-all font-medium"
-                  />
-                </div>
-              </div>
 
               <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block ml-1">
