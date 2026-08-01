@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { User } from "../types";
 import { auth } from "../firebase";
-import { getAccessState, PLANS, type PlanId } from "../subscription";
+import { getAccessState, PLANS, TRIAL_SCAN_LIMIT, type PlanId } from "../subscription";
 import ConfirmDialog from "./ConfirmDialog";
 import {
   Shield,
@@ -144,7 +144,7 @@ export default function AdminPanel({
   // parecer que concedia acesso sem conceder; a função ficou órfã e foi
   // apagada para não ser religada. Ver "Auth" no CLAUDE.md.
 
-  // Bypasses the 1-scan-per-type trial cap (src/subscription.ts's
+  // Bypasses the TRIAL_SCAN_LIMIT-per-type trial cap (src/subscription.ts's
   // canPerformScan) for this user specifically — protects Gemini quota abuse
   // in general while letting an operator whitelist a legitimate case (e.g. a
   // support/demo account) without granting a paid subscription.
@@ -553,7 +553,7 @@ export default function AdminPanel({
                         <span>Limite de Scans Gratuitos</span>
                       </div>
                       <div className="text-xs text-gray-500 mt-0.5">
-                        Receita: <strong>{u.trialPrescriptionScansUsed || 0}/1</strong> · Nota: <strong>{u.trialReceiptScansUsed || 0}/1</strong>
+                        Receita: <strong>{u.trialPrescriptionScansUsed || 0}/{TRIAL_SCAN_LIMIT}</strong> · Nota: <strong>{u.trialReceiptScansUsed || 0}/{TRIAL_SCAN_LIMIT}</strong>
                         {u.scanLimitExempt && <span className="text-emerald-600 font-bold ml-1">(Isento)</span>}
                       </div>
                     </div>

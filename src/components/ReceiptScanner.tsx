@@ -1,6 +1,7 @@
 import React, { useState, useRef } from "react";
 import { auth } from "../firebase";
 import { CupomFiscal } from "../types";
+import { TRIAL_SCAN_LIMIT } from "../subscription";
 import { Upload, Camera, FileText, Sparkles, Check, ArrowRight, Loader2, Calendar, ShoppingBag, Plus, Trash2, AlertCircle } from "lucide-react";
 
 interface ReceiptScannerProps {
@@ -166,7 +167,7 @@ export default function ReceiptScanner({
       } else {
         const code = err?.code;
         if (code === "TRIAL_SCAN_LIMIT_REACHED") {
-          setScanError("Você já utilizou seu scan gratuito de nota fiscal do período de testes. Assine um plano para continuar usando o leitor de notas.");
+          setScanError(`Você já utilizou seus ${TRIAL_SCAN_LIMIT} scans gratuitos de nota fiscal do período de testes. Assine um plano para continuar usando o leitor de notas.`);
         } else if (code === "SUBSCRIPTION_REQUIRED") {
           setScanError("É necessária uma assinatura ativa para usar o leitor de notas. Ative um plano e tente novamente.");
         } else {

@@ -54,8 +54,8 @@ export function getAccessState(user: Pick<User, "freeTrialUntil" | "subscription
   return "blocked";
 }
 
-/** Cada usuário sem assinatura paga tem direito a 1 scan de cada tipo durante o trial. */
-export const TRIAL_SCAN_LIMIT = 1;
+/** Cada usuário sem assinatura paga tem direito a 3 scans de cada tipo durante o trial. */
+export const TRIAL_SCAN_LIMIT = 3;
 
 export type ScanType = "prescription" | "receipt";
 

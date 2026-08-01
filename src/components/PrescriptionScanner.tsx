@@ -1,6 +1,7 @@
 import React, { useState, useRef } from "react";
 import { auth } from "../firebase";
 import { Medicado, Medicamento, MedicineCategory } from "../types";
+import { TRIAL_SCAN_LIMIT } from "../subscription";
 import { Upload, Camera, FileText, Sparkles, Check, ArrowRight, Loader2, Calendar, User, Edit2, AlertCircle, Bell } from "lucide-react";
 
 interface PrescriptionScannerProps {
@@ -208,7 +209,7 @@ export default function PrescriptionScanner({
       } else {
         const code = err?.code;
         if (code === "TRIAL_SCAN_LIMIT_REACHED") {
-          setScanError("Você já utilizou seu scan gratuito de receita do período de testes. Assine um plano para continuar usando o leitor de receitas.");
+          setScanError(`Você já utilizou seus ${TRIAL_SCAN_LIMIT} scans gratuitos de receita do período de testes. Assine um plano para continuar usando o leitor de receitas.`);
         } else if (code === "SUBSCRIPTION_REQUIRED") {
           setScanError("É necessária uma assinatura ativa para usar o leitor de receitas. Ative um plano e tente novamente.");
         } else {

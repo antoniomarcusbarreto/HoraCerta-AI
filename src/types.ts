@@ -10,7 +10,7 @@ export interface User {
   subscriptionStatus?: 'active' | 'inactive' | 'expired';
   subscriptionPlan?: 'monthly' | 'yearly' | 'none';
   subscriptionCurrentPeriodEnd?: string; // ISO Date String — fim do período pago (assinatura via Mercado Pago)
-  scanLimitExempt?: boolean; // concedido pelo admin: ignora o limite de 1+1 scans do trial, mesmo sem assinatura
+  scanLimitExempt?: boolean; // concedido pelo admin: ignora o limite de scans do trial (TRIAL_SCAN_LIMIT por tipo), mesmo sem assinatura
   trialPrescriptionScansUsed?: number; // quantos scans de receita já foram usados durante o trial
   trialReceiptScansUsed?: number; // quantos scans de nota fiscal já foram usados durante o trial
 }

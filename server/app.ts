@@ -18,7 +18,7 @@ import webpush from "web-push";
 import { MercadoPagoConfig, Payment, Preference } from "mercadopago";
 import { createHash, createHmac, timingSafeEqual, randomInt, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { PLANS, getAccessState, canPerformScan, TRIAL_DAYS, type PlanId, type ScanType } from "../src/subscription.js";
+import { PLANS, getAccessState, canPerformScan, TRIAL_DAYS, TRIAL_SCAN_LIMIT, type PlanId, type ScanType } from "../src/subscription.js";
 import { dueDoseMs, doseSlotAtMs } from "../src/utils/doseSchedule.js";
 
 // dotenv.config() alone only reads ".env" — this project's docs/README tell
@@ -298,7 +298,7 @@ function validateMpSignature(req: express.Request): boolean {
 //   1. rejects with 403 when the user's access state is "blocked" (trial over +
 //      no active/grace subscription), so a technical user can't bypass the UI
 //      gate by calling the API directly;
-//   2. rejects with 403 when a TRIAL user has already spent their free scan of
+//   2. rejects with 403 when a TRIAL user has already spent their free scans of
 //      this type (protects the Gemini quota — see src/subscription.ts's
 //      canPerformScan). Active subscribers, grace-period users and admin-exempt
 //      users are never subject to this cap.
@@ -330,8 +330,8 @@ function requireScanAccess(scanType: ScanType) {
       if (!canPerformScan(user, scanType)) {
         res.status(403).json({
           error: scanType === "prescription"
-            ? "Você já utilizou seu scan gratuito de receita do período de testes. Assine um plano para continuar usando o leitor de receitas."
-            : "Você já utilizou seu scan gratuito de nota fiscal do período de testes. Assine um plano para continuar usando o leitor de notas.",
+            ? `Você já utilizou seus ${TRIAL_SCAN_LIMIT} scans gratuitos de receita do período de testes. Assine um plano para continuar usando o leitor de receitas.`
+            : `Você já utilizou seus ${TRIAL_SCAN_LIMIT} scans gratuitos de nota fiscal do período de testes. Assine um plano para continuar usando o leitor de notas.`,
           code: "TRIAL_SCAN_LIMIT_REACHED",
         });
         return;
