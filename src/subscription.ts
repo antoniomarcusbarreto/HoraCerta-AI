@@ -23,7 +23,7 @@ export type PlanId = "monthly" | "yearly";
  */
 export const PLANS: Record<PlanId, { amount: number; days: number; label: string }> = {
   monthly: { amount: 19.9, days: 30, label: "Mensal" },
-  yearly: { amount: 149.9, days: 365, label: "Anual" },
+  yearly: { amount: 179.9, days: 365, label: "Anual" },
 };
 
 export type AccessState = "trial" | "active" | "grace" | "blocked";
