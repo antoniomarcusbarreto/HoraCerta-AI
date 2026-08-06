@@ -1,11 +1,16 @@
 {
+  "id": "/app",
   "name": "HoraCerta AI - Gerenciador de Medicamentos",
   "short_name": "HoraCerta AI",
   "description": "Seu gerenciador inteligente de medicamentos e receitas com IA.",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "categories": ["health", "medical", "lifestyle"],
   "start_url": "/app",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#fbfbf8",
-  "theme_color": "#0d9488",
+  "background_color": "#FDFBF7",
+  "theme_color": "#0D3E46",
   "orientation": "portrait",
   "icons": [
     {

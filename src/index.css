@@ -43,6 +43,64 @@ body {
   background: var(--color-brand-teal-pale);
 }
 
+/* Entrance animations. These class names were already used across the app
+   (modals, toasts, tab content) but had never been defined — Tailwind v4 only
+   ships spin/ping/pulse/bounce — so every one of them was a silent no-op. */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-fade-in {
+  animation: fade-in 0.25s ease-out both;
+}
+
+/* Only `transform` here: the toast also carries `-translate-x-1/2`, which in
+   Tailwind v4 sets the separate `translate` property — animating transform
+   leaves that horizontal centering untouched instead of doubling it. */
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-1rem); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-down {
+  animation: slide-down 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(100%); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-up {
+  animation: slide-up 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes scale-up {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+.animate-scale-up {
+  animation: scale-up 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Keeps bottom-anchored UI clear of the iPhone home indicator. */
+.pb-safe {
+  padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-slide-down,
+  .animate-slide-up,
+  .animate-scale-up {
+    animation: none;
+  }
+  /* The ring charts draw themselves by animating stroke-dashoffset to 0, so
+     they need the end state applied — killing the animation would hide them. */
+  .animate-dash {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
+
 /* For clean animation of ring/pie charts */
 @keyframes dash {
   to {

@@ -23,6 +23,8 @@ import AuthScreen from "./components/AuthScreen";
 import PrivacyPolicy from "./components/PrivacyPolicy";
 import SubscriptionScreen from "./components/SubscriptionScreen";
 import { useIsDesktop } from "./hooks/useIsDesktop";
+import { useInstallPrompt } from "./hooks/useInstallPrompt";
+import { InstallAppSheet, InstallGuideModal } from "./components/InstallAppPrompt";
 import { Shield, Sparkles, Heart, HelpCircle, LogOut, ShieldAlert, CheckCircle2, User as UserIcon, Camera, Key, Upload, Eye, EyeOff, Save, Smartphone, Bell, Download, Gift, CreditCard, Lock, Mail, ArrowRight, AlertCircle } from "lucide-react";
 
 // Set by the CTAs on the static landing page (root index.html) right before
@@ -100,8 +102,15 @@ export default function App() {
   // answer. On iOS Safari outside standalone/installed mode, permission can be
   // granted while PushManager doesn't exist at all, so "Ativo" would lie.
   const [pushRegistered, setPushRegistered] = useState(false);
-  const [isPWAInstalled, setIsPWAInstalled] = useState(false);
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  // Everything about "is it installed / can it be installed" lives in this hook
+  // (beforeinstallprompt, appinstalled, standalone detection, the 7-day snooze).
+  const install = useInstallPrompt();
+  const isPWAInstalled = install.isInstalled;
+  // Shown when the browser gives us no prompt to fire — always the case on iOS.
+  const [showInstallGuide, setShowInstallGuide] = useState(false);
+  // The bottom sheet asks at most once per session; "Agora não" mutes it for 7 days.
+  const [installSheetOpen, setInstallSheetOpen] = useState(false);
+  const [installSheetAsked, setInstallSheetAsked] = useState(false);
 
   // Load initial database records
   useEffect(() => {
@@ -483,15 +492,14 @@ export default function App() {
   // PWA & Background Notification Services
   // ==========================================
   
-  // Service Worker Registration and PWA Install Prompt handling
+  // Service Worker registration. The PWA install prompt is NOT handled here —
+  // see useInstallPrompt, which owns beforeinstallprompt/appinstalled so there
+  // is only one listener and one answer about install state.
   useEffect(() => {
     if (typeof window !== "undefined") {
       if ("Notification" in window) {
         setNotificationPermission(Notification.permission);
       }
-
-      const isStandalone = window.matchMedia("(display-mode: standalone)").matches || (window.navigator as any).standalone === true;
-      setIsPWAInstalled(isStandalone);
 
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register("/sw.js")
@@ -513,17 +521,6 @@ export default function App() {
           window.location.reload();
         });
       }
-
-      const handleBeforeInstallPrompt = (e: Event) => {
-        e.preventDefault();
-        setDeferredPrompt(e);
-      };
-
-      window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
-
-      return () => {
-        window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
-      };
     }
   }, []);
 
@@ -717,24 +714,44 @@ export default function App() {
     }, 3000);
   };
 
+  // Single entry point for every install affordance (bottom sheet, Home card,
+  // Perfil button). Fires the browser's own prompt when there is one; otherwise
+  // falls back to the illustrated step-by-step, which is the only path on iOS.
   const installPWAApp = async () => {
-    if (!deferredPrompt) {
-      showToast("Dica: No iOS (Safari), toque em 'Compartilhar' > 'Adicionar à Tela de Início'.");
-      return;
-    }
-
-    try {
-      deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === "accepted") {
-        setIsPWAInstalled(true);
-        showToast("HoraCerta AI instalado com sucesso!");
-      }
-      setDeferredPrompt(null);
-    } catch (err) {
-      console.error("PWA install error:", err);
+    setInstallSheetOpen(false);
+    const outcome = await install.promptInstall();
+    if (outcome === "manual") {
+      setShowInstallGuide(true);
+    } else if (outcome === "accepted") {
+      showToast("HoraCerta AI instalado com sucesso!");
     }
   };
+
+  const dismissInstallSheet = () => {
+    setInstallSheetOpen(false);
+    install.snooze();
+  };
+
+  const confirmManualInstall = () => {
+    setShowInstallGuide(false);
+    install.markInstalled();
+    showToast("Pronto! Abra o HoraCerta pelo ícone na tela inicial.");
+  };
+
+  // Raise the sheet once the user is signed in — asking before login would
+  // invite someone to install an app they haven't decided to use yet. Desktop
+  // is excluded: those visitors get bounced to the landing page anyway, and the
+  // Perfil button already covers them.
+  useEffect(() => {
+    if (!activeUser || installSheetAsked || isDesktop) return;
+    if (!install.canInstall) return;
+
+    const timer = setTimeout(() => {
+      setInstallSheetOpen(true);
+      setInstallSheetAsked(true);
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, [activeUser, installSheetAsked, isDesktop, install.canInstall]);
 
   // Profile tab specific states
   const [profilePassword, setProfilePassword] = useState("");
@@ -1661,6 +1678,22 @@ export default function App() {
         </div>
       )}
 
+      {/* "Install this app" invitation — hidden entirely once installed */}
+      {activeUser && (
+        <InstallAppSheet
+          open={installSheetOpen}
+          platform={install.platform}
+          onInstall={installPWAApp}
+          onDismiss={dismissInstallSheet}
+        />
+      )}
+      <InstallGuideModal
+        open={showInstallGuide}
+        platform={install.platform}
+        onClose={() => setShowInstallGuide(false)}
+        onConfirmInstalled={confirmManualInstall}
+      />
+
       {/* Privacy / LGPD full-screen page */}
       {showPrivacyPage && <PrivacyPolicy onBack={() => setShowPrivacyPage(false)} />}
 
@@ -1694,6 +1727,8 @@ export default function App() {
                 setActiveTab("schedule");
               }}
               onNotify={showToast}
+              canInstall={install.isInstallable && !isDesktop}
+              onInstall={installPWAApp}
             />
           )}
 

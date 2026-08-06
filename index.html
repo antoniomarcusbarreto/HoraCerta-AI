@@ -21,6 +21,11 @@
   <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
   <link rel="icon" href="/icon-192.png" sizes="192x192" type="image/png" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <!-- The manifest lives here too (not only in app/index.html) so a first-time
+       visitor can install straight from the landing page. Chrome also requires
+       a service worker with a fetch handler before it offers the install — the
+       registration for that is at the bottom of this file. -->
+  <link rel="manifest" href="/manifest.json" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Space+Grotesk:wght@500;700&family=Newsreader:ital,wght@0,600;1,500&display=swap" rel="stylesheet" />
@@ -248,6 +253,24 @@
   .lock-badge{position:relative;width:78px;height:78px;border-radius:50%;background:var(--coral);display:flex;align-items:center;justify-content:center;box-shadow:0 20px 40px -14px rgba(0,0,0,.4);}
   .lock-badge svg{width:34px;height:34px;color:var(--teal-deep);}
 
+  /* ---------- install / "works like an app" ---------- */
+  .install{padding:96px 0;background:var(--cream-dark);border-top:1px solid var(--cream-darker);}
+  .install-head{max-width:600px;margin:0 auto 48px;text-align:center;}
+  .install-head h2{font-family:var(--serif);font-weight:600;color:var(--teal);font-size:clamp(24px,3vw,34px);margin-top:14px;line-height:1.28;}
+  .install-head p{color:var(--ink-soft);font-size:15.5px;line-height:1.7;margin-top:16px;}
+  .install-cards{display:grid;grid-template-columns:1fr 1fr;gap:22px;max-width:860px;margin:0 auto;}
+  .install-card{background:var(--cream);border:1px solid var(--cream-darker);border-radius:22px;padding:30px 28px;}
+  .install-card h3{display:flex;align-items:center;gap:10px;font-family:var(--sans);font-weight:700;font-size:15px;color:var(--teal);}
+  .install-card h3 svg{width:19px;height:19px;color:var(--coral-deep);flex-shrink:0;}
+  .install-steps{counter-reset:step;margin-top:20px;display:flex;flex-direction:column;gap:14px;}
+  .install-steps li{counter-increment:step;display:flex;gap:12px;align-items:flex-start;font-size:13.5px;color:var(--ink-soft);line-height:1.55;}
+  .install-steps li::before{content:counter(step);flex-shrink:0;width:22px;height:22px;border-radius:50%;background:var(--teal-pale);color:var(--teal);font-family:var(--sans);font-weight:700;font-size:11px;display:flex;align-items:center;justify-content:center;}
+  /* The wording has to stay one inline run: without this span the <strong>
+     would become a sibling flex item and the sentence would break apart. */
+  .install-steps li span{flex:1;padding-top:2px;}
+  .install-steps strong{color:var(--teal);font-weight:700;}
+  .install-note{margin-top:34px;text-align:center;font-size:13px;color:var(--ink-soft);}
+
   /* ---------- final cta ---------- */
   /* Deliberately not a repeat of the hero: lighter teal, opposite gradient angle,
      diagonal hairlines instead of the dot grid, glow anchored bottom-left. */
@@ -299,6 +322,7 @@
     .how-step:not(:first-child){padding-left:0;border-left:none;padding-top:28px;border-top:1px solid rgba(253,251,247,.16);}
     .security-inner{grid-template-columns:1fr;}
     .security-visual{order:-1;}
+    .install-cards{grid-template-columns:1fr;}
   }
   @media (max-width:560px){
     .wrap{padding:0 20px;}
@@ -320,6 +344,7 @@
       <li><a href="#funcionalidades">Funcionalidades</a></li>
       <li><a href="#como-funciona">Como funciona</a></li>
       <li><a href="#seguranca">Segurança</a></li>
+      <li><a href="#instalar">Instalar</a></li>
       <li class="nav-actions">
         <a class="btn btn--quiet" href="/app" onclick="sessionStorage.setItem('horacerta_desktop_enter','1')">Entrar</a>
         <a class="btn btn--coral" href="/app#cadastro" onclick="sessionStorage.setItem('horacerta_desktop_enter','1')">Começar grátis</a>
@@ -630,6 +655,42 @@
     </div>
   </section>
 
+  <!-- INSTALL -->
+  <section class="install" id="instalar">
+    <div class="wrap">
+      <div class="install-head reveal">
+        <p class="eyebrow eyebrow--coral">SEM LOJA DE APLICATIVOS</p>
+        <h2>Funciona como um app no seu celular.</h2>
+        <p>Não precisa baixar nada da Play Store nem da App Store. Adicione o Hora Certa AI à tela inicial e ele ganha ícone próprio, abre em tela cheia e envia os lembretes de dose mesmo com o app fechado — sem ocupar espaço no aparelho.</p>
+      </div>
+      <div class="install-cards reveal">
+        <div class="install-card">
+          <h3>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/></svg>
+            No Android
+          </h3>
+          <ol class="install-steps">
+            <li><span>Abra <strong>horacerta-ai.com</strong> no Chrome.</span></li>
+            <li><span>Toque no menu <strong>⋮</strong> no canto superior direito.</span></li>
+            <li><span>Escolha <strong>Instalar app</strong> e confirme.</span></li>
+          </ol>
+        </div>
+        <div class="install-card">
+          <h3>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m8 8 4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>
+            No iPhone
+          </h3>
+          <ol class="install-steps">
+            <li><span>Abra <strong>horacerta-ai.com</strong> no Safari.</span></li>
+            <li><span>Toque no botão <strong>Compartilhar</strong> na barra inferior.</span></li>
+            <li><span>Role e toque em <strong>Adicionar à Tela de Início</strong>.</span></li>
+          </ol>
+        </div>
+      </div>
+      <p class="install-note">O próprio app também te lembra de instalar assim que você entra pela primeira vez.</p>
+    </div>
+  </section>
+
   <!-- FINAL CTA -->
   <section class="final-cta">
     <div class="final-glow"></div>
@@ -670,6 +731,7 @@
         <li><a href="#funcionalidades">Funcionalidades</a></li>
         <li><a href="#como-funciona">Como funciona</a></li>
         <li><a href="#seguranca">Segurança</a></li>
+        <li><a href="#instalar">Instalar</a></li>
         <li><a href="/app" onclick="sessionStorage.setItem('horacerta_desktop_enter','1')">Entrar</a></li>
       </ul>
     </div>
@@ -730,6 +792,18 @@
       });
     }, { threshold: 0.4 });
     rings.forEach(function(el){ ringIo.observe(el); });
+  }
+
+  // Register the service worker from the landing page too. Without a controlling
+  // SW that has a fetch handler, Chrome never fires beforeinstallprompt, so the
+  // manifest alone would leave "/" un-installable. sw.js is network-first, so
+  // this only pre-warms the app shell — it never serves stale content.
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function(){
+      navigator.serviceWorker.register('/sw.js').catch(function(err){
+        console.warn('Service Worker não registrado na landing:', err);
+      });
+    });
   }
 </script>
 </body>

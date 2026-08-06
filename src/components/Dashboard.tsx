@@ -3,6 +3,7 @@ import { Medicado, Medicamento, DoseLog } from "../types";
 import { getDoseTimesForMedOnDate, isMedActiveOnDay, isDoseTaken } from "../utils/doseSchedule";
 import { processImageFile, IMAGE_MAX_DIMENSION } from "../imageUtils";
 import ConfirmDialog from "./ConfirmDialog";
+import { InstallAppCard } from "./InstallAppPrompt";
 import {
   Plus, 
   Users, 
@@ -32,6 +33,9 @@ interface DashboardProps {
   onToggleDose: (medId: string, plannedTime: string) => void;
   onViewSchedule: (date: Date, patientId?: string) => void;
   onNotify: (message: string) => void;
+  /** App still installable on this device — shows the quiet reminder card. */
+  canInstall?: boolean;
+  onInstall?: () => void;
 }
 
 export default function Dashboard({
@@ -45,6 +49,8 @@ export default function Dashboard({
   onNotify,
   onToggleDose,
   onViewSchedule,
+  canInstall = false,
+  onInstall,
 }: DashboardProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingPatient, setEditingPatient] = useState<Medicado | null>(null);
@@ -287,6 +293,9 @@ export default function Dashboard({
           <Heart className="w-5 h-5 text-brand-teal" />
         </div>
       </div>
+
+      {/* Install reminder — stays put until the app is on the home screen */}
+      {canInstall && onInstall && <InstallAppCard onInstall={onInstall} />}
 
       {/* Progress Card (Matching left screen top card) */}
       <div className="bg-brand-teal text-brand-cream rounded-3xl p-6 shadow-md mb-8 relative overflow-hidden">
