@@ -1,4 +1,10 @@
-const CACHE_NAME = "horacerta-cache-v4";
+// Carimbado no build: o plugin `horacerta-app-version` (vite.config.ts) troca
+// o placeholder abaixo pela versão do deploy ao copiar este arquivo para dist/.
+// Isso é o que faz o navegador enxergar um service worker NOVO a cada deploy —
+// antes o arquivo era byte a byte idêntico entre deploys e o SW só trocava se
+// alguém lembrasse de bumpar o CACHE_NAME na mão (ou seja: quase nunca).
+const APP_VERSION = "__APP_VERSION__";
+const CACHE_NAME = "horacerta-cache-" + APP_VERSION;
 const ASSETS = [
   "/app",
   "/app/index.html",
@@ -38,8 +44,20 @@ self.addEventListener("activate", (e) => {
 // bumping CACHE_NAME above).
 self.addEventListener("fetch", (e) => {
   const url = e.request.url;
-  // Ignore API requests, hot reloads, and other dev socket requests
-  if (url.includes("/api/") || url.includes("node_modules") || url.includes("@") || url.includes("hot-update")) {
+  // Só GET: cache.put() rejeita POST/PUT e não há nada a servir offline neles.
+  if (e.request.method !== "GET") {
+    return;
+  }
+  // Ignore API requests, hot reloads, and other dev socket requests.
+  // /version.json é o sino de atualização: precisa vir sempre da rede, senão o
+  // app compararia a versão nova contra uma resposta cacheada pelo próprio SW.
+  if (
+    url.includes("/api/") ||
+    url.includes("/version.json") ||
+    url.includes("node_modules") ||
+    url.includes("@") ||
+    url.includes("hot-update")
+  ) {
     return;
   }
   e.respondWith(
@@ -55,6 +73,18 @@ self.addEventListener("fetch", (e) => {
 
 // Listen to message from Client (for immediate local background notifications)
 self.addEventListener("message", (event) => {
+  // O cliente (src/appUpdate.ts) pergunta qual versão está rodando aqui e pode
+  // pedir que um worker parado em "waiting" assuma na hora.
+  if (event.data && event.data.type === "GET_VERSION") {
+    if (event.ports && event.ports[0]) {
+      event.ports[0].postMessage({ version: APP_VERSION });
+    }
+    return;
+  }
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+    return;
+  }
   if (event.data && event.data.type === "SHOW_NOTIFICATION") {
     const { title, body, icon, data } = event.data.payload;
     self.registration.showNotification(title, {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { dbLocal } from "./dbLocalFallback";
 import { auth, dbFirebase, isDeadSessionError } from "./firebase";
 import { subscribeToPush, unsubscribeFromPush, isIOSDevice } from "./push";
@@ -7,6 +7,7 @@ import { dueDoseMs } from "./utils/doseSchedule";
 import { normalizeEmail } from "./utils/normalizeEmail";
 import { processImageFile } from "./imageUtils";
 import { reportLogin } from "./loginLog";
+import { initAppUpdater, applyAppUpdate } from "./appUpdate";
 import { signInWithEmailAndPassword, signOut as firebaseSignOut, updatePassword, onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
 import { User, Medicado, Receita, Medicamento, DoseLog, Consulta, Farmacia, MedicineCategory, CupomFiscal, Share } from "./types";
 import { listShares, createShare, acceptShare, revokeShare, canEditMedicado } from "./shares";
@@ -25,6 +26,7 @@ import SubscriptionScreen from "./components/SubscriptionScreen";
 import { useIsDesktop } from "./hooks/useIsDesktop";
 import { useInstallPrompt } from "./hooks/useInstallPrompt";
 import { InstallAppSheet, InstallGuideModal } from "./components/InstallAppPrompt";
+import UpdateBanner from "./components/UpdateBanner";
 import { Shield, Sparkles, Heart, HelpCircle, LogOut, ShieldAlert, CheckCircle2, User as UserIcon, Camera, Key, Upload, Eye, EyeOff, Save, Smartphone, Bell, Download, Gift, CreditCard, Lock, Mail, ArrowRight, AlertCircle } from "lucide-react";
 
 // Set by the CTAs on the static landing page (root index.html) right before
@@ -81,6 +83,9 @@ export default function App() {
   // 3. Navigation State
   const [activeTab, setActiveTab] = useState<string>("home");
   const [successToast, setSuccessToast] = useState<string | null>(null);
+  // Versão nova publicada e detectada com o app aberto na frente do usuário —
+  // ver src/appUpdate.ts. Em segundo plano ela é aplicada sem passar por aqui.
+  const [updateReady, setUpdateReady] = useState(false);
   const [scheduleDate, setScheduleDate] = useState<Date>(new Date());
   const [schedulePatientId, setSchedulePatientId] = useState<string>("");
   const [showPrivacyPage, setShowPrivacyPage] = useState(false);
@@ -145,7 +150,15 @@ export default function App() {
   // Uses functional setState updates throughout so its identity can stay
   // stable (empty dependency array) without closing over stale activeUser/
   // activeAdminUser values from the render that first created it.
+  // Set while an intentional sign-out is in flight (manual logout, or a
+  // teardown already running). firebaseSignOut() fires onAuthStateChanged
+  // with null BEFORE the localStorage session pointers are cleared, so the
+  // orphaned-session check below would otherwise fire a second, spurious
+  // teardown (and toast) on every normal logout.
+  const signingOutRef = useRef(false);
+
   const forceSessionTeardown = useCallback(async (message: string) => {
+    signingOutRef.current = true;
     await unsubscribeFromPush(() => Promise.resolve(undefined)).catch(() => {});
     await firebaseSignOut(auth).catch(() => {});
     dbLocal.clearLocalData();
@@ -177,6 +190,7 @@ export default function App() {
     localStorage.removeItem("horacerta_active_admin_id");
     setUsers(dbLocal.getUsers());
     showToast(message);
+    signingOutRef.current = false;
   }, []);
 
   // Boot-time / app-resume validity check. The instant restore effect above
@@ -219,11 +233,34 @@ export default function App() {
     // (fast, read from IndexedDB), and again whenever the SDK's own sign-in
     // state changes (login, logout, or an internal auto-sign-out following a
     // failed background token refresh).
-    const unsubscribe = onAuthStateChanged(auth, () => {
+    const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
+      if (!fbUser) {
+        // No Firebase Auth session AT ALL, and the observer only fires after
+        // the SDK has resolved its persisted state — so this is authoritative,
+        // not a startup race. It is also NOT the offline case: a valid session
+        // is restored from IndexedDB without any network.
+        //
+        // This is exactly what an account hard-delete looks like on the
+        // victim's device: the SDK's own background token refresh fails and it
+        // signs itself out internally. Until this branch existed the app just
+        // returned here (verifySessionStillValid bails on a null currentUser),
+        // leaving the localStorage session pointer untouched — so the boot
+        // effect above kept restoring the cached profile and the whole app
+        // stayed usable offline-style, reading and writing PHI to
+        // localStorage, for a user whose account no longer exists.
+        if (signingOutRef.current) return;
+        const hasLocalSession =
+          localStorage.getItem("horacerta_active_user_id") ||
+          localStorage.getItem("horacerta_active_admin_id");
+        if (hasLocalSession) {
+          forceSessionTeardown("Sua sessão não é mais válida. Faça login novamente.");
+        }
+        return;
+      }
       verifySessionStillValid();
     });
     return unsubscribe;
-  }, [verifySessionStillValid]);
+  }, [verifySessionStillValid, forceSessionTeardown]);
 
   useEffect(() => {
     // A PWA installed on mobile is backgrounded/foregrounded without a full
@@ -506,36 +543,23 @@ export default function App() {
   // PWA & Background Notification Services
   // ==========================================
   
-  // Service Worker registration. The PWA install prompt is NOT handled here —
-  // see useInstallPrompt, which owns beforeinstallprompt/appinstalled so there
-  // is only one listener and one answer about install state.
+  // Service Worker registration + verificador de versão. O registro do SW mora
+  // dentro de initAppUpdater (src/appUpdate.ts) porque as duas coisas são a
+  // mesma: é o ciclo de vida do worker que carrega o bundle novo. O prompt de
+  // instalação do PWA NÃO é tratado aqui — ver useInstallPrompt, que é dono de
+  // beforeinstallprompt/appinstalled.
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      if ("Notification" in window) {
-        setNotificationPermission(Notification.permission);
-      }
+    if (typeof window === "undefined") return;
 
-      if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.register("/sw.js")
-          .then((reg) => {
-            console.log("Service Worker registrado com sucesso:", reg.scope);
-          })
-          .catch((err) => {
-            console.error("Falha ao registrar Service Worker:", err);
-          });
-
-        // A new SW version takes over (skipWaiting + clients.claim in sw.js)
-        // without this tab reloading on its own — without this listener, an
-        // already-open tab would keep running the old bundle until the user
-        // manually closes and reopens it. Guarded so it only reloads once.
-        let reloadedForNewWorker = false;
-        navigator.serviceWorker.addEventListener("controllerchange", () => {
-          if (reloadedForNewWorker) return;
-          reloadedForNewWorker = true;
-          window.location.reload();
-        });
-      }
+    if ("Notification" in window) {
+      setNotificationPermission(Notification.permission);
     }
+
+    initAppUpdater({
+      // Só chega aqui quando o app está em primeiro plano; em segundo plano a
+      // atualização é aplicada sozinha, sem avisar.
+      onUpdateReady: () => setUpdateReady(true),
+    });
   }, []);
 
   // Register this browser for server-sent (VAPID) push once a user is signed in
@@ -1351,6 +1375,10 @@ export default function App() {
     // MUST be awaited: it needs a valid ID token, and the signOut below would
     // null out auth.currentUser and make the unsubscribe silently no-op,
     // orphaning this device's subscription on the server.
+    // Suppresses the orphaned-session teardown that the signOut below would
+    // otherwise trigger (it fires onAuthStateChanged(null) while the
+    // localStorage pointers are still set, a few lines further down).
+    signingOutRef.current = true;
     await unsubscribeFromPush(() => auth.currentUser?.getIdToken() ?? Promise.resolve(undefined));
     setPushRegistered(false);
     // End the real Firebase Auth session too — otherwise auth.currentUser stays
@@ -1373,6 +1401,7 @@ export default function App() {
     localStorage.removeItem("horacerta_active_user_id");
     setActiveTab("home");
     showToast("Sessão encerrada com sucesso!");
+    signingOutRef.current = false;
   };
 
   // ==========================================
@@ -1499,6 +1528,8 @@ export default function App() {
   if (isAdminRoute) {
     return (
       <div className="min-h-screen bg-brand-cream text-brand-teal relative selection:bg-brand-coral/20 select-none pb-12 font-sans">
+        <UpdateBanner open={updateReady} onUpdate={() => void applyAppUpdate()} />
+
         {/* Visual Floating Toast */}
         {successToast && (
           <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[90%] bg-brand-teal border-2 border-brand-coral-light/30 text-brand-cream rounded-2xl px-4 py-3.5 shadow-xl flex items-start gap-3 animate-slide-down">
@@ -1680,6 +1711,8 @@ export default function App() {
 
   const appShell = (
     <div className="min-h-screen bg-brand-cream text-brand-teal relative selection:bg-brand-coral/20 select-none pb-20 lg:pb-8 lg:pl-24 lg:bg-[#FAF6EC]">
+
+      <UpdateBanner open={updateReady} onUpdate={() => void applyAppUpdate()} />
 
       {/* Visual Floating Toast */}
       {successToast && (

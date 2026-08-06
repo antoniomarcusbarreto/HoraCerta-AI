@@ -75,7 +75,17 @@ User deletion is a **hard delete** through `DELETE /api/admin/users/:uid` (Admin
 
 ### PWA / notifications
 
-Service worker registration, install-prompt handling (`beforeinstallprompt`), and a client-side dose-reminder poller (checks every 20s whether any active medicine's next dose time matches "now", using `localStorage` flags to dedupe) all live inline in `App.tsx` rather than in a separate module.
+Install-prompt handling (`beforeinstallprompt`, in `useInstallPrompt`) and a client-side dose-reminder poller (checks every 20s whether any active medicine's next dose time matches "now", using `localStorage` flags to dedupe) live inline in `App.tsx`. Service worker **registration** lives in `src/appUpdate.ts`, together with the update mechanism below.
+
+### Keeping installed apps on the current version
+
+Every build is stamped with a version (`APP_VERSION` in `vite.config.ts`: the Vercel commit SHA in CI, a timestamp locally). The `horacerta-app-version` plugin writes it to `dist/version.json` and substitutes the `__APP_VERSION__` placeholder inside `dist/sw.js`; the same value reaches the bundle through Vite's `define`. `src/appUpdate.ts` compares the version it was built with against `/version.json` on boot, on every return to the foreground (`visibilitychange`, `pageshow`, `focus`), on reconnect, and on a 15-minute heartbeat — calling `registration.update()` each time — then clears all caches and reloads. If the app is in the background the reload is silent; in the foreground it surfaces `UpdateBanner` and applies on the user's tap (or automatically as soon as they leave the screen).
+
+Two things this design depends on — breaking either silently strands users on an old build:
+- **The version placeholder must keep reaching `sw.js`.** The browser only installs a new service worker when the script changes byte-wise. Before the stamp, `sw.js` was identical between deploys, so a deploy that only touched the React bundle produced no new worker, no `controllerchange`, and no reload — the update path was dead in practice. Never hardcode `CACHE_NAME` back to a literal.
+- **`/sw.js`, `/version.json` and the HTML must stay revalidated** (`headers` in `vercel.json`, mirrored in `server.ts`'s `express.static` branch). Only `/assets/*` is `immutable`, because those filenames carry a content hash. A cached `version.json` would make the app compare the new version against a stale answer forever.
+
+`applyAppUpdate()` caps reloads per target version (`horacerta_update_reload` in `localStorage`) so a stale-HTML scenario degrades into "stays on the old version" rather than an infinite reload loop on the user's device.
 
 ### Styling
 

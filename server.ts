@@ -57,13 +57,30 @@ async function startServer() {
     console.log("Vite development middleware mounted.");
   } else {
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
+    // Mesma política de cache do vercel.json (ver comentários lá): sw.js,
+    // version.json e HTML precisam ser revalidados para que um deploy novo
+    // chegue ao usuário; os assets têm hash no nome e podem ser imutáveis.
+    app.use(
+      express.static(distPath, {
+        setHeaders: (res, filePath) => {
+          if (filePath.endsWith("version.json")) {
+            res.setHeader("Cache-Control", "no-store, max-age=0");
+          } else if (filePath.endsWith("sw.js") || filePath.endsWith(".html")) {
+            res.setHeader("Cache-Control", "public, max-age=0, must-revalidate");
+          } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+            res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+          }
+        },
+      })
+    );
     // The React app (login, dashboard, admin, etc.) lives under /app; the
     // static marketing landing page owns everything else, including "/".
     app.get(["/app", "/app/*"], (req, res) => {
+      res.setHeader("Cache-Control", "public, max-age=0, must-revalidate");
       res.sendFile(path.join(distPath, "app", "index.html"));
     });
     app.get("*", (req, res) => {
+      res.setHeader("Cache-Control", "public, max-age=0, must-revalidate");
       res.sendFile(path.join(distPath, "index.html"));
     });
     console.log("Static files served in production mode.");
