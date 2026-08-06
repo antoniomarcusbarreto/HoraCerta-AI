@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { dbFirebase, LogDateRange } from "../firebase";
 import { ActionLog, LoginLog, ErrorLog } from "../types";
-import { AlertCircle, Search, LogIn, Pencil, Trash2, ServerCrash, RefreshCw, CalendarRange } from "lucide-react";
+import { AlertCircle, Search, LogIn, Pencil, Trash2, ServerCrash, RefreshCw, CalendarRange, Tag, MapPin, User as UserIcon, Mail, Globe } from "lucide-react";
 import type { QueryDocumentSnapshot, DocumentData } from "firebase/firestore";
 
 type LogTab = "acoes" | "login" | "erros";
@@ -154,26 +154,26 @@ export default function AdminLogs() {
       </div>
 
       {/* Date range filter */}
-      <div className="flex items-end gap-2 bg-white border border-brand-cream-darker rounded-2xl p-3">
-        <CalendarRange className="w-4 h-4 text-brand-teal mb-2 shrink-0" />
-        <div className="flex-1">
-          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">De</label>
+      <div className="flex flex-wrap items-end gap-3 bg-white border border-brand-cream-darker rounded-2xl p-3">
+        <CalendarRange className="w-4 h-4 text-brand-teal mb-2.5 shrink-0" />
+        <div className="w-36">
+          <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">De</label>
           <input
             type="date"
             value={dateFrom}
             max={dateTo || undefined}
             onChange={(e) => setDateFrom(e.target.value)}
-            className="w-full bg-white border border-brand-cream-darker rounded-lg px-2 py-1.5 text-xs text-brand-teal focus:outline-hidden focus:border-brand-coral font-sans"
+            className="w-full bg-white border border-brand-cream-darker rounded-lg px-2 py-1.5 text-sm text-brand-teal focus:outline-hidden focus:border-brand-coral font-sans"
           />
         </div>
-        <div className="flex-1">
-          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">Até</label>
+        <div className="w-36">
+          <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Até</label>
           <input
             type="date"
             value={dateTo}
             min={dateFrom || undefined}
             onChange={(e) => setDateTo(e.target.value)}
-            className="w-full bg-white border border-brand-cream-darker rounded-lg px-2 py-1.5 text-xs text-brand-teal focus:outline-hidden focus:border-brand-coral font-sans"
+            className="w-full bg-white border border-brand-cream-darker rounded-lg px-2 py-1.5 text-sm text-brand-teal focus:outline-hidden focus:border-brand-coral font-sans"
           />
         </div>
         {(dateFrom || dateTo) && (
@@ -183,7 +183,7 @@ export default function AdminLogs() {
               setDateFrom("");
               setDateTo("");
             }}
-            className="shrink-0 text-[10px] font-bold uppercase text-brand-coral hover:text-brand-coral-dark px-2 py-1.5 rounded-lg transition-colors"
+            className="shrink-0 text-xs font-bold uppercase text-brand-coral hover:text-brand-coral-dark px-2 py-1.5 rounded-lg transition-colors mb-0.5"
           >
             Limpar
           </button>
@@ -203,21 +203,31 @@ export default function AdminLogs() {
             <EmptyState />
           ) : (
             filteredActionLogs.map((l) => (
-              <div key={l.logId} className="bg-white border border-brand-cream-darker rounded-2xl p-4 shadow-2xs space-y-1.5">
+              <div key={l.logId} className="bg-white border border-brand-cream-darker rounded-2xl p-5 shadow-2xs space-y-2">
                 <div className="flex items-center justify-between">
                   <span
-                    className={`text-[8px] font-extrabold px-1.5 py-0.5 rounded-full uppercase tracking-wide flex items-center gap-1 ${
+                    className={`text-[10px] font-extrabold px-2 py-1 rounded-full uppercase tracking-wide flex items-center gap-1 ${
                       l.action === "delete" ? "bg-red-100 text-red-600" : "bg-amber-100 text-amber-600"
                     }`}
                   >
-                    {l.action === "delete" ? <Trash2 className="w-2.5 h-2.5" /> : <Pencil className="w-2.5 h-2.5" />}
+                    {l.action === "delete" ? <Trash2 className="w-3 h-3" /> : <Pencil className="w-3 h-3" />}
                     {l.action === "delete" ? "Exclusão" : "Alteração"}
                   </span>
-                  <span className="text-[9px] text-gray-400 font-mono">{formatDateTime(l.createdAt)}</span>
+                  <span className="text-xs text-gray-500 font-mono">{formatDateTime(l.createdAt)}</span>
                 </div>
-                <p className="text-xs font-bold text-brand-teal leading-tight">{l.entityLabel}</p>
-                <p className="text-[10px] text-gray-400">{l.entityType} · {l.page}</p>
-                <p className="text-[10px] text-gray-500 font-mono truncate">{l.actorName} ({l.actorEmail})</p>
+                <p className="text-sm font-bold text-brand-teal leading-tight">{l.entityLabel}</p>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+                  <span className="flex items-center gap-1">
+                    <Tag className="w-3.5 h-3.5 text-gray-400 shrink-0" /> {l.entityType}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <MapPin className="w-3.5 h-3.5 text-gray-400 shrink-0" /> {l.page}
+                  </span>
+                  <span className="flex items-center gap-1 min-w-0">
+                    <UserIcon className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                    <span className="truncate">{l.actorName} ({l.actorEmail})</span>
+                  </span>
+                </div>
               </div>
             ))
           ))}
@@ -227,16 +237,24 @@ export default function AdminLogs() {
             <EmptyState />
           ) : (
             filteredLoginLogs.map((l) => (
-              <div key={l.logId} className="bg-white border border-brand-cream-darker rounded-2xl p-4 shadow-2xs space-y-1.5">
+              <div key={l.logId} className="bg-white border border-brand-cream-darker rounded-2xl p-5 shadow-2xs space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-[8px] font-extrabold px-1.5 py-0.5 rounded-full uppercase tracking-wide bg-blue-100 text-blue-600 flex items-center gap-1">
-                    <LogIn className="w-2.5 h-2.5" /> Login
+                  <span className="text-[10px] font-extrabold px-2 py-1 rounded-full uppercase tracking-wide bg-blue-100 text-blue-600 flex items-center gap-1">
+                    <LogIn className="w-3 h-3" /> Login
                   </span>
-                  <span className="text-[9px] text-gray-400 font-mono">{formatDateTime(l.createdAt)}</span>
+                  <span className="text-xs text-gray-500 font-mono">{formatDateTime(l.createdAt)}</span>
                 </div>
-                <p className="text-xs font-bold text-brand-teal leading-tight">{l.userName}</p>
-                <p className="text-[10px] text-gray-500 font-mono">{l.userEmail}</p>
-                <p className="text-[10px] text-gray-400 font-mono">IP: {l.ip}</p>
+                <p className="text-sm font-bold text-brand-teal leading-tight">{l.userName}</p>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+                  <span className="flex items-center gap-1 min-w-0">
+                    <Mail className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                    <span className="truncate font-mono">{l.userEmail}</span>
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <Globe className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                    <span className="font-mono">{l.ip}</span>
+                  </span>
+                </div>
               </div>
             ))
           ))}
@@ -246,15 +264,15 @@ export default function AdminLogs() {
             <EmptyState />
           ) : (
             filteredErrorLogs.map((l) => (
-              <div key={l.errorLogId} className="bg-white border border-brand-cream-darker rounded-2xl p-4 shadow-2xs space-y-1.5">
+              <div key={l.errorLogId} className="bg-white border border-brand-cream-darker rounded-2xl p-5 shadow-2xs space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-[8px] font-extrabold px-1.5 py-0.5 rounded-full uppercase tracking-wide bg-red-200 text-red-700 flex items-center gap-1">
-                    <ServerCrash className="w-2.5 h-2.5" /> Erro
+                  <span className="text-[10px] font-extrabold px-2 py-1 rounded-full uppercase tracking-wide bg-red-200 text-red-700 flex items-center gap-1">
+                    <ServerCrash className="w-3 h-3" /> Erro
                   </span>
-                  <span className="text-[9px] text-gray-400 font-mono">{formatDateTime(l.createdAt)}</span>
+                  <span className="text-xs text-gray-500 font-mono">{formatDateTime(l.createdAt)}</span>
                 </div>
-                <p className="text-xs font-bold text-brand-teal leading-tight">{l.action}</p>
-                <p className="text-[10px] text-gray-500 break-words">{l.message}</p>
+                <p className="text-sm font-bold text-brand-teal leading-tight font-mono">{l.action}</p>
+                <p className="text-xs text-gray-600 leading-relaxed break-words">{l.message}</p>
               </div>
             ))
           ))}

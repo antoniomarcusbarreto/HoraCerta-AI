@@ -75,6 +75,11 @@ Here are the 12 payloads designed to break our security invariants, all of which
 * **Payload**: `updateDoc(/users/victim_uid/medicados/pat_1/medicamentos/med_1/doseLogs/log_1, { status: "taken" })`
 * **Check**: Fails because the path-matching ensures only `request.auth.uid == userId` is authorized.
 
+### Payload 13: Resurrected Account Write (Hard-Delete Bypass)
+* **Goal**: A client holding a still-valid ID token for a uid whose `users/{uid}` profile doc no longer exists (hard-deleted via `DELETE /api/admin/users/:uid`, which `recursiveDelete`s the whole tree) tries to create a new document under that uid's tree. ID tokens remain cryptographically valid for up to ~1h after `deleteUser()`, and Firestore rules never check live revocation — only signature/expiry — so this is a real, deterministic window, not just a client-side timing race.
+* **Payload**: `setDoc(/users/deleted_uid/medicados/pat_new, { medicadoId: "pat_new", userId: "deleted_uid", name: "New Patient", relationship: "self", createdAt: request.time })`
+* **Check**: `isUserActive()` must fail closed when `users/$(userId)` does not exist — not just when `status == 'suspended'`. (Incident: 2026-07-31, an admin-deleted user's still-logged-in phone was able to register a new patient this way.)
+
 ---
 
 ## 3. Test Cases (TDD Rules Validation Runner Schema)

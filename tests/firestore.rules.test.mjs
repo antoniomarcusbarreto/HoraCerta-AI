@@ -268,6 +268,18 @@ test("Payload 12: cross-user push subscription write is blocked", async () => {
   ));
 });
 
+test("Payload 13: hard-deleted account resurrection write is blocked", async () => {
+  // No users/{uid} doc seeded for this uid at all — simulates the state right
+  // after DELETE /api/admin/users/:uid's recursiveDelete(), while the client
+  // still holds a pre-deletion ID token (isUserActive() must not treat a
+  // missing profile as "still active").
+  const db = authed("deleted_uid");
+  await assertFails(setDoc(
+    doc(db, "users", "deleted_uid", "medicados", "pat_new"),
+    validMedicado("deleted_uid", "pat_new")
+  ));
+});
+
 // ==========================================
 // COMPARTILHAMENTO ENTRE CUIDADORES
 // ==========================================

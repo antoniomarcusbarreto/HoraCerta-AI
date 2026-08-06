@@ -100,12 +100,20 @@ service cloud.firestore {
              (!('editorUids' in data) || (data.editorUids is list && data.editorUids.size() <= 20));
     }
 
-    // Check if the current user profile is active (not suspended)
+    // Check if the current user profile is active (not suspended).
+    // FAILS CLOSED when the profile doc doesn't exist: this is what actually
+    // gates every write into a user's tree, so a hard-deleted account (whose
+    // users/{uid} doc was just recursiveDelete'd, see server/app.ts) must
+    // never read back as "active" just because the doc is gone — an ID token
+    // issued before the delete stays cryptographically valid for up to ~1h,
+    // and Firestore rules never check live revocation, only signature/expiry.
+    // Confirmed safe against registration: AuthScreen.tsx awaits
+    // dbFirebase.createUserProfile() before any subcollection write is ever
+    // reachable, so there's no legitimate case needing the old fail-open
+    // window (see security_spec.md Payload 13, tests/firestore.rules.test.mjs).
     function isUserActive(userId) {
-      // Allow if the user has an active document or during user creation
-      return exists(/databases/$(database)/documents/users/$(userId)) ? 
-             get(/databases/$(database)/documents/users/$(userId)).data.status == 'active' : 
-             true;
+      return exists(/databases/$(database)/documents/users/$(userId)) &&
+             get(/databases/$(database)/documents/users/$(userId)).data.status == 'active';
     }
 
     // ==========================================

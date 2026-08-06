@@ -242,6 +242,20 @@ export default function App() {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [verifySessionStillValid]);
 
+  useEffect(() => {
+    // dbLocal's add*/update*/delete* methods fire-and-forget their Firestore
+    // writes and only console.warn on failure (see dbLocalFallback.ts) — a
+    // permission-denied there is otherwise invisible to the user. Bridge it
+    // into a real re-check: a forced token refresh is the only thing that can
+    // actually tell "dead account" apart from "legitimate authorization
+    // failure" (e.g. a suspended user), so this never decides death on its
+    // own, only triggers the authoritative check.
+    dbLocal.setAuthErrorListener(() => {
+      verifySessionStillValid();
+    });
+    return () => dbLocal.setAuthErrorListener(null);
+  }, [verifySessionStillValid]);
+
   // The admin panel must list REAL registered users, which live in Firestore —
   // `dbLocal.getUsers()` only ever holds accounts this browser touched (plus the
   // dev seed fixtures), so without this the panel showed demo data and never the

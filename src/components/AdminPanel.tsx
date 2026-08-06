@@ -437,7 +437,7 @@ export default function AdminPanel({
                           {isSuspended ? "Bloqueado" : "Ativo"}
                         </span>
                       </div>
-                      <p className="text-xs text-gray-400 font-mono mt-0.5">{u.email}</p>
+                      <p className="text-xs text-gray-500 font-mono mt-0.5">{u.email}</p>
                     </div>
 
                     {/* Quick switch roles & delete actions */}
@@ -492,16 +492,16 @@ export default function AdminPanel({
                   {/* Core Platform Management (Trial & Subscription Details) */}
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     {/* Trial Status Section */}
-                    <div className="bg-brand-cream/40 rounded-xl p-2 border border-brand-cream-darker/50 space-y-1">
+                    <div className="bg-brand-cream/40 rounded-xl p-3 border border-brand-cream-darker/50 space-y-1">
                       <div className="flex items-center gap-1 text-brand-teal font-semibold">
                         <Gift className="w-3.5 h-3.5 text-brand-coral shrink-0" />
                         <span>Gratuidade / Teste</span>
                       </div>
-                      <div className="text-xs text-gray-500 leading-tight">
+                      <div className="text-xs text-gray-500 leading-relaxed">
                         Status: <strong className={trial.status === "active" ? "text-emerald-600" : "text-red-500"}>
                           {trial.status === "active" ? "Válido" : "Expirado"}
                         </strong>
-                        <div className="truncate text-gray-400 mt-0.5">{trial.text}</div>
+                        <div className="truncate text-gray-500 mt-0.5">{trial.text}</div>
                       </div>
                       <button
                         onClick={() => setEditingTrialUser(u)}
@@ -512,20 +512,20 @@ export default function AdminPanel({
                     </div>
 
                     {/* Subscription Section */}
-                    <div className="bg-brand-cream/40 rounded-xl p-2 border border-brand-cream-darker/50 space-y-1">
+                    <div className="bg-brand-cream/40 rounded-xl p-3 border border-brand-cream-darker/50 space-y-1">
                       <div className="flex items-center gap-1 text-brand-teal font-semibold">
                         <CreditCard className="w-3.5 h-3.5 text-brand-teal shrink-0" />
                         <span>Assinatura</span>
                       </div>
-                      <div className="text-xs text-gray-500 leading-tight">
-                        Acesso real: <strong className={hasActiveSub ? "text-emerald-600" : "text-gray-400"}>
+                      <div className="text-xs text-gray-500 leading-relaxed">
+                        Acesso real: <strong className={hasActiveSub ? "text-emerald-600" : "text-gray-500"}>
                           {accessState === "active" ? "Ativa" : accessState === "grace" ? "Carência" : accessState === "trial" ? "Trial" : "Bloqueada"}
                         </strong>
-                        <div className="truncate text-gray-400 mt-0.5">
+                        <div className="truncate text-gray-500 mt-0.5">
                           Plano: <span className="capitalize font-semibold text-brand-teal">{u.subscriptionPlan || "Nenhum"}</span>
                         </div>
                         {hasActiveSub && u.subscriptionCurrentPeriodEnd && (
-                          <div className="truncate text-gray-400 mt-0.5">
+                          <div className="truncate text-gray-500 mt-0.5">
                             Válida até {formatDateString(u.subscriptionCurrentPeriodEnd)}
                           </div>
                         )}
@@ -546,13 +546,13 @@ export default function AdminPanel({
                   </div>
 
                   {/* Trial Scan Limit Section (Gemini cost protection) */}
-                  <div className="bg-brand-cream/40 rounded-xl p-2 border border-brand-cream-darker/50 flex items-center justify-between gap-2 text-xs">
+                  <div className="bg-brand-cream/40 rounded-xl p-3 border border-brand-cream-darker/50 flex items-center justify-between gap-2 text-xs">
                     <div className="min-w-0">
                       <div className="flex items-center gap-1 text-brand-teal font-semibold">
                         <Award className="w-3.5 h-3.5 text-brand-coral shrink-0" />
                         <span>Limite de Scans Gratuitos</span>
                       </div>
-                      <div className="text-xs text-gray-500 mt-0.5">
+                      <div className="text-xs text-gray-500 mt-1 leading-relaxed">
                         Receita: <strong>{u.trialPrescriptionScansUsed || 0}/{TRIAL_SCAN_LIMIT}</strong> · Nota: <strong>{u.trialReceiptScansUsed || 0}/{TRIAL_SCAN_LIMIT}</strong>
                         {u.scanLimitExempt && <span className="text-emerald-600 font-bold ml-1">(Isento)</span>}
                       </div>
