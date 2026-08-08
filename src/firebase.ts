@@ -597,6 +597,7 @@ export const dbFirebase = {
       entityId: entry.entityId,
       entityLabel: entry.entityLabel,
       page: entry.page,
+      ...(entry.changesSummary ? { changesSummary: entry.changesSummary } : {}),
       createdAt: serverTimestamp(),
       // Alimenta a política de TTL nativa do Firestore (retenção de 12 meses),
       // para a trilha não virar acúmulo indefinido de dado pessoal — LGPD

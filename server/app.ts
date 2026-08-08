@@ -546,7 +546,20 @@ async function purgeUserShares(uid: string): Promise<{ sharesDeleted: number; me
 // Persists a server-side failure for the Admin Portal's "Logs" tab.
 // Best-effort and swallows its own errors — a logging failure must never mask
 // or replace the original error response already sent to the caller.
-async function logServerError(action: string, error: unknown, uid?: string | null): Promise<void> {
+//
+// `extra.statusCode` is the HTTP status the caller is about to send — passing
+// it here turns a generic wall of errors into something the admin can triage
+// by severity (5xx vs 4xx) without opening the stack trace. `extra.details`
+// is a small flat map of SAFE context already in scope at the call site
+// (target uid, plan, paymentId...) — never secrets, request bodies, or
+// third-party PII (e.g. a share's granteeEmail is deliberately left out,
+// same minimization as logShareAction).
+async function logServerError(
+  action: string,
+  error: unknown,
+  uid?: string | null,
+  extra?: { statusCode?: number; details?: Record<string, string | number | boolean | undefined> }
+): Promise<void> {
   try {
     const message = error instanceof Error ? error.message : String(error);
     const stack = error instanceof Error && error.stack ? error.stack.slice(0, 2000) : undefined;
@@ -560,6 +573,15 @@ async function logServerError(action: string, error: unknown, uid?: string | nul
     };
     if (stack) payload.stack = stack;
     if (uid) payload.userId = uid;
+    if (extra?.statusCode) payload.statusCode = extra.statusCode;
+    if (extra?.details) {
+      const cleanDetails: Record<string, string | number | boolean> = {};
+      for (const [key, value] of Object.entries(extra.details)) {
+        if (value === undefined || value === null) continue;
+        cleanDetails[key.slice(0, 64)] = typeof value === "string" ? value.slice(0, 256) : value;
+      }
+      if (Object.keys(cleanDetails).length > 0) payload.details = cleanDetails;
+    }
     await getDb().collection("errorLogs").doc(errorLogId).set(payload);
   } catch (loggingErr) {
     console.warn("Falha ao gravar errorLog:", loggingErr);
@@ -1200,7 +1222,7 @@ export function createApiApp(): express.Express {
       res.json({ success: true });
     } catch (error: any) {
       console.error("Login log error:", error);
-      await logServerError("POST /api/logs/login", error, (req as any).uid);
+      await logServerError("POST /api/logs/login", error, (req as any).uid, { statusCode: 500 });
       res.status(500).json({ error: "Falha ao registrar login." });
     }
   });
@@ -1225,10 +1247,13 @@ export function createApiApp(): express.Express {
         code ? `code=${String(code).slice(0, 64)}` : null,
         safeMessage,
       ].filter(Boolean);
-      await logServerError(`client-sync-failed:${safeAction}`, parts.join(" — "), uid);
+      await logServerError(`client-sync-failed:${safeAction}`, parts.join(" — "), uid, {
+        details: { entityType, entityId, code },
+      });
       res.json({ success: true });
     } catch (error: any) {
       console.error("Client error log error:", error);
+      await logServerError("POST /api/logs/client-error", error, uid, { statusCode: 500 });
       res.status(500).json({ error: "Falha ao registrar log de erro do cliente." });
     }
   });
@@ -1253,7 +1278,10 @@ export function createApiApp(): express.Express {
       res.json({ success: true });
     } catch (error: any) {
       console.error("Admin change-user-password error:", error);
-      await logServerError("POST /api/admin/change-user-password", error, (req as any).uid);
+      await logServerError("POST /api/admin/change-user-password", error, (req as any).uid, {
+        statusCode: 500,
+        details: { targetUid: req.body?.uid },
+      });
       res.status(500).json({
         error: "Falha ao alterar a senha do usuário.",
         details: error instanceof Error ? error.message : String(error),
@@ -1318,7 +1346,9 @@ export function createApiApp(): express.Express {
         auditTrailPurged = true;
       } catch (purgeErr) {
         console.error("Falha ao expurgar trilha de auditoria:", purgeErr);
-        await logServerError("DELETE /api/admin/users/:uid (purga de logs)", purgeErr, actorUid);
+        await logServerError("DELETE /api/admin/users/:uid (purga de logs)", purgeErr, actorUid, {
+          details: { targetUid },
+        });
       }
 
       // Também top-level, e com um efeito que o recursiveDelete não cobre: se o
@@ -1332,7 +1362,9 @@ export function createApiApp(): express.Express {
         sharesPurged = true;
       } catch (shareErr) {
         console.error("Falha ao expurgar compartilhamentos:", shareErr);
-        await logServerError("DELETE /api/admin/users/:uid (purga de shares)", shareErr, actorUid);
+        await logServerError("DELETE /api/admin/users/:uid (purga de shares)", shareErr, actorUid, {
+          details: { targetUid },
+        });
       }
 
       let authDeleted = false;
@@ -1346,7 +1378,10 @@ export function createApiApp(): express.Express {
       res.json({ success: true, authDeleted, auditTrailPurged, auditTrail, sharesPurged, shares });
     } catch (error: any) {
       console.error("Admin delete-user error:", error);
-      await logServerError("DELETE /api/admin/users/:uid", error, actorUid);
+      await logServerError("DELETE /api/admin/users/:uid", error, actorUid, {
+        statusCode: 500,
+        details: { targetUid },
+      });
       res.status(500).json({
         error: "Falha ao excluir o usuário.",
         details: error instanceof Error ? error.message : String(error),
@@ -1421,7 +1456,10 @@ export function createApiApp(): express.Express {
       res.json({ success: true, status, authUpdated });
     } catch (error: any) {
       console.error("Admin set-user-status error:", error);
-      await logServerError("POST /api/admin/users/:uid/status", error, actorUid);
+      await logServerError("POST /api/admin/users/:uid/status", error, actorUid, {
+        statusCode: 500,
+        details: { targetUid, status: req.body?.status },
+      });
       res.status(500).json({ error: "Falha ao alterar o status do usuário." });
     }
   });
@@ -1455,7 +1493,7 @@ export function createApiApp(): express.Express {
       }
     } catch (error: any) {
       console.error("Check-email error:", error);
-      await logServerError("POST /api/auth/check-email", error);
+      await logServerError("POST /api/auth/check-email", error, null, { statusCode: 500 });
       res.status(500).json({ error: "Falha ao verificar o e-mail." });
     }
   });
@@ -1519,7 +1557,7 @@ export function createApiApp(): express.Express {
           );
         } catch (emailErr) {
           console.error("Falha ao enviar código de redefinição:", emailErr);
-          await logServerError("POST /api/auth/request-password-reset (otp email)", emailErr, matchedUid);
+          await logServerError("POST /api/auth/request-password-reset (otp email)", emailErr, matchedUid, { statusCode: 500 });
           res.status(500).json({ error: "Não foi possível enviar o código de verificação. Tente novamente." });
           return;
         }
@@ -1565,7 +1603,7 @@ export function createApiApp(): express.Express {
       });
     } catch (error: any) {
       console.error("Password reset request error:", error);
-      await logServerError("POST /api/auth/request-password-reset", error);
+      await logServerError("POST /api/auth/request-password-reset", error, null, { statusCode: 500 });
       res.status(500).json({ error: "Falha ao processar a solicitação." });
     }
   });
@@ -1643,7 +1681,7 @@ export function createApiApp(): express.Express {
       res.json({ success: true });
     } catch (error: any) {
       console.error("Password reset confirm error:", error);
-      await logServerError("POST /api/auth/confirm-password-reset", error);
+      await logServerError("POST /api/auth/confirm-password-reset", error, null, { statusCode: 500 });
       res.status(500).json({ error: "Falha ao redefinir a senha." });
     }
   });
@@ -1741,7 +1779,10 @@ Instruções:
       res.json(parsedResult);
     } catch (error: any) {
       console.error("Gemini Extraction Error:", error);
-      await logServerError("POST /api/gemini/extract", error, (req as any).uid);
+      await logServerError("POST /api/gemini/extract", error, (req as any).uid, {
+        statusCode: 500,
+        details: { mimeType: req.body?.mimeType },
+      });
       res.status(500).json({
         error: "Falha ao processar receita com inteligência artificial.",
         details: error instanceof Error ? error.message : String(error)
@@ -1830,7 +1871,10 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
       res.json(parsedResult);
     } catch (error: any) {
       console.error("Gemini Receipt Extraction Error:", error);
-      await logServerError("POST /api/gemini/extract-receipt", error, (req as any).uid);
+      await logServerError("POST /api/gemini/extract-receipt", error, (req as any).uid, {
+        statusCode: 500,
+        details: { mimeType: req.body?.mimeType },
+      });
       res.status(500).json({
         error: "Falha ao processar nota fiscal com inteligência artificial.",
         details: error instanceof Error ? error.message : String(error)
@@ -1885,7 +1929,7 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
       res.json({ success: true });
     } catch (error: any) {
       console.error("Push subscribe error:", error);
-      await logServerError("POST /api/push/subscribe", error, (req as any).uid);
+      await logServerError("POST /api/push/subscribe", error, (req as any).uid, { statusCode: 500 });
       res.status(500).json({ error: "Falha ao registrar a assinatura de push." });
     }
   });
@@ -1904,7 +1948,7 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
       res.json({ success: true });
     } catch (error: any) {
       console.error("Push unsubscribe error:", error);
-      await logServerError("POST /api/push/unsubscribe", error, (req as any).uid);
+      await logServerError("POST /api/push/unsubscribe", error, (req as any).uid, { statusCode: 500 });
       res.status(500).json({ error: "Falha ao remover a assinatura de push." });
     }
   });
@@ -1944,7 +1988,7 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
       res.json({ success: true, sent, missed });
     } catch (error: any) {
       console.error("Push dispatch error:", error);
-      await logServerError("POST /api/push/dispatch", error);
+      await logServerError("POST /api/push/dispatch", error, null, { statusCode: 500 });
       res.status(500).json({ error: "Falha ao despachar lembretes." });
     }
   });
@@ -1979,7 +2023,7 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
       res.json({ success: true, sent, missed });
     } catch (error: any) {
       console.error("Push dispatch error:", error);
-      await logServerError("GET /api/push/dispatch", error);
+      await logServerError("GET /api/push/dispatch", error, null, { statusCode: 500 });
       res.status(500).json({ error: "Falha ao despachar lembretes." });
     }
   });
@@ -2050,7 +2094,7 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
       });
     } catch (error: any) {
       console.error("List shares error:", error);
-      await logServerError("GET /api/shares", error, uid);
+      await logServerError("GET /api/shares", error, uid, { statusCode: 500 });
       res.status(500).json({ error: "Falha ao carregar os compartilhamentos." });
     }
   });
@@ -2158,7 +2202,11 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
       res.json({ success: true, share, emailSent, emailError });
     } catch (error: any) {
       console.error("Create share error:", error);
-      await logServerError("POST /api/shares", error, uid);
+      await logServerError("POST /api/shares", error, uid, {
+        statusCode: 500,
+        // Sem granteeEmail de propósito: mesma minimização do logShareAction.
+        details: { medicadoId: req.body?.medicadoId, role: req.body?.role },
+      });
       res.status(500).json({ error: "Falha ao criar o convite." });
     }
   });
@@ -2225,7 +2273,10 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
       res.json({ success: true, docsWritten: result.docsWritten });
     } catch (error: any) {
       console.error("Accept share error:", error);
-      await logServerError("POST /api/shares/:shareId/accept", error, uid);
+      await logServerError("POST /api/shares/:shareId/accept", error, uid, {
+        statusCode: 500,
+        details: { shareId },
+      });
       res.status(500).json({ error: "Falha ao aceitar o convite." });
     }
   });
@@ -2275,7 +2326,10 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
       res.json({ success: true, docsWritten: result.docsWritten });
     } catch (error: any) {
       console.error("Revoke share error:", error);
-      await logServerError("DELETE /api/shares/:shareId", error, uid);
+      await logServerError("DELETE /api/shares/:shareId", error, uid, {
+        statusCode: 500,
+        details: { shareId },
+      });
       res.status(500).json({ error: "Falha ao encerrar o compartilhamento." });
     }
   });
@@ -2341,7 +2395,7 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
       });
     } catch (error: any) {
       console.error("Subscription sync error:", error);
-      await logServerError("POST /api/subscription/sync", error, (req as any).uid);
+      await logServerError("POST /api/subscription/sync", error, (req as any).uid, { statusCode: 500 });
       res.status(500).json({ error: "Falha ao sincronizar assinatura." });
     }
   });
@@ -2384,7 +2438,10 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
       });
     } catch (error: any) {
       console.error("PIX create error:", error);
-      await logServerError("POST /api/subscription/pix", error, (req as any).uid);
+      await logServerError("POST /api/subscription/pix", error, (req as any).uid, {
+        statusCode: 500,
+        details: { plan: req.body?.plan },
+      });
       res.status(500).json({ error: "Falha ao gerar cobrança PIX.", details: error?.message });
     }
   });
@@ -2433,7 +2490,10 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
       res.json({ initPoint: result.init_point, preferenceId: result.id });
     } catch (error: any) {
       console.error("Checkout create error:", error);
-      await logServerError("POST /api/subscription/checkout", error, (req as any).uid);
+      await logServerError("POST /api/subscription/checkout", error, (req as any).uid, {
+        statusCode: 500,
+        details: { plan: req.body?.plan },
+      });
       res.status(500).json({ error: "Falha ao criar checkout de cartão.", details: error?.message });
     }
   });
@@ -2483,7 +2543,8 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
           await logServerError(
             "POST /api/subscription/verify-payment (aprovado sem plano)",
             new Error(`Pagamento ${info.id ?? paymentId} aprovado (R$ ${info.transaction_amount}) mas não foi possível determinar o plano.`),
-            uid
+            uid,
+            { details: { paymentId: String(paymentId), amount: info.transaction_amount } }
           );
         }
       }
@@ -2491,7 +2552,10 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
       res.json({ status: info.status, subscriptionActive });
     } catch (error: any) {
       console.error("Verify payment error:", error);
-      await logServerError("POST /api/subscription/verify-payment", error, (req as any).uid);
+      await logServerError("POST /api/subscription/verify-payment", error, (req as any).uid, {
+        statusCode: 500,
+        details: { paymentId: req.body?.paymentId },
+      });
       res.status(500).json({ error: "Falha ao verificar o pagamento." });
     }
   });
@@ -2521,7 +2585,9 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
               (process.env.MP_WEBHOOK_SECRET
                 ? "MP_WEBHOOK_SECRET está configurado mas não bateu com a assinatura recebida — confira se é o valor ATUAL do painel do Mercado Pago (Webhooks)."
                 : "MP_WEBHOOK_SECRET NÃO está configurado no ambiente — todo webhook real está sendo rejeitado agora. Configure-o na Vercel e faça um redeploy.")
-            )
+            ),
+            null,
+            { statusCode: 401, details: { paymentId: dataIdRaw } }
           );
         }
         res.status(401).json({ error: "Assinatura do webhook inválida." });
@@ -2562,7 +2628,8 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
               `Pagamento ${info.id ?? dataId} aprovado (R$ ${info.transaction_amount}) mas uid=${uid ?? "?"} plan=${plan ?? "?"} — ` +
               `não foi possível ativar a assinatura automaticamente. Verifique este pagamento no painel do Mercado Pago e ative manualmente pelo Painel Admin.`
             ),
-            uid
+            uid,
+            { details: { paymentId: String(info.id ?? dataId), amount: info.transaction_amount } }
           );
         }
       }
@@ -2570,7 +2637,10 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
       res.status(200).json({ received: true });
     } catch (error: any) {
       console.error("Mercado Pago webhook error:", error);
-      await logServerError("POST /api/mercadopago/webhook", error);
+      await logServerError("POST /api/mercadopago/webhook", error, null, {
+        statusCode: 500,
+        details: { paymentId: (req.query["data.id"] ?? req.body?.data?.id) as string | undefined },
+      });
       // 500 lets MP retry a genuinely failed processing attempt.
       res.status(500).json({ error: "Falha ao processar webhook." });
     }
@@ -2582,7 +2652,7 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
   // and dispatch order matters.
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
     console.error("Unhandled Express error:", err);
-    logServerError(`${req.method} ${req.path}`, err, (req as any).uid).catch(() => {});
+    logServerError(`${req.method} ${req.path}`, err, (req as any).uid, { statusCode: 500 }).catch(() => {});
     if (res.headersSent) {
       next(err);
       return;

@@ -57,6 +57,54 @@ function auditLabelFor(entityType: string, entityId: string, label: string): str
   return HEALTH_ENTITY_TYPES.has(entityType) ? entityId : label;
 }
 
+// Allowlist de campos comparados no diff de auditoria por entidade. Exclui
+// sempre *Id/userId/createdAt e campos grandes/binários (photoUrl, avatarUrl).
+const MEDICADO_AUDIT_FIELDS: (keyof Medicado)[] = ["name", "relationship", "birthDate"];
+const MEDICAMENTO_AUDIT_FIELDS: (keyof Medicamento)[] = [
+  "name", "dosage", "intervalHours", "durationDays", "instructions", "category", "status", "pharmacyId", "reminderOffset"
+];
+const CONSULTA_AUDIT_FIELDS: (keyof Consulta)[] = ["doctorName", "specialty", "dateTime", "location", "notes"];
+const FARMACIA_AUDIT_FIELDS: (keyof Farmacia)[] = ["name", "address", "phone", "isFavorite"];
+const USER_AUDIT_FIELDS: (keyof User)[] = [
+  "role", "status", "subscriptionPlan", "subscriptionStatus", "subscriptionCurrentPeriodEnd", "freeTrialUntil"
+];
+
+// Formata um valor de campo para aparecer num log — nunca o objeto inteiro,
+// sempre uma string curta e capada.
+function formatAuditValue(value: unknown): string {
+  if (value === undefined || value === null || value === "") return "(vazio)";
+  const str = typeof value === "object" ? JSON.stringify(value) : String(value);
+  return str.length > 60 ? `${str.slice(0, 60)}…` : str;
+}
+
+// Monta um resumo legível do que mudou (update) ou do que foi removido
+// (delete, quando `after` é undefined) para os campos de `fields`.
+// Para entidades de saúde (HEALTH_ENTITY_TYPES) só lista os NOMES dos campos
+// afetados, nunca os valores — mesma minimização do entityLabel, ver
+// auditLabelFor acima e o comentário de HEALTH_ENTITY_TYPES.
+function describeChanges<T extends Record<string, any>>(
+  entityType: string,
+  before: T | undefined,
+  after: T | undefined,
+  fields: (keyof T & string)[]
+): string | undefined {
+  if (!before) return undefined;
+  const isHealthData = HEALTH_ENTITY_TYPES.has(entityType);
+
+  if (after) {
+    const changed = fields.filter((f) => JSON.stringify(before[f] ?? null) !== JSON.stringify(after[f] ?? null));
+    if (changed.length === 0) return undefined;
+    if (isHealthData) return `Campos alterados: ${changed.join(", ")}`;
+    return changed.map((f) => `${f}: ${formatAuditValue(before[f])} → ${formatAuditValue(after[f])}`).join("; ");
+  }
+
+  // Delete: não há "depois", só lista o que existia no registro removido.
+  const present = fields.filter((f) => before[f] !== undefined && before[f] !== null && before[f] !== "");
+  if (present.length === 0) return undefined;
+  if (isHealthData) return `Registro removido — campos: ${present.join(", ")}`;
+  return `Removido: ${present.map((f) => `${f}: ${formatAuditValue(before[f])}`).join("; ")}`;
+}
+
 export default function App() {
   const isDesktop = useIsDesktop();
   // Read once: the landing page CTA sets this flag right before a full page
@@ -908,7 +956,8 @@ export default function App() {
     entityId: string,
     entityLabel: string,
     page: string,
-    actor?: User | null
+    actor?: User | null,
+    changesSummary?: string
   ) => {
     const user = actor ?? activeUser;
     if (!user) return;
@@ -924,6 +973,7 @@ export default function App() {
         // ser expurgado depois nem aparece para o admin.
         entityLabel: auditLabelFor(entityType, entityId, entityLabel),
         page,
+        ...(changesSummary ? { changesSummary } : {}),
       })
       .catch((e) => console.warn("Falha ao registrar log de ação:", e));
   };
@@ -979,9 +1029,13 @@ export default function App() {
   const handleUpdatePatient = (updatedPatient: Medicado) => {
     if (!activeUser) return;
     if (!assertCanEdit(updatedPatient.medicadoId)) return;
+    const before = medicados.find((m) => m.medicadoId === updatedPatient.medicadoId);
     dbLocal.updateMedicado(updatedPatient);
     refreshPatients();
-    logAction("update", "Medicado", updatedPatient.medicadoId, updatedPatient.name, "Pacientes");
+    logAction(
+      "update", "Medicado", updatedPatient.medicadoId, updatedPatient.name, "Pacientes", undefined,
+      describeChanges("Medicado", before, updatedPatient, MEDICADO_AUDIT_FIELDS)
+    );
     showToast(`Dados de ${updatedPatient.name} atualizados!`);
   };
 
@@ -997,7 +1051,10 @@ export default function App() {
     }
     dbLocal.deleteMedicado(patientId);
     refreshPatients();
-    logAction("delete", "Medicado", patientId, patient?.name ?? patientId, "Pacientes");
+    logAction(
+      "delete", "Medicado", patientId, patient?.name ?? patientId, "Pacientes", undefined,
+      describeChanges("Medicado", patient, undefined, MEDICADO_AUDIT_FIELDS)
+    );
     showToast("Paciente removido com sucesso.");
   };
 
@@ -1023,9 +1080,13 @@ export default function App() {
   const handleUpdateMedicine = (updatedMed: Medicamento) => {
     if (!activeUser) return;
     if (!assertCanEdit(updatedMed.medicadoId)) return;
+    const before = medicamentos.find((m) => m.medicamentoId === updatedMed.medicamentoId);
     dbLocal.updateMedicamento(updatedMed);
     refreshMedicines();
-    logAction("update", "Medicamento", updatedMed.medicamentoId, updatedMed.name, "Medicamentos");
+    logAction(
+      "update", "Medicamento", updatedMed.medicamentoId, updatedMed.name, "Medicamentos", undefined,
+      describeChanges("Medicamento", before, updatedMed, MEDICAMENTO_AUDIT_FIELDS)
+    );
   };
 
   const handleDeleteMedicine = (medId: string) => {
@@ -1034,7 +1095,10 @@ export default function App() {
     if (med && !assertCanEdit(med.medicadoId)) return;
     dbLocal.deleteMedicamento(medId);
     refreshMedicines();
-    logAction("delete", "Medicamento", medId, med?.name ?? medId, "Medicamentos");
+    logAction(
+      "delete", "Medicamento", medId, med?.name ?? medId, "Medicamentos", undefined,
+      describeChanges("Medicamento", med, undefined, MEDICAMENTO_AUDIT_FIELDS)
+    );
     showToast("Medicamento removido da programação.");
   };
 
@@ -1077,9 +1141,13 @@ export default function App() {
   const handleUpdateAppointment = (updatedAppt: Consulta) => {
     if (!activeUser) return;
     if (!assertCanEdit(updatedAppt.medicadoId)) return;
+    const before = consultas.find((c) => c.consultaId === updatedAppt.consultaId);
     dbLocal.updateConsulta(updatedAppt);
     refreshAppointments();
-    logAction("update", "Consulta", updatedAppt.consultaId, `${updatedAppt.doctorName} - ${updatedAppt.dateTime}`, "Agenda");
+    logAction(
+      "update", "Consulta", updatedAppt.consultaId, `${updatedAppt.doctorName} - ${updatedAppt.dateTime}`, "Agenda", undefined,
+      describeChanges("Consulta", before, updatedAppt, CONSULTA_AUDIT_FIELDS)
+    );
     showToast("Consulta atualizada.");
   };
 
@@ -1089,7 +1157,10 @@ export default function App() {
     if (appt && !assertCanEdit(appt.medicadoId)) return;
     dbLocal.deleteConsulta(apptId);
     refreshAppointments();
-    logAction("delete", "Consulta", apptId, appt ? `${appt.doctorName} - ${appt.dateTime}` : apptId, "Agenda");
+    logAction(
+      "delete", "Consulta", apptId, appt ? `${appt.doctorName} - ${appt.dateTime}` : apptId, "Agenda", undefined,
+      describeChanges("Consulta", appt, undefined, CONSULTA_AUDIT_FIELDS)
+    );
     showToast("Consulta desmarcada.");
   };
 
@@ -1109,9 +1180,13 @@ export default function App() {
 
   const handleUpdateFarmacia = (updatedFarm: Farmacia) => {
     if (!activeUser) return;
+    const before = farmacias.find((f) => f.farmaciaId === updatedFarm.farmaciaId);
     dbLocal.updateFarmacia(updatedFarm);
     setFarmacias(dbLocal.getFarmacias(activeUser.userId));
-    logAction("update", "Farmacia", updatedFarm.farmaciaId, updatedFarm.name, "Farmácias");
+    logAction(
+      "update", "Farmacia", updatedFarm.farmaciaId, updatedFarm.name, "Farmácias", undefined,
+      describeChanges("Farmacia", before, updatedFarm, FARMACIA_AUDIT_FIELDS)
+    );
   };
 
   const handleDeleteFarmacia = (farmId: string) => {
@@ -1119,7 +1194,10 @@ export default function App() {
     const farm = farmacias.find((f) => f.farmaciaId === farmId);
     dbLocal.deleteFarmacia(farmId);
     setFarmacias(dbLocal.getFarmacias(activeUser.userId));
-    logAction("delete", "Farmacia", farmId, farm?.name ?? farmId, "Farmácias");
+    logAction(
+      "delete", "Farmacia", farmId, farm?.name ?? farmId, "Farmácias", undefined,
+      describeChanges("Farmacia", farm, undefined, FARMACIA_AUDIT_FIELDS)
+    );
     showToast("Farmácia excluída da lista.");
   };
 
@@ -1156,6 +1234,7 @@ export default function App() {
   // left untouched and an error toast is shown — no more optimistic
   // fire-and-forget updates that could silently diverge from the backend.
   const handleUpdateUser = async (updatedUser: User): Promise<boolean> => {
+    const before = users.find((u) => u.userId === updatedUser.userId);
     try {
       await dbFirebase.updateUserProfile(updatedUser);
     } catch (err: any) {
@@ -1170,7 +1249,10 @@ export default function App() {
     } else {
       setUsers(dbLocal.getUsers());
     }
-    logAction("update", "User", updatedUser.userId, `${updatedUser.name} (${updatedUser.email})`, "Painel Admin", activeAdminUser ?? activeUser);
+    logAction(
+      "update", "User", updatedUser.userId, `${updatedUser.name} (${updatedUser.email})`, "Painel Admin", activeAdminUser ?? activeUser,
+      describeChanges("User", before, updatedUser, USER_AUDIT_FIELDS)
+    );
     showToast(`Cadastro de ${updatedUser.name} atualizado no diretório.`);
 
     // If the administrator edited their own status or role, update session
@@ -1221,7 +1303,10 @@ export default function App() {
     } else {
       setUsers(dbLocal.getUsers());
     }
-    logAction("update", "User", user.userId, `${user.name} (${user.email})`, "Painel Admin", activeAdminUser ?? activeUser);
+    logAction(
+      "update", "User", user.userId, `${user.name} (${user.email})`, "Painel Admin", activeAdminUser ?? activeUser,
+      describeChanges("User", user, updated, USER_AUDIT_FIELDS)
+    );
     showToast(
       nextStatus === "suspended"
         ? `${user.name} foi suspenso: login bloqueado e sessões ativas encerradas.`
@@ -1273,7 +1358,10 @@ export default function App() {
     } else {
       setUsers(dbLocal.getUsers());
     }
-    logAction("delete", "User", userId, targetUser ? `${targetUser.name} (${targetUser.email})` : userId, "Painel Admin", activeAdminUser ?? activeUser);
+    logAction(
+      "delete", "User", userId, targetUser ? `${targetUser.name} (${targetUser.email})` : userId, "Painel Admin", activeAdminUser ?? activeUser,
+      describeChanges("User", targetUser, undefined, USER_AUDIT_FIELDS)
+    );
     showToast("Usuário excluído: dados, login e histórico removidos definitivamente.");
     return true;
   };

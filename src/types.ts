@@ -168,6 +168,10 @@ export interface ActionLog {
   entityId: string;
   entityLabel: string;
   page: string;
+  // Diff legível dos campos alterados/removidos. Para entidades de saúde
+  // (ver HEALTH_ENTITY_TYPES em App.tsx) só lista os NOMES dos campos, nunca
+  // valores — mesma minimização já aplicada ao entityLabel.
+  changesSummary?: string;
   createdAt: string;
 }
 
@@ -187,6 +191,8 @@ export interface ErrorLog {
   message: string;
   stack?: string;
   userId?: string;
+  statusCode?: number;
+  details?: Record<string, string | number | boolean>;
   createdAt: string;
 }
 

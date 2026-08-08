@@ -15,6 +15,14 @@ function formatDateTime(iso: string | undefined): string {
   return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+function formatDetails(details: ErrorLog["details"]): string {
+  if (!details) return "";
+  return Object.entries(details)
+    .filter(([, v]) => v !== undefined && v !== null && v !== "")
+    .map(([k, v]) => `${k}: ${v}`)
+    .join(" · ");
+}
+
 export default function AdminLogs() {
   const [subTab, setSubTab] = useState<LogTab>("acoes");
   const [searchQuery, setSearchQuery] = useState("");
@@ -80,13 +88,23 @@ export default function AdminLogs() {
 
   const q = searchQuery.toLowerCase();
   const filteredActionLogs = actionLogs.filter(
-    (l) => !q || l.actorName.toLowerCase().includes(q) || l.actorEmail.toLowerCase().includes(q) || l.entityLabel.toLowerCase().includes(q) || l.page.toLowerCase().includes(q)
+    (l) =>
+      !q ||
+      l.actorName.toLowerCase().includes(q) ||
+      l.actorEmail.toLowerCase().includes(q) ||
+      l.entityLabel.toLowerCase().includes(q) ||
+      l.page.toLowerCase().includes(q) ||
+      (l.changesSummary || "").toLowerCase().includes(q)
   );
   const filteredLoginLogs = loginLogs.filter(
     (l) => !q || l.userName.toLowerCase().includes(q) || l.userEmail.toLowerCase().includes(q) || l.ip.toLowerCase().includes(q)
   );
   const filteredErrorLogs = errorLogs.filter(
-    (l) => !q || l.action.toLowerCase().includes(q) || l.message.toLowerCase().includes(q)
+    (l) =>
+      !q ||
+      l.action.toLowerCase().includes(q) ||
+      l.message.toLowerCase().includes(q) ||
+      formatDetails(l.details).toLowerCase().includes(q)
   );
 
   return (
@@ -228,6 +246,11 @@ export default function AdminLogs() {
                     <span className="truncate">{l.actorName} ({l.actorEmail})</span>
                   </span>
                 </div>
+                {l.changesSummary && (
+                  <p className="text-xs text-gray-600 leading-relaxed break-words bg-brand-cream/40 border border-brand-cream-darker/50 rounded-lg px-2.5 py-1.5">
+                    {l.changesSummary}
+                  </p>
+                )}
               </div>
             ))
           ))}
@@ -263,18 +286,38 @@ export default function AdminLogs() {
           (filteredErrorLogs.length === 0 && !loading ? (
             <EmptyState />
           ) : (
-            filteredErrorLogs.map((l) => (
-              <div key={l.errorLogId} className="bg-white border border-brand-cream-darker rounded-2xl p-5 shadow-2xs space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-extrabold px-2 py-1 rounded-full uppercase tracking-wide bg-red-200 text-red-700 flex items-center gap-1">
-                    <ServerCrash className="w-3 h-3" /> Erro
-                  </span>
-                  <span className="text-xs text-gray-500 font-mono">{formatDateTime(l.createdAt)}</span>
+            filteredErrorLogs.map((l) => {
+              const isServerFault = (l.statusCode ?? 500) >= 500;
+              const detailsText = formatDetails(l.details);
+              return (
+                <div key={l.errorLogId} className="bg-white border border-brand-cream-darker rounded-2xl p-5 shadow-2xs space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-extrabold px-2 py-1 rounded-full uppercase tracking-wide bg-red-200 text-red-700 flex items-center gap-1">
+                        <ServerCrash className="w-3 h-3" /> Erro
+                      </span>
+                      {l.statusCode && (
+                        <span
+                          className={`text-[10px] font-extrabold px-2 py-1 rounded-full uppercase tracking-wide ${
+                            isServerFault ? "bg-red-100 text-red-600" : "bg-amber-100 text-amber-600"
+                          }`}
+                        >
+                          {l.statusCode}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-xs text-gray-500 font-mono">{formatDateTime(l.createdAt)}</span>
+                  </div>
+                  <p className="text-sm font-bold text-brand-teal leading-tight font-mono">{l.action}</p>
+                  <p className="text-xs text-gray-600 leading-relaxed break-words">{l.message}</p>
+                  {detailsText && (
+                    <p className="text-xs text-gray-500 leading-relaxed break-words bg-brand-cream/40 border border-brand-cream-darker/50 rounded-lg px-2.5 py-1.5 font-mono">
+                      {detailsText}
+                    </p>
+                  )}
                 </div>
-                <p className="text-sm font-bold text-brand-teal leading-tight font-mono">{l.action}</p>
-                <p className="text-xs text-gray-600 leading-relaxed break-words">{l.message}</p>
-              </div>
-            ))
+              );
+            })
           ))}
       </div>
 
