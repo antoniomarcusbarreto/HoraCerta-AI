@@ -276,6 +276,20 @@ function purgeSeedDataOnce() {
   }
 }
 
+// A write that fire-and-forgot to Firestore and hasn't been confirmed yet
+// (still in flight, or permanently failing). Kept in its own flat registry —
+// see DBLocalFallback.pushSync/retryPendingWrites — so mergeUserCollection
+// can tell "the server doesn't have this yet" apart from "this was deleted
+// on another device," and so a failed write gets retried on the next sync
+// instead of vanishing.
+interface PendingEntry {
+  collection: string;
+  id: string;
+  userId: string; // the ENTITY's own userId (the owner, even for a shared-patient edit made by a co-caregiver)
+  op: "upsert" | "delete";
+  deleteArgs?: string[]; // only for op "delete": exact positional args for the matching dbFirebase.deleteX
+}
+
 class DBLocalFallback {
   // Registered once by App.tsx on mount. Every add*/update*/delete* method
   // below fire-and-forgets its Firestore write and only console.warn's on
@@ -323,6 +337,154 @@ class DBLocalFallback {
     }).catch(() => {});
   }
 
+  private static readonly PENDING_KEY = "pending_sync";
+
+  // One entry per (collection, id) — the config a retry needs to know how to
+  // re-attempt a write. `update` is omitted for collections with no
+  // dbFirebase.updateX (cupons has no update-in-place; users has neither
+  // update nor delete — App.tsx's handleUpdateUser awaits its own Firestore
+  // write directly and never goes through this class's fire-and-forget path).
+  private static readonly RETRY_CONFIG: Record<string, {
+    idKey: string;
+    save: (item: any) => Promise<void>;
+    update?: (item: any) => Promise<void>;
+    delete?: (...args: string[]) => Promise<void>;
+  }> = {
+    medicados: { idKey: "medicadoId", save: dbFirebase.saveMedicado, update: dbFirebase.updateMedicado, delete: dbFirebase.deleteMedicado },
+    receitas: { idKey: "receitaId", save: dbFirebase.saveReceita, update: dbFirebase.updateReceita, delete: dbFirebase.deleteReceita },
+    medicamentos: { idKey: "medicamentoId", save: dbFirebase.saveMedicamento, update: dbFirebase.updateMedicamento, delete: dbFirebase.deleteMedicamento },
+    dose_logs: { idKey: "logId", save: dbFirebase.saveDoseLog, update: dbFirebase.updateDoseLog, delete: dbFirebase.deleteDoseLog },
+    consultas: { idKey: "consultaId", save: dbFirebase.saveConsulta, update: dbFirebase.updateConsulta, delete: dbFirebase.deleteConsulta },
+    farmacias: { idKey: "farmaciaId", save: dbFirebase.saveFarmacia, update: dbFirebase.updateFarmacia, delete: dbFirebase.deleteFarmacia },
+    cupons: { idKey: "cupomId", save: dbFirebase.saveCupom, delete: dbFirebase.deleteCupom },
+    users: { idKey: "userId", save: dbFirebase.createUserProfile },
+  };
+
+  private getPendingRegistry(): Record<string, PendingEntry> {
+    const data = localStorage.getItem(`horacerta_${DBLocalFallback.PENDING_KEY}`);
+    if (!data) return {};
+    try {
+      return JSON.parse(data);
+    } catch {
+      return {};
+    }
+  }
+
+  private setPendingRegistry(registry: Record<string, PendingEntry>) {
+    localStorage.setItem(`horacerta_${DBLocalFallback.PENDING_KEY}`, JSON.stringify(registry));
+  }
+
+  // Marks a write as not-yet-confirmed by Firestore. Skipped for the dev-only
+  // seed accounts — they're never actually pushed to Firestore on their own,
+  // so a real signed-in session merely touching seed-owned data (a dev
+  // convenience) shouldn't spin up a permission-denied retry loop forever.
+  private markPending(collection: string, id: string, userId: string, op: "upsert" | "delete", deleteArgs?: string[]) {
+    if (SEEDS_ENABLED && SEED_USER_IDS.includes(userId)) return;
+    const registry = this.getPendingRegistry();
+    registry[`${collection}::${id}`] = { collection, id, userId, op, deleteArgs };
+    this.setPendingRegistry(registry);
+  }
+
+  private clearPending(collection: string, id: string) {
+    const key = `${collection}::${id}`;
+    const registry = this.getPendingRegistry();
+    if (!(key in registry)) return;
+    delete registry[key];
+    this.setPendingRegistry(registry);
+  }
+
+  private pendingIdsFor(collection: string, userId: string): { upsertIds: Set<string>; deleteIds: Set<string> } {
+    const registry = this.getPendingRegistry();
+    const upsertIds = new Set<string>();
+    const deleteIds = new Set<string>();
+    for (const entry of Object.values(registry)) {
+      if (entry.collection !== collection || entry.userId !== userId) continue;
+      (entry.op === "delete" ? deleteIds : upsertIds).add(entry.id);
+    }
+    return { upsertIds, deleteIds };
+  }
+
+  // Single choke point every add*/update*/delete* method below pushes its
+  // Firestore write through: marks the write pending BEFORE it fires (so a
+  // reload mid-flight still shows it as pending — the same guarantee
+  // mergeUserCollection's local-preservation used to rely on implicitly),
+  // clears it on success, and leaves it pending + logs it (via the existing
+  // notifyIfAuthShapedError/errorLogs path) on failure so the next
+  // retryPendingWrites pass tries again.
+  private pushSync(
+    op: "upsert" | "delete", collection: string, id: string, ownerUserId: string,
+    action: string, entityType: string, run: () => Promise<void>, deleteArgs?: string[],
+  ) {
+    this.markPending(collection, id, ownerUserId, op, deleteArgs);
+    run()
+      .then(() => this.clearPending(collection, id))
+      .catch(e => {
+        console.warn(`Firestore: erro ao sincronizar (${action}).`, e);
+        this.notifyIfAuthShapedError(e, action, entityType, id);
+      });
+  }
+
+  // Re-attempts every pending write owned by userId. Called after each merge
+  // in syncFromFirebase/syncSharedFromFirebase, which already run often
+  // enough (every login, every ~5min of active use — see App.tsx's
+  // syncSubscription-triggered effect) that this needs no timer of its own.
+  // Always retries with the CURRENT local copy of the record, not a snapshot
+  // taken at failure time, so a further edit made while a write was still
+  // pending is what actually reaches Firestore. Whether the original failed
+  // call was a create or an edit is not tracked — update is always tried
+  // first (when the collection has one) and only falls back to save on
+  // Firestore's "not-found" (the document never actually existed yet), which
+  // self-heals the one case that distinction would otherwise matter for.
+  private async retryPendingWrites(userId: string): Promise<void> {
+    const registry = this.getPendingRegistry();
+    const entries = Object.values(registry).filter(e => e.userId === userId);
+    await Promise.all(entries.map(entry => this.retryOne(entry)));
+  }
+
+  private async retryOne(entry: PendingEntry): Promise<void> {
+    const config = DBLocalFallback.RETRY_CONFIG[entry.collection];
+    if (!config) {
+      this.clearPending(entry.collection, entry.id);
+      return;
+    }
+    try {
+      if (entry.op === "delete") {
+        if (!config.delete) {
+          this.clearPending(entry.collection, entry.id);
+          return;
+        }
+        await config.delete(...(entry.deleteArgs ?? []));
+      } else {
+        const list = this.get<any>(entry.collection, []);
+        const item = list.find((i: any) => i[config.idKey] === entry.id);
+        if (!item) {
+          // Nothing left locally to push (e.g. deleted again before this ever
+          // synced) — the delete would have re-marked pending under the same
+          // key, so clearing here can't drop a newer intent.
+          this.clearPending(entry.collection, entry.id);
+          return;
+        }
+        try {
+          if (config.update) {
+            await config.update(item);
+          } else {
+            await config.save(item);
+          }
+        } catch (err: any) {
+          if (err?.code === "not-found" && config.update) {
+            await config.save(item);
+          } else {
+            throw err;
+          }
+        }
+      }
+      this.clearPending(entry.collection, entry.id);
+    } catch (e) {
+      console.warn(`Firestore: nova tentativa falhou (${entry.collection}/${entry.id}).`, e);
+      this.notifyIfAuthShapedError(e, `retry:${entry.collection}`, entry.collection, entry.id);
+    }
+  }
+
   private get<T>(key: string, defaults: T[]): T[] {
     const data = localStorage.getItem(`horacerta_${key}`);
     if (!data) {
@@ -350,23 +512,47 @@ class DBLocalFallback {
 
   // Merges a Firestore snapshot into the local cache for one user without
   // discarding local records that haven't reached Firestore yet: writes to
-  // Firestore are fire-and-forget (see add*/update* methods below), so a sync
-  // that runs while one is still in flight (e.g. a page reload right after
-  // saving) must not treat "missing from Firestore" as "was deleted" — it
-  // preserves any local record of that id/user pair Firestore doesn't have
-  // yet, and otherwise defers to Firestore as the source of truth.
+  // Firestore are fire-and-forget (see pushSync above), so a sync that runs
+  // while one is still in flight or permanently failing must not treat
+  // "missing/stale in Firestore" as "was deleted" or "defer to the server."
+  // Priority per id, backed by the pending-sync registry (see pushSync):
+  //   - pending delete  -> excluded, even if Firestore still has it (the
+  //     delete just hasn't reached the server yet — don't resurrect it).
+  //   - pending upsert  -> the LOCAL version wins over Firestore's (possibly
+  //     stale, pre-edit) version — this is what stops a failed update from
+  //     being silently reverted on the very next sync.
+  //   - anything else   -> Firestore's version wins when it has the id;
+  //     otherwise the local-only version survives (legacy/never-synced case).
   private mergeUserCollection<T extends { userId: string }>(
+    collection: string,
     local: T[],
     remote: T[],
     userId: string,
     idKey: keyof T
   ): T[] {
     const others = local.filter(item => item.userId !== userId);
-    const remoteIds = new Set(remote.map(item => item[idKey]));
-    const localOnly = local.filter(
-      item => item.userId === userId && !remoteIds.has(item[idKey])
+    const { upsertIds, deleteIds } = this.pendingIdsFor(collection, userId);
+    const localById = new Map(
+      local
+        .filter(item => item.userId === userId)
+        .map(item => [String(item[idKey]), item] as const)
     );
-    return [...others, ...remote, ...localOnly];
+
+    const merged: T[] = [];
+    const seen = new Set<string>();
+    for (const item of remote) {
+      const id = String(item[idKey]);
+      if (deleteIds.has(id)) continue;
+      seen.add(id);
+      const localItem = localById.get(id);
+      merged.push(upsertIds.has(id) && localItem ? localItem : item);
+    }
+    for (const [id, item] of localById) {
+      if (seen.has(id) || deleteIds.has(id)) continue;
+      merged.push(item);
+    }
+
+    return [...others, ...merged];
   }
 
   // Wipes every locally-cached collection (patients, prescriptions, medicines,
@@ -378,6 +564,7 @@ class DBLocalFallback {
     const collectionKeys = [
       "users", "medicados", "receitas", "medicamentos",
       "dose_logs", "consultas", "farmacias", "cupons",
+      DBLocalFallback.PENDING_KEY,
     ];
     for (const key of collectionKeys) {
       localStorage.removeItem(`horacerta_${key}`);
@@ -424,7 +611,7 @@ class DBLocalFallback {
       const cupons = valueOr<CupomFiscal[]>(3, []);
       const profile = valueOr<User | null>(4, null);
       const localMedicados = this.get<Medicado>("medicados", SEED_MEDICADOS);
-      const allMedicados = this.mergeUserCollection(localMedicados, firebaseMedicados, userId, "medicadoId");
+      const allMedicados = this.mergeUserCollection("medicados", localMedicados, firebaseMedicados, userId, "medicadoId");
       this.set("medicados", allMedicados);
 
       // The medicados this user actually has after the merge (Firestore's +
@@ -459,24 +646,24 @@ class DBLocalFallback {
       }));
 
       this.set("receitas", this.mergeUserCollection(
-        this.get<Receita>("receitas", SEED_RECEITAS), firebaseReceitas, userId, "receitaId"
+        "receitas", this.get<Receita>("receitas", SEED_RECEITAS), firebaseReceitas, userId, "receitaId"
       ));
       this.set("medicamentos", this.mergeUserCollection(
-        this.get<Medicamento>("medicamentos", SEED_MEDICAMENTOS), firebaseMedicamentos, userId, "medicamentoId"
+        "medicamentos", this.get<Medicamento>("medicamentos", SEED_MEDICAMENTOS), firebaseMedicamentos, userId, "medicamentoId"
       ));
       this.set("dose_logs", this.mergeUserCollection(
-        this.get<DoseLog>("dose_logs", SEED_DOSE_LOGS), firebaseDoseLogs, userId, "logId"
+        "dose_logs", this.get<DoseLog>("dose_logs", SEED_DOSE_LOGS), firebaseDoseLogs, userId, "logId"
       ));
 
       // 3. Store the flat collections fetched above.
       this.set("consultas", this.mergeUserCollection(
-        this.get<Consulta>("consultas", SEED_CONSULTAS), consultas, userId, "consultaId"
+        "consultas", this.get<Consulta>("consultas", SEED_CONSULTAS), consultas, userId, "consultaId"
       ));
       this.set("farmacias", this.mergeUserCollection(
-        this.get<Farmacia>("farmacias", SEED_FARMACIAS), farmacias, userId, "farmaciaId"
+        "farmacias", this.get<Farmacia>("farmacias", SEED_FARMACIAS), farmacias, userId, "farmaciaId"
       ));
       this.set("cupons", this.mergeUserCollection(
-        this.get<CupomFiscal>("cupons", SEED_CUPONS), cupons, userId, "cupomId"
+        "cupons", this.get<CupomFiscal>("cupons", SEED_CUPONS), cupons, userId, "cupomId"
       ));
 
       // 4. Refresh the user's OWN profile doc (fetched in the parallel batch
@@ -489,6 +676,11 @@ class DBLocalFallback {
       if (profile) {
         this.setUserCache(profile);
       }
+
+      // 5. Every write above that failed to reach Firestore is still marked
+      //    pending — this is the moment (login, or the periodic re-sync
+      //    while the app is open) it gets another chance.
+      await this.retryPendingWrites(userId);
 
       console.log(`[Firebase Sync] Sincronização offline concluída com sucesso!`);
       return true;
@@ -551,20 +743,25 @@ class DBLocalFallback {
           }));
 
           this.set("medicados", this.mergeUserCollection(
-            this.get<Medicado>("medicados", SEED_MEDICADOS), medicados, ownerUid, "medicadoId"
+            "medicados", this.get<Medicado>("medicados", SEED_MEDICADOS), medicados, ownerUid, "medicadoId"
           ));
           this.set("receitas", this.mergeUserCollection(
-            this.get<Receita>("receitas", SEED_RECEITAS), receitas, ownerUid, "receitaId"
+            "receitas", this.get<Receita>("receitas", SEED_RECEITAS), receitas, ownerUid, "receitaId"
           ));
           this.set("medicamentos", this.mergeUserCollection(
-            this.get<Medicamento>("medicamentos", SEED_MEDICAMENTOS), medicamentos, ownerUid, "medicamentoId"
+            "medicamentos", this.get<Medicamento>("medicamentos", SEED_MEDICAMENTOS), medicamentos, ownerUid, "medicamentoId"
           ));
           this.set("dose_logs", this.mergeUserCollection(
-            this.get<DoseLog>("dose_logs", SEED_DOSE_LOGS), doseLogs, ownerUid, "logId"
+            "dose_logs", this.get<DoseLog>("dose_logs", SEED_DOSE_LOGS), doseLogs, ownerUid, "logId"
           ));
           this.set("consultas", this.mergeUserCollection(
-            this.get<Consulta>("consultas", SEED_CONSULTAS), consultas, ownerUid, "consultaId"
+            "consultas", this.get<Consulta>("consultas", SEED_CONSULTAS), consultas, ownerUid, "consultaId"
           ));
+
+          // Pending writes on entities OWNED by this titular (made by any
+          // co-caregiver, since the entity's own userId is always the owner's)
+          // get retried here too — this loop is scoped per-owner already.
+          await this.retryPendingWrites(ownerUid);
         } catch (err) {
           console.warn(`[Compartilhado] Falha ao sincronizar o titular ${ownerUid}:`, err);
         }
@@ -628,10 +825,8 @@ class DBLocalFallback {
     this.set("users", users);
 
     // Sync to Firestore
-    dbFirebase.createUserProfile(updated).catch(e => {
-      console.warn("Firestore: erro ao criar/atualizar perfil de usuário.", e);
-      this.notifyIfAuthShapedError(e, "createUserProfile", "User", updated.userId);
-    });
+    this.pushSync("upsert", "users", updated.userId, updated.userId, "createUserProfile", "User",
+      () => dbFirebase.createUserProfile(updated));
   }
   // Não existe deleteUser aqui: apagar só o doc de perfil deixava a conta de
   // Auth viva e todas as subcoleções órfãs — inútil para um pedido de exclusão
@@ -666,10 +861,8 @@ class DBLocalFallback {
     this.set("medicados", list);
 
     // Sync to Firestore
-    dbFirebase.saveMedicado(m).catch(e => {
-      console.warn("Firestore: erro ao cadastrar paciente.", e);
-      this.notifyIfAuthShapedError(e, "addMedicado", "Medicado", m.medicadoId);
-    });
+    this.pushSync("upsert", "medicados", m.medicadoId, m.userId, "addMedicado", "Medicado",
+      () => dbFirebase.saveMedicado(m));
   }
   updateMedicado(updated: Medicado) {
     const list = this.get<Medicado>("medicados", SEED_MEDICADOS);
@@ -679,20 +872,17 @@ class DBLocalFallback {
       this.set("medicados", list);
 
       // Sync to Firestore
-      dbFirebase.updateMedicado(updated).catch(e => {
-        console.warn("Firestore: erro ao atualizar paciente.", e);
-        this.notifyIfAuthShapedError(e, "updateMedicado", "Medicado", updated.medicadoId);
-      });
+      this.pushSync("upsert", "medicados", updated.medicadoId, updated.userId, "updateMedicado", "Medicado",
+        () => dbFirebase.updateMedicado(updated));
     }
   }
   deleteMedicado(id: string) {
     const list = this.get<Medicado>("medicados", SEED_MEDICADOS);
     const item = list.find(m => m.medicadoId === id);
     if (item) {
-      dbFirebase.deleteMedicado(item.userId, item.medicadoId).catch(e => {
-        console.warn("Firestore: erro ao remover paciente.", e);
-        this.notifyIfAuthShapedError(e, "deleteMedicado", "Medicado", item.medicadoId);
-      });
+      this.pushSync("delete", "medicados", item.medicadoId, item.userId, "deleteMedicado", "Medicado",
+        () => dbFirebase.deleteMedicado(item.userId, item.medicadoId),
+        [item.userId, item.medicadoId]);
     }
 
     const filtered = list.filter(m => m.medicadoId !== id);
@@ -709,10 +899,8 @@ class DBLocalFallback {
     this.set("receitas", list);
 
     // Sync to Firestore
-    dbFirebase.saveReceita(r).catch(e => {
-      console.warn("Firestore: erro ao cadastrar receita.", e);
-      this.notifyIfAuthShapedError(e, "addReceita", "Receita", r.receitaId);
-    });
+    this.pushSync("upsert", "receitas", r.receitaId, r.userId, "addReceita", "Receita",
+      () => dbFirebase.saveReceita(r));
   }
   updateReceita(updated: Receita) {
     const list = this.get<Receita>("receitas", SEED_RECEITAS);
@@ -722,20 +910,17 @@ class DBLocalFallback {
       this.set("receitas", list);
 
       // Sync to Firestore
-      dbFirebase.updateReceita(updated).catch(e => {
-        console.warn("Firestore: erro ao atualizar receita.", e);
-        this.notifyIfAuthShapedError(e, "updateReceita", "Receita", updated.receitaId);
-      });
+      this.pushSync("upsert", "receitas", updated.receitaId, updated.userId, "updateReceita", "Receita",
+        () => dbFirebase.updateReceita(updated));
     }
   }
   deleteReceita(id: string) {
     const list = this.get<Receita>("receitas", SEED_RECEITAS);
     const item = list.find(r => r.receitaId === id);
     if (item) {
-      dbFirebase.deleteReceita(item.userId, item.medicadoId, item.receitaId).catch(e => {
-        console.warn("Firestore: erro ao remover receita.", e);
-        this.notifyIfAuthShapedError(e, "deleteReceita", "Receita", item.receitaId);
-      });
+      this.pushSync("delete", "receitas", item.receitaId, item.userId, "deleteReceita", "Receita",
+        () => dbFirebase.deleteReceita(item.userId, item.medicadoId, item.receitaId),
+        [item.userId, item.medicadoId, item.receitaId]);
     }
 
     const remaining = list.filter(m => m.receitaId !== id);
@@ -749,13 +934,23 @@ class DBLocalFallback {
     this.set("medicamentos", remainingMeds);
 
     medsToDelete.forEach(m => {
-      dbFirebase.deleteMedicamento(m.userId, m.medicadoId, m.medicamentoId).catch(console.error);
+      this.pushSync("delete", "medicamentos", m.medicamentoId, m.userId, "deleteMedicamento (cascade)", "Medicamento",
+        () => dbFirebase.deleteMedicamento(m.userId, m.medicadoId, m.medicamentoId),
+        [m.userId, m.medicadoId, m.medicamentoId]);
     });
 
-    // Cascade delete associated dose logs
+    // Cascade delete associated dose logs — these must also be removed from
+    // Firestore, not just the local cache, or the orphans linger there forever.
     const logs = this.get<DoseLog>("dose_logs", SEED_DOSE_LOGS);
+    const orphanedLogs = logs.filter(l => medIdsToDelete.includes(l.medicamentoId));
     const remainingLogs = logs.filter(l => !medIdsToDelete.includes(l.medicamentoId));
     this.set("dose_logs", remainingLogs);
+
+    orphanedLogs.forEach(l => {
+      this.pushSync("delete", "dose_logs", l.logId, l.userId, "deleteDoseLog (cascade)", "DoseLog",
+        () => dbFirebase.deleteDoseLog(l.userId, l.medicadoId, l.medicamentoId, l.logId),
+        [l.userId, l.medicadoId, l.medicamentoId, l.logId]);
+    });
   }
 
   // Medicamentos
@@ -768,10 +963,8 @@ class DBLocalFallback {
     this.set("medicamentos", list);
 
     // Sync to Firestore
-    dbFirebase.saveMedicamento(m).catch(e => {
-      console.warn("Firestore: erro ao cadastrar medicamento.", e);
-      this.notifyIfAuthShapedError(e, "addMedicamento", "Medicamento", m.medicamentoId);
-    });
+    this.pushSync("upsert", "medicamentos", m.medicamentoId, m.userId, "addMedicamento", "Medicamento",
+      () => dbFirebase.saveMedicamento(m));
   }
   updateMedicamento(updated: Medicamento) {
     const list = this.get<Medicamento>("medicamentos", SEED_MEDICAMENTOS);
@@ -781,20 +974,17 @@ class DBLocalFallback {
       this.set("medicamentos", list);
 
       // Sync to Firestore
-      dbFirebase.updateMedicamento(updated).catch(e => {
-        console.warn("Firestore: erro ao atualizar medicamento.", e);
-        this.notifyIfAuthShapedError(e, "updateMedicamento", "Medicamento", updated.medicamentoId);
-      });
+      this.pushSync("upsert", "medicamentos", updated.medicamentoId, updated.userId, "updateMedicamento", "Medicamento",
+        () => dbFirebase.updateMedicamento(updated));
     }
   }
   deleteMedicamento(id: string) {
     const list = this.get<Medicamento>("medicamentos", SEED_MEDICAMENTOS);
     const item = list.find(m => m.medicamentoId === id);
     if (item) {
-      dbFirebase.deleteMedicamento(item.userId, item.medicadoId, item.medicamentoId).catch(e => {
-        console.warn("Firestore: erro ao remover medicamento.", e);
-        this.notifyIfAuthShapedError(e, "deleteMedicamento", "Medicamento", item.medicamentoId);
-      });
+      this.pushSync("delete", "medicamentos", item.medicamentoId, item.userId, "deleteMedicamento", "Medicamento",
+        () => dbFirebase.deleteMedicamento(item.userId, item.medicadoId, item.medicamentoId),
+        [item.userId, item.medicadoId, item.medicamentoId]);
     }
 
     const filtered = list.filter(m => m.medicamentoId !== id);
@@ -811,10 +1001,8 @@ class DBLocalFallback {
     this.set("dose_logs", list);
 
     // Sync to Firestore
-    dbFirebase.saveDoseLog(l).catch(e => {
-      console.warn("Firestore: erro ao cadastrar log de dose.", e);
-      this.notifyIfAuthShapedError(e, "addDoseLog", "DoseLog", l.logId);
-    });
+    this.pushSync("upsert", "dose_logs", l.logId, l.userId, "addDoseLog", "DoseLog",
+      () => dbFirebase.saveDoseLog(l));
   }
   updateDoseLog(updated: DoseLog) {
     const list = this.get<DoseLog>("dose_logs", SEED_DOSE_LOGS);
@@ -824,20 +1012,17 @@ class DBLocalFallback {
       this.set("dose_logs", list);
 
       // Sync to Firestore
-      dbFirebase.updateDoseLog(updated).catch(e => {
-        console.warn("Firestore: erro ao atualizar log de dose.", e);
-        this.notifyIfAuthShapedError(e, "updateDoseLog", "DoseLog", updated.logId);
-      });
+      this.pushSync("upsert", "dose_logs", updated.logId, updated.userId, "updateDoseLog", "DoseLog",
+        () => dbFirebase.updateDoseLog(updated));
     }
   }
   deleteDoseLog(id: string) {
     const list = this.get<DoseLog>("dose_logs", SEED_DOSE_LOGS);
     const item = list.find(l => l.logId === id);
     if (item) {
-      dbFirebase.deleteDoseLog(item.userId, item.medicadoId, item.medicamentoId, item.logId).catch(e => {
-        console.warn("Firestore: erro ao remover log de dose.", e);
-        this.notifyIfAuthShapedError(e, "deleteDoseLog", "DoseLog", item.logId);
-      });
+      this.pushSync("delete", "dose_logs", item.logId, item.userId, "deleteDoseLog", "DoseLog",
+        () => dbFirebase.deleteDoseLog(item.userId, item.medicadoId, item.medicamentoId, item.logId),
+        [item.userId, item.medicadoId, item.medicamentoId, item.logId]);
     }
 
     const filtered = list.filter(m => m.logId !== id);
@@ -854,10 +1039,8 @@ class DBLocalFallback {
     this.set("consultas", list);
 
     // Sync to Firestore
-    dbFirebase.saveConsulta(c).catch(e => {
-      console.warn("Firestore: erro ao cadastrar consulta.", e);
-      this.notifyIfAuthShapedError(e, "addConsulta", "Consulta", c.consultaId);
-    });
+    this.pushSync("upsert", "consultas", c.consultaId, c.userId, "addConsulta", "Consulta",
+      () => dbFirebase.saveConsulta(c));
   }
   updateConsulta(updated: Consulta) {
     const list = this.get<Consulta>("consultas", SEED_CONSULTAS);
@@ -867,20 +1050,17 @@ class DBLocalFallback {
       this.set("consultas", list);
 
       // Sync to Firestore
-      dbFirebase.updateConsulta(updated).catch(e => {
-        console.warn("Firestore: erro ao atualizar consulta.", e);
-        this.notifyIfAuthShapedError(e, "updateConsulta", "Consulta", updated.consultaId);
-      });
+      this.pushSync("upsert", "consultas", updated.consultaId, updated.userId, "updateConsulta", "Consulta",
+        () => dbFirebase.updateConsulta(updated));
     }
   }
   deleteConsulta(id: string) {
     const list = this.get<Consulta>("consultas", SEED_CONSULTAS);
     const item = list.find(c => c.consultaId === id);
     if (item) {
-      dbFirebase.deleteConsulta(item.userId, item.consultaId).catch(e => {
-        console.warn("Firestore: erro ao remover consulta.", e);
-        this.notifyIfAuthShapedError(e, "deleteConsulta", "Consulta", item.consultaId);
-      });
+      this.pushSync("delete", "consultas", item.consultaId, item.userId, "deleteConsulta", "Consulta",
+        () => dbFirebase.deleteConsulta(item.userId, item.consultaId),
+        [item.userId, item.consultaId]);
     }
 
     const filtered = list.filter(m => m.consultaId !== id);
@@ -897,10 +1077,8 @@ class DBLocalFallback {
     this.set("farmacias", list);
 
     // Sync to Firestore
-    dbFirebase.saveFarmacia(f).catch(e => {
-      console.warn("Firestore: erro ao cadastrar farmácia.", e);
-      this.notifyIfAuthShapedError(e, "addFarmacia", "Farmacia", f.farmaciaId);
-    });
+    this.pushSync("upsert", "farmacias", f.farmaciaId, f.userId, "addFarmacia", "Farmacia",
+      () => dbFirebase.saveFarmacia(f));
   }
   updateFarmacia(updated: Farmacia) {
     const list = this.get<Farmacia>("farmacias", SEED_FARMACIAS);
@@ -910,20 +1088,17 @@ class DBLocalFallback {
       this.set("farmacias", list);
 
       // Sync to Firestore
-      dbFirebase.updateFarmacia(updated).catch(e => {
-        console.warn("Firestore: erro ao atualizar farmácia.", e);
-        this.notifyIfAuthShapedError(e, "updateFarmacia", "Farmacia", updated.farmaciaId);
-      });
+      this.pushSync("upsert", "farmacias", updated.farmaciaId, updated.userId, "updateFarmacia", "Farmacia",
+        () => dbFirebase.updateFarmacia(updated));
     }
   }
   deleteFarmacia(id: string) {
     const list = this.get<Farmacia>("farmacias", SEED_FARMACIAS);
     const item = list.find(f => f.farmaciaId === id);
     if (item) {
-      dbFirebase.deleteFarmacia(item.userId, item.farmaciaId).catch(e => {
-        console.warn("Firestore: erro ao remover farmácia.", e);
-        this.notifyIfAuthShapedError(e, "deleteFarmacia", "Farmacia", item.farmaciaId);
-      });
+      this.pushSync("delete", "farmacias", item.farmaciaId, item.userId, "deleteFarmacia", "Farmacia",
+        () => dbFirebase.deleteFarmacia(item.userId, item.farmaciaId),
+        [item.userId, item.farmaciaId]);
     }
 
     const filtered = list.filter(m => m.farmaciaId !== id);
@@ -940,19 +1115,16 @@ class DBLocalFallback {
     this.set("cupons", list);
 
     // Sync to Firestore
-    dbFirebase.saveCupom(c).catch(e => {
-      console.warn("Firestore: erro ao cadastrar cupom fiscal.", e);
-      this.notifyIfAuthShapedError(e, "addCupom", "CupomFiscal", c.cupomId);
-    });
+    this.pushSync("upsert", "cupons", c.cupomId, c.userId, "addCupom", "CupomFiscal",
+      () => dbFirebase.saveCupom(c));
   }
   deleteCupom(id: string) {
     const list = this.get<CupomFiscal>("cupons", SEED_CUPONS);
     const item = list.find(c => c.cupomId === id);
     if (item) {
-      dbFirebase.deleteCupom(item.userId, item.cupomId).catch(e => {
-        console.warn("Firestore: erro ao remover cupom fiscal.", e);
-        this.notifyIfAuthShapedError(e, "deleteCupom", "CupomFiscal", item.cupomId);
-      });
+      this.pushSync("delete", "cupons", item.cupomId, item.userId, "deleteCupom", "CupomFiscal",
+        () => dbFirebase.deleteCupom(item.userId, item.cupomId),
+        [item.userId, item.cupomId]);
     }
 
     const filtered = list.filter(c => c.cupomId !== id);
