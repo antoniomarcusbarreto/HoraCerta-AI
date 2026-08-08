@@ -14,29 +14,52 @@ export const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 // size before resize ever runs made every normal gallery photo fail.
 export const MAX_RAW_UPLOAD_BYTES = 15 * 1024 * 1024;
 // Safety net checked AFTER resize+re-encode, against what actually gets stored
-// (Firestore doc field + localStorage). A 512px JPEG at q0.85 lands well under
-// this in practice; this only catches pathological inputs (e.g. huge flat-color
-// PNGs) that don't shrink the way photos do.
-export const MAX_STORED_BYTES = 700 * 1024;
+// (Firestore doc field + localStorage). MUST stay under firestore.rules'
+// isValidUser/isValidMedicado hard cap (data.avatarUrl.size() <= 500000 /
+// data.photoUrl.size() <= 500000) — those two constants are not derived from
+// each other (this file can't read firestore.rules), so if either changes,
+// update both by hand. A real detailed photo (not a flat test image) can land
+// well above 500KB at q0.85, which is why this used to be set to 700KB: that
+// let the client accept photos Firestore then silently rejected as "erro no
+// servidor" (500KB was margin-free, so re-check before ever raising this).
+export const MAX_STORED_BYTES = 470 * 1024;
 export const IMAGE_MAX_DIMENSION = 512; // downscale longest side to 512px
 
-// Downscale a data URL to at most IMAGE_MAX_DIMENSION on its longest side and
-// re-encode as JPEG. Returns a (usually much) smaller data URL.
-export function resizeImageDataUrl(dataUrl: string): Promise<string> {
+// Progressively smaller/lower-quality re-encodes, tried in order until one
+// fits under maxBytes. Most photos succeed on the first attempt; busy/detailed
+// ones (common straight off a phone camera) need the later, more aggressive
+// steps instead of being rejected outright.
+const RESIZE_ATTEMPTS: { dimension: number; quality: number }[] = [
+  { dimension: IMAGE_MAX_DIMENSION, quality: 0.82 },
+  { dimension: IMAGE_MAX_DIMENSION, quality: 0.6 },
+  { dimension: 400, quality: 0.6 },
+  { dimension: 320, quality: 0.5 },
+];
+
+// Downscale a data URL, re-encoding as JPEG, stepping down quality/dimension
+// until the result fits under maxBytes (or the attempts run out — the last,
+// smallest attempt is returned either way; processImageFile does the final check).
+export function resizeImageDataUrl(dataUrl: string, maxBytes: number = MAX_STORED_BYTES): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
-      const scale = Math.min(1, IMAGE_MAX_DIMENSION / Math.max(img.width, img.height));
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.round(img.width * scale);
-      canvas.height = Math.round(img.height * scale);
-      const ctx = canvas.getContext("2d");
+      const ctx = document.createElement("canvas").getContext("2d");
       if (!ctx) {
         reject(new Error("Canvas indisponível."));
         return;
       }
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      resolve(canvas.toDataURL("image/jpeg", 0.85));
+      let smallest = "";
+      for (const { dimension, quality } of RESIZE_ATTEMPTS) {
+        const scale = Math.min(1, dimension / Math.max(img.width, img.height));
+        const canvas = ctx.canvas;
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const out = canvas.toDataURL("image/jpeg", quality);
+        smallest = out;
+        if (out.length <= maxBytes) break;
+      }
+      resolve(smallest);
     };
     img.onerror = () => reject(new Error("Não foi possível processar a imagem."));
     img.src = dataUrl;
