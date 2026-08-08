@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Medicado, Receita, Medicamento } from "../types";
+import type { ScanBlockReason } from "../subscription";
 import PrescriptionScanner from "./PrescriptionScanner";
 import ConfirmDialog from "./ConfirmDialog";
 import { FileText, Calendar, Trash2, User, Sparkles, ChevronDown, ChevronUp, Lock } from "lucide-react";
@@ -15,10 +16,19 @@ interface AppointmentsProps {
     medicadoId: string
   ) => void;
   onDeleteReceita: (receitaId: string) => void;
-  /** Quando false, o scanner fica bloqueado (assinatura expirada). */
-  canScan?: boolean;
-  /** Abre a tela de assinatura quando o recurso está bloqueado. */
-  onSubscribe?: () => void;
+  /**
+   * Por que o scanner está bloqueado: `"subscription"` (sem acesso),
+   * `"quota"` (gratuidade válida, mas os scans grátis acabaram) ou `null`
+   * (liberado). Distinguir importa: dizer "assine" para quem acabou de receber
+   * gratuidade do admin é mentira.
+   */
+  scanBlock?: ScanBlockReason;
+  /**
+   * Revalida no servidor antes de mostrar o paywall. Devolve true se o acesso
+   * apareceu (ex.: gratuidade concedida agora no painel admin) — aí o scanner
+   * abre direto.
+   */
+  onBlockedScanAttempt?: () => Promise<boolean>;
 }
 
 export default function Appointments({
@@ -27,8 +37,8 @@ export default function Appointments({
   medicamentos,
   onAddReceita,
   onDeleteReceita,
-  canScan = true,
-  onSubscribe,
+  scanBlock = null,
+  onBlockedScanAttempt,
 }: AppointmentsProps) {
   const [showPrescriptionScan, setShowPrescriptionScan] = useState(false);
   const [expandedReceitaId, setExpandedReceitaId] = useState<string | null>(null);
@@ -39,10 +49,18 @@ export default function Appointments({
     receitas.some(r => r.receitaId === m.receitaId)
   ).length;
 
-  // Bloqueio de assinatura: se não pode escanear, o gatilho abre o paywall.
-  const triggerScan = () => {
-    if (canScan) setShowPrescriptionScan(true);
-    else onSubscribe?.();
+  const canScan = scanBlock === null;
+  const blockedLabel = scanBlock === "quota" ? "Limite grátis atingido" : "Assine para escanear";
+
+  // Bloqueado: revalida no servidor antes de empurrar o paywall — o acesso pode
+  // ter sido liberado pelo admin depois que esta sessão carregou.
+  const triggerScan = async () => {
+    if (canScan) {
+      setShowPrescriptionScan(true);
+      return;
+    }
+    const unlocked = await onBlockedScanAttempt?.();
+    if (unlocked) setShowPrescriptionScan(true);
   };
 
   // If the scanner interface is triggered, render it in place
@@ -97,7 +115,7 @@ export default function Appointments({
             }`}
           >
             {canScan ? <Sparkles className="w-4 h-4 fill-brand-cream/10" /> : <Lock className="w-4 h-4" />}
-            {canScan ? "Escanear Receita" : "Assine para escanear"}
+            {canScan ? "Escanear Receita" : blockedLabel}
           </button>
         </div>
 
@@ -115,7 +133,7 @@ export default function Appointments({
                 onClick={triggerScan}
                 className="mt-3 text-xs font-bold text-brand-teal underline hover:text-brand-coral"
               >
-                {canScan ? "Escanear receita agora" : "Assine para escanear"}
+                {canScan ? "Escanear receita agora" : blockedLabel}
               </button>
             </div>
           ) : (

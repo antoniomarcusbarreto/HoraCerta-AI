@@ -196,3 +196,26 @@ export interface ErrorLog {
   createdAt: string;
 }
 
+// Um pagamento aprovado, gravado em users/{uid}/payments/{paymentId} pelo
+// servidor (Admin SDK) quando o Mercado Pago confirma. Só é lido através de
+// GET /api/admin/payments — a subcoleção não tem regra no firestore.rules,
+// então permanece inacessível ao SDK cliente de propósito.
+//
+// ATENÇÃO: `amount` é o valor BRUTO cobrado (PLANS[plan].amount), não o
+// líquido depois da taxa do Mercado Pago. Qualquer exibição precisa deixar
+// isso explícito para não passar por faturamento recebido.
+export interface PaymentRecord {
+  paymentId: string;
+  userId: string;
+  // Resolvidos no servidor a partir do doc do usuário (o registro de
+  // pagamento em si não guarda identidade).
+  userName?: string;
+  userEmail?: string;
+  plan: 'monthly' | 'yearly';
+  amount: number;
+  paymentMethod?: string; // "pix", "credit_card", ... — ausente em registros antigos
+  status: string;
+  periodEnd?: string;
+  createdAt: string;
+}
+

@@ -205,6 +205,23 @@ export const dbFirebase = {
     await updateDoc(docRef, payload);
   },
 
+  // Grava APENAS os campos informados. É o caminho usado pelas ações do painel
+  // admin: mandar o documento inteiro a partir da linha renderizada faz um
+  // clique inocente (ex.: "Isentar do limite") reescrever também
+  // subscriptionCurrentPeriodEnd/freeTrialUntil com o valor que aquela linha
+  // tinha quando foi carregada — desfazendo, sem ninguém pedir, um período que
+  // o webhook do Mercado Pago (ou outro admin) acabou de gravar.
+  async updateUserFields(userId: string, patch: Partial<User>): Promise<void> {
+    if (Object.keys(patch).length === 0) return;
+    const docRef = doc(db, "users", userId);
+    const payload: any = { ...patch };
+    if (typeof payload.email === "string") payload.email = payload.email.toLowerCase().trim();
+    // userId/createdAt são imutáveis nas regras — nunca vão no patch.
+    delete payload.userId;
+    delete payload.createdAt;
+    await updateDoc(docRef, payload);
+  },
+
   // Não existe deleteUserProfile: apagar o doc pelo client deixa a conta de
   // Auth funcionando e as subcoleções órfãs. Exclusão real de usuário é
   // DELETE /api/admin/users/:uid (Admin SDK + recursiveDelete + purga da

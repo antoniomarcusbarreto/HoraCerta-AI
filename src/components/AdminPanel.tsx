@@ -66,12 +66,13 @@ export default function AdminPanel({
   const [editingSubscriptionUser, setEditingSubscriptionUser] = useState<User | null>(null);
   const [subStatus, setSubStatus] = useState<'active' | 'inactive' | 'expired'>('inactive');
   const [subPlan, setSubPlan] = useState<'monthly' | 'yearly' | 'none'>('none');
-  // Dias a conceder quando subStatus = 'active' — o que de fato libera o
-  // acesso é subscriptionCurrentPeriodEnd (não subscriptionStatus/Plan, que
-  // são só rótulos), então precisamos saber quantos dias somar. Pré-preenchido
-  // com a duração real do plano (PLANS[plan].days) para reconciliar um
-  // pagamento manualmente com o mesmo resultado de um pagamento automático.
-  const [subDays, setSubDays] = useState("30");
+  // NÃO existe mais um campo livre de "dias a conceder" aqui. Este modal
+  // reconcilia um PAGAMENTO aprovado, então o período é sempre a duração real
+  // do plano (PLANS[plan].days) — o mesmo resultado de um pagamento processado
+  // pelo webhook. Ter dois lugares diferentes concedendo "dias" (aqui e no card
+  // de gratuidade, que escreve outro campo) era a origem da confusão: dava para
+  // sair deste modal achando que tinha liberado acesso sem ter liberado nada.
+  // Concessão de cortesia agora é exclusivamente "Conceder Gratuidade".
 
   // Helper to format date nicely
   const formatDateString = (isoString?: string) => {
@@ -152,6 +153,13 @@ export default function AdminPanel({
     await onUpdateUser({ ...user, scanLimitExempt: !user.scanLimitExempt });
   };
 
+  // ÚNICO caminho de concessão manual de acesso no painel. Conceder gratuidade
+  // também DEVOLVE a cota de scans grátis: o teto de TRIAL_SCAN_LIMIT por tipo é
+  // contado por período de gratuidade, não vitalício — sem o reset, conceder 30
+  // dias a quem já gastou os 3 scans não liberava nada e o app continuava
+  // exibindo "Assine para escanear", ou seja, a ação do admin não chegava ao
+  // usuário. Reconciliar um pagamento é outra coisa e vive no modal de
+  // assinatura (handleSubscriptionSubmit).
   const handleTrialSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingTrialUser) return;
@@ -168,6 +176,8 @@ export default function AdminPanel({
     const success = await onUpdateUser({
       ...editingTrialUser,
       freeTrialUntil: nextExpiry.toISOString(),
+      trialPrescriptionScansUsed: 0,
+      trialReceiptScansUsed: 0,
     });
 
     if (success) {
@@ -190,11 +200,14 @@ export default function AdminPanel({
 
     let subscriptionCurrentPeriodEnd: string;
     if (subStatus === "active") {
-      const days = parseInt(subDays, 10);
-      if (isNaN(days) || days <= 0) {
-        onNotify("Informe um número de dias válido para conceder.");
+      // "Ativa" sem plano gravava o rótulo e nenhum período: o usuário ficava
+      // com "Plano: Mensal" no painel e acesso bloqueado no app — foi
+      // exatamente esse estado inconsistente que apareceu em produção.
+      if (subPlan === "none") {
+        onNotify("Escolha o plano pago (mensal ou anual) que foi aprovado no Mercado Pago.");
         return;
       }
+      const days = PLANS[subPlan as PlanId].days;
       const currentEnd = editingSubscriptionUser.subscriptionCurrentPeriodEnd
         ? new Date(editingSubscriptionUser.subscriptionCurrentPeriodEnd)
         : new Date();
@@ -497,9 +510,12 @@ export default function AdminPanel({
                         <Gift className="w-3.5 h-3.5 text-brand-coral shrink-0" />
                         <span>Gratuidade / Teste</span>
                       </div>
+                      {/* Um assinante em dia aparecia aqui em vermelho como
+                          "Expirado" — tecnicamente verdade sobre o campo, mas
+                          lido como "sem acesso". O que vale é o estado real. */}
                       <div className="text-xs text-gray-500 leading-relaxed">
-                        Status: <strong className={trial.status === "active" ? "text-emerald-600" : "text-red-500"}>
-                          {trial.status === "active" ? "Válido" : "Expirado"}
+                        Status: <strong className={hasActiveSub ? "text-gray-500" : trial.status === "active" ? "text-emerald-600" : "text-red-500"}>
+                          {hasActiveSub ? "Coberto pela assinatura" : trial.status === "active" ? "Válido" : "Expirado"}
                         </strong>
                         <div className="truncate text-gray-500 mt-0.5">{trial.text}</div>
                       </div>
@@ -507,7 +523,7 @@ export default function AdminPanel({
                         onClick={() => setEditingTrialUser(u)}
                         className="w-full mt-1.5 bg-white border border-brand-cream-darker hover:bg-brand-peach text-xs font-bold text-brand-teal uppercase rounded-lg py-1.5 transition-colors"
                       >
-                        Conceder Dias
+                        Conceder Gratuidade
                       </button>
                     </div>
 
@@ -534,9 +550,7 @@ export default function AdminPanel({
                         onClick={() => {
                           setEditingSubscriptionUser(u);
                           setSubStatus(u.subscriptionStatus || 'inactive');
-                          const nextPlan = u.subscriptionPlan && u.subscriptionPlan !== 'none' ? u.subscriptionPlan : 'monthly';
                           setSubPlan(u.subscriptionPlan || 'none');
-                          setSubDays(String(PLANS[nextPlan as PlanId].days));
                         }}
                         className="w-full mt-1.5 bg-white border border-brand-cream-darker hover:bg-brand-peach text-xs font-bold text-brand-teal uppercase rounded-lg py-1.5 transition-colors"
                       >
@@ -552,9 +566,19 @@ export default function AdminPanel({
                         <Award className="w-3.5 h-3.5 text-brand-coral shrink-0" />
                         <span>Limite de Scans Gratuitos</span>
                       </div>
+                      {/* A cota só existe para quem está em gratuidade/trial:
+                          assinante pago e isento escaneiam à vontade, e mostrar
+                          "1/3" para eles sugeria um limite que não se aplica. */}
                       <div className="text-xs text-gray-500 mt-1 leading-relaxed">
-                        Receita: <strong>{u.trialPrescriptionScansUsed || 0}/{TRIAL_SCAN_LIMIT}</strong> · Nota: <strong>{u.trialReceiptScansUsed || 0}/{TRIAL_SCAN_LIMIT}</strong>
-                        {u.scanLimitExempt && <span className="text-emerald-600 font-bold ml-1">(Isento)</span>}
+                        {hasActiveSub ? (
+                          <span>Sem limite — assinatura paga vigente.</span>
+                        ) : u.scanLimitExempt ? (
+                          <span>Sem limite — <span className="text-emerald-600 font-bold">isento pelo admin</span>.</span>
+                        ) : (
+                          <>
+                            Receita: <strong>{u.trialPrescriptionScansUsed || 0}/{TRIAL_SCAN_LIMIT}</strong> · Nota: <strong>{u.trialReceiptScansUsed || 0}/{TRIAL_SCAN_LIMIT}</strong>
+                          </>
+                        )}
                       </div>
                     </div>
                     <button
@@ -622,7 +646,8 @@ export default function AdminPanel({
             </h3>
             <p className="text-[11px] text-gray-500 text-center mb-4 leading-tight">
               Apenas para o usuário <strong className="text-brand-teal">{editingTrialUser.name}</strong>.<br />
-              O período será acrescentado à validade atual ou a partir de hoje.
+              É esta a forma de liberar acesso de cortesia: o período é acrescentado à
+              validade atual ou contado a partir de hoje.
             </p>
 
             <form onSubmit={handleTrialSubmit} className="space-y-4">
@@ -645,8 +670,20 @@ export default function AdminPanel({
               </div>
 
               <div className="bg-white rounded-xl p-3 border border-brand-cream-darker text-[10px] text-gray-500 space-y-1">
-                <div>Expiração Atual: <strong className="text-brand-teal">{formatDateString(editingTrialUser.freeTrialUntil)}</strong></div>
-                <div>Status Atual: <span className="font-semibold capitalize">{getTrialInfo(editingTrialUser.freeTrialUntil).text}</span></div>
+                {/* Estado REAL (getAccessState), não só a data do trial: é ele
+                    que decide se os scanners abrem no app do usuário. */}
+                <div>
+                  Acesso Atual:{" "}
+                  <strong className="text-brand-teal">
+                    {{ active: "Assinatura ativa", grace: "Carência", trial: "Gratuidade válida", blocked: "Bloqueado" }[getAccessState(editingTrialUser)]}
+                  </strong>
+                </div>
+                <div>Expiração da Gratuidade: <strong className="text-brand-teal">{formatDateString(editingTrialUser.freeTrialUntil)}</strong> ({getTrialInfo(editingTrialUser.freeTrialUntil).text})</div>
+                <div className="pt-1 border-t border-brand-cream-darker/60 text-brand-teal">
+                  Também zera os scans gratuitos já usados (Receita{" "}
+                  {editingTrialUser.trialPrescriptionScansUsed || 0}/{TRIAL_SCAN_LIMIT} → 0/{TRIAL_SCAN_LIMIT} · Nota{" "}
+                  {editingTrialUser.trialReceiptScansUsed || 0}/{TRIAL_SCAN_LIMIT} → 0/{TRIAL_SCAN_LIMIT}).
+                </div>
               </div>
 
               <div className="flex space-x-2 pt-2">
@@ -678,10 +715,11 @@ export default function AdminPanel({
             </div>
 
             <h3 className="text-base font-display font-bold text-brand-teal text-center mb-1">
-              Gerenciar Assinatura do Usuário
+              Assinatura Paga do Usuário
             </h3>
             <p className="text-[11px] text-gray-500 text-center mb-4">
-              Verifique e atualize a assinatura de <strong className="text-brand-teal">{editingSubscriptionUser.name}</strong>.
+              Reconcilia o pagamento de <strong className="text-brand-teal">{editingSubscriptionUser.name}</strong> —
+              não é aqui que se concede cortesia.
             </p>
 
             <form onSubmit={handleSubscriptionSubmit} className="space-y-4">
@@ -706,11 +744,7 @@ export default function AdminPanel({
                 </label>
                 <select
                   value={subPlan}
-                  onChange={(e) => {
-                    const nextPlan = e.target.value as 'monthly' | 'yearly' | 'none';
-                    setSubPlan(nextPlan);
-                    if (nextPlan !== 'none') setSubDays(String(PLANS[nextPlan].days));
-                  }}
+                  onChange={(e) => setSubPlan(e.target.value as 'monthly' | 'yearly' | 'none')}
                   className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden"
                 >
                   <option value="none">Nenhum Plano Ativo</option>
@@ -719,28 +753,36 @@ export default function AdminPanel({
                 </select>
               </div>
 
-              {subStatus === "active" && (
-                <div>
-                  <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
-                    Dias a Conceder
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={subDays}
-                    onChange={(e) => setSubDays(e.target.value)}
-                    className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden"
-                  />
-                  <p className="text-[10px] text-gray-400 mt-1 leading-snug">
-                    Somado ao período restante (se houver). Use para reconciliar manualmente um pagamento
-                    aprovado no Mercado Pago que não ativou sozinho — confira o valor/ID do pagamento no
-                    painel do Mercado Pago antes de conceder.
-                    {editingSubscriptionUser.subscriptionCurrentPeriodEnd && (
-                      <> Válido atualmente até {formatDateString(editingSubscriptionUser.subscriptionCurrentPeriodEnd)}.</>
-                    )}
+              <div className="bg-white rounded-xl p-3 border border-brand-cream-darker text-[10px] text-gray-500 leading-snug space-y-1">
+                {subStatus === "active" ? (
+                  <>
+                    <p className="text-brand-teal font-bold uppercase tracking-wider text-[10px]">
+                      Registrar pagamento aprovado
+                    </p>
+                    <p>
+                      Use apenas para reconciliar um pagamento aprovado no Mercado Pago que não ativou
+                      sozinho — confira o valor/ID do pagamento no painel deles antes de salvar. Para
+                      liberar acesso de cortesia, use <strong className="text-brand-teal">Conceder Gratuidade</strong>.
+                    </p>
+                    <p>
+                      Período concedido:{" "}
+                      <strong className="text-brand-teal">
+                        {subPlan === "none" ? "escolha o plano acima" : `${PLANS[subPlan as PlanId].days} dias (${PLANS[subPlan as PlanId].label})`}
+                      </strong>
+                      , somado ao que ainda restar.
+                      {editingSubscriptionUser.subscriptionCurrentPeriodEnd && (
+                        <> Válido atualmente até {formatDateString(editingSubscriptionUser.subscriptionCurrentPeriodEnd)}.</>
+                      )}
+                    </p>
+                  </>
+                ) : (
+                  <p>
+                    Salvar com este status <strong className="text-brand-teal">encerra o período pago</strong> deste
+                    usuário imediatamente. Isso não mexe na gratuidade: se ela ainda estiver válida, o acesso
+                    continua liberado por ela.
                   </p>
-                </div>
-              )}
+                )}
+              </div>
 
               <div className="flex space-x-2 pt-2">
                 <button

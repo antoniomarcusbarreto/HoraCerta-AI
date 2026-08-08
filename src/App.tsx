@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { dbLocal } from "./dbLocalFallback";
 import { auth, dbFirebase, isDeadSessionError } from "./firebase";
 import { subscribeToPush, unsubscribeFromPush, isIOSDevice } from "./push";
-import { canPerformScan, getAccessState, daysRemaining } from "./subscription";
+import { canPerformScan, getScanBlockReason, getAccessState, daysRemaining, type ScanType } from "./subscription";
 import { dueDoseMs } from "./utils/doseSchedule";
 import { normalizeEmail } from "./utils/normalizeEmail";
 import { processImageFile } from "./imageUtils";
@@ -18,6 +18,7 @@ import Dashboard from "./components/Dashboard";
 import Schedule from "./components/Schedule";
 import AdminPanel from "./components/AdminPanel";
 import AdminLogs from "./components/AdminLogs";
+import AdminPayments from "./components/AdminPayments";
 import Appointments from "./components/Appointments";
 import Pharmacies from "./components/Pharmacies";
 import AuthScreen from "./components/AuthScreen";
@@ -112,8 +113,16 @@ export default function App() {
   const desktopEntered = typeof window !== "undefined" && sessionStorage.getItem(DESKTOP_ENTER_FLAG) === "1";
   // 1. Authentication State
   const [activeUser, setActiveUser] = useState<User | null>(null);
+  // Espelho do activeUser num ref, atribuído durante o render. syncSubscription
+  // precisa DEVOLVER o perfil recém-mesclado a quem chamou (a revalidação do
+  // scanner decide na hora entre abrir o scanner ou o paywall), e ler esse
+  // valor de dentro do updater funcional do setState não serve: o React só
+  // executa o updater no render seguinte. O ref dá o valor atual sem prender a
+  // callback numa closure velha — que é o motivo de o updater existir ali.
+  const activeUserRef = useRef<User | null>(null);
+  activeUserRef.current = activeUser;
   const [activeAdminUser, setActiveAdminUser] = useState<User | null>(null);
-  const [adminSection, setAdminSection] = useState<"users" | "logs">("users");
+  const [adminSection, setAdminSection] = useState<"users" | "logs" | "payments">("users");
 
   // 2. Global Database States
   const [users, setUsers] = useState<User[]>([]);
@@ -404,6 +413,16 @@ export default function App() {
       if (synced) {
         // Reload states with new cloud data
         loadFromCache();
+        // O sync acima também rebaixa o documento de perfil para o cache, mas
+        // até aqui isso não chegava ao `activeUser` em memória: uma correção de
+        // nome ou uma troca de avatar feita pelo admin só aparecia depois de um
+        // logout/login. O Firestore é a fonte da verdade do perfil.
+        const fresh = dbLocal.getUsers().find((u) => u.userId === activeUser.userId);
+        if (fresh) {
+          setActiveUser((prev) =>
+            prev && prev.userId === fresh.userId && JSON.stringify(prev) !== JSON.stringify(fresh) ? fresh : prev
+          );
+        }
       }
     });
 
@@ -436,10 +455,11 @@ export default function App() {
   // to legacy users (server-side, since the client can't write freeTrialUntil)
   // and pulls any status set by the payment webhook. Updates `activeUser` in
   // place only when something actually changed, so it can't loop.
-  // Returns the resolved accessState (or null on failure) so callers that need
-  // to know whether the sync actually landed — e.g. the post-checkout poll
-  // below — don't have to read back a stale `activeUser` closure.
-  const syncSubscription = useCallback(async (): Promise<string | null> => {
+  // Returns the fresh profile (or null on failure) so callers that need to act
+  // on the result — o poll pós-checkout e a revalidação ao tocar num scanner
+  // bloqueado — não dependam do `activeUser` da closure, que ainda é o antigo
+  // logo depois do setState.
+  const syncSubscription = useCallback(async (): Promise<User | null> => {
     const current = auth.currentUser;
     if (!current) return null;
     try {
@@ -450,28 +470,50 @@ export default function App() {
       });
       if (!res.ok) return null;
       const data = await res.json();
-      setActiveUser((prev) => {
-        if (!prev) return prev;
-        const next: User = {
-          ...prev,
-          freeTrialUntil: data.freeTrialUntil ?? prev.freeTrialUntil,
-          subscriptionStatus: data.subscriptionStatus ?? prev.subscriptionStatus,
-          subscriptionPlan: data.subscriptionPlan ?? prev.subscriptionPlan,
-          subscriptionCurrentPeriodEnd: data.subscriptionCurrentPeriodEnd ?? prev.subscriptionCurrentPeriodEnd,
-          scanLimitExempt: data.scanLimitExempt ?? prev.scanLimitExempt,
-          trialPrescriptionScansUsed: data.trialPrescriptionScansUsed ?? prev.trialPrescriptionScansUsed,
-          trialReceiptScansUsed: data.trialReceiptScansUsed ?? prev.trialReceiptScansUsed,
-        };
-        if (JSON.stringify(next) === JSON.stringify(prev)) return prev;
+      const prev = activeUserRef.current;
+      if (!prev) return null;
+      const next: User = {
+        ...prev,
+        // Nome/status vêm junto: é por este endpoint que uma correção feita
+        // no painel admin alcança um app que não foi recarregado.
+        name: data.name ?? prev.name,
+        status: data.status ?? prev.status,
+        freeTrialUntil: data.freeTrialUntil ?? prev.freeTrialUntil,
+        subscriptionStatus: data.subscriptionStatus ?? prev.subscriptionStatus,
+        subscriptionPlan: data.subscriptionPlan ?? prev.subscriptionPlan,
+        subscriptionCurrentPeriodEnd: data.subscriptionCurrentPeriodEnd ?? prev.subscriptionCurrentPeriodEnd,
+        scanLimitExempt: data.scanLimitExempt ?? prev.scanLimitExempt,
+        trialPrescriptionScansUsed: data.trialPrescriptionScansUsed ?? prev.trialPrescriptionScansUsed,
+        trialReceiptScansUsed: data.trialReceiptScansUsed ?? prev.trialReceiptScansUsed,
+      };
+      // Só re-renderiza quando algo mudou de fato, senão o efeito que dispara
+      // este sync entraria em laço.
+      if (JSON.stringify(next) !== JSON.stringify(prev)) {
         dbLocal.setUserCache(next);
-        return next;
-      });
-      return data.accessState ?? null;
+        activeUserRef.current = next;
+        setActiveUser(next);
+      }
+      return next;
     } catch {
       /* rede offline — o app segue com o estado em cache */
       return null;
     }
   }, []);
+
+  // Um scanner bloqueado revalida ANTES de mostrar o paywall: sem isso, uma
+  // gratuidade recém-concedida pelo admin só chegava no próximo retorno ao
+  // primeiro plano (e ainda assim depois da trava de 5 min), e a pessoa via
+  // "Assine para escanear" com acesso já liberado no servidor. Devolve true
+  // quando o acesso apareceu — aí o próprio componente abre o scanner.
+  const handleBlockedScanAttempt = useCallback(
+    async (scanType: ScanType): Promise<boolean> => {
+      const fresh = await syncSubscription();
+      if (fresh && canPerformScan(fresh, scanType)) return true;
+      setShowSubscription(true);
+      return false;
+    },
+    [syncSubscription]
+  );
 
   // Sync subscription on login/user change.
   useEffect(() => {
@@ -498,9 +540,28 @@ export default function App() {
       lastChecked = now;
       syncSubscription();
     };
+    // Reconexão entra na mesma lógica (sem a trava de tempo): enquanto estava
+    // offline, qualquer sync anterior falhou silenciosamente e o estado em
+    // cache pode estar atrasado em relação ao servidor.
+    const onOnline = () => {
+      lastChecked = Date.now();
+      syncSubscription();
+    };
     document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", onOnline);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", onOnline);
+    };
   }, [activeUser?.userId, syncSubscription]);
+
+  // Abrir a tela de assinatura ou a aba de perfil é justamente quando a pessoa
+  // vai conferir "o admin já liberou?" — revalida na hora, sem trava.
+  useEffect(() => {
+    if (!activeUser) return;
+    if (!showSubscription && activeTab !== "profile") return;
+    syncSubscription();
+  }, [showSubscription, activeTab, activeUser?.userId, syncSubscription]);
 
   // Returning from the card Checkout Pro (MP redirects to /app?sub=...). The
   // Mercado Pago webhook that actually activates the subscription can land a
@@ -553,9 +614,9 @@ export default function App() {
       let attempts = 0;
       const maxAttempts = 10; // ~30s no total, mesma janela de tolerância do polling do PIX
       const poll = async () => {
-        const state = await syncSubscription();
+        const synced = await syncSubscription();
         attempts++;
-        if (state === "active") return;
+        if (synced && getAccessState(synced) === "active") return;
         if (attempts >= maxAttempts) {
           // Último recurso: pergunta direto ao Mercado Pago por ESTE pagamento
           // em vez de só esperar o webhook, que pode nunca chegar (falha de
@@ -569,8 +630,8 @@ export default function App() {
                 body: JSON.stringify({ paymentId: returnedPaymentId }),
               });
             } catch { /* melhor esforço — o toast abaixo já orienta a reabrir o app */ }
-            const finalState = await syncSubscription();
-            if (finalState === "active") return;
+            const finalSync = await syncSubscription();
+            if (finalSync && getAccessState(finalSync) === "active") return;
           }
           showToast("Ainda estamos confirmando seu pagamento. Se não atualizar em instantes, reabra o app.");
           return;
@@ -1235,29 +1296,53 @@ export default function App() {
   // fire-and-forget updates that could silently diverge from the backend.
   const handleUpdateUser = async (updatedUser: User): Promise<boolean> => {
     const before = users.find((u) => u.userId === updatedUser.userId);
+
+    // Só o que MUDOU vai para o Firestore. Mandar o documento inteiro montado a
+    // partir da linha renderizada fazia qualquer ação do painel (inclusive um
+    // toggle de isenção) reescrever freeTrialUntil/subscriptionCurrentPeriodEnd
+    // com o valor que aquela linha tinha ao ser carregada — desfazendo em
+    // silêncio um período gravado pelo webhook do Mercado Pago no meio do
+    // caminho. As regras validam o documento resultante do merge, então um
+    // patch parcial é igualmente válido.
+    const patch: Partial<User> = {};
+    (Object.keys(updatedUser) as (keyof User)[]).forEach((key) => {
+      if (key === "userId" || key === "createdAt") return;
+      if (!before || updatedUser[key] !== before[key]) {
+        (patch as any)[key] = updatedUser[key];
+      }
+    });
+
+    if (Object.keys(patch).length === 0) return true;
+
     try {
-      await dbFirebase.updateUserProfile(updatedUser);
+      await dbFirebase.updateUserFields(updatedUser.userId, patch);
     } catch (err: any) {
       console.error("Erro ao atualizar usuário no Firestore:", err);
       showToast(`Erro: não foi possível salvar as alterações de ${updatedUser.name} no servidor.`);
       return false;
     }
 
-    dbLocal.setUserCache(updatedUser);
+    // O que a gravação realmente produziu: a base do Firestore com o patch por
+    // cima. Usar `updatedUser` aqui reintroduziria pela porta dos fundos o
+    // mesmo problema que o patch resolve — os campos que o admin não tocou
+    // voltariam ao valor que a linha tinha quando foi renderizada.
+    const merged: User = { ...(before ?? updatedUser), ...patch };
+
+    dbLocal.setUserCache(merged);
     if (activeAdminUser) {
       await refreshUsersFromFirestore();
     } else {
       setUsers(dbLocal.getUsers());
     }
     logAction(
-      "update", "User", updatedUser.userId, `${updatedUser.name} (${updatedUser.email})`, "Painel Admin", activeAdminUser ?? activeUser,
-      describeChanges("User", before, updatedUser, USER_AUDIT_FIELDS)
+      "update", "User", merged.userId, `${merged.name} (${merged.email})`, "Painel Admin", activeAdminUser ?? activeUser,
+      describeChanges("User", before, merged, USER_AUDIT_FIELDS)
     );
-    showToast(`Cadastro de ${updatedUser.name} atualizado no diretório.`);
+    showToast(`Cadastro de ${merged.name} atualizado no diretório.`);
 
     // If the administrator edited their own status or role, update session
-    if (activeUser && activeUser.userId === updatedUser.userId) {
-      setActiveUser(updatedUser);
+    if (activeUser && activeUser.userId === merged.userId) {
+      setActiveUser(merged);
     }
     return true;
   };
@@ -1771,6 +1856,15 @@ export default function App() {
               </button>
               <button
                 type="button"
+                onClick={() => setAdminSection("payments")}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
+                  adminSection === "payments" ? "bg-brand-teal text-white shadow-xs" : "text-brand-teal/70 hover:text-brand-teal"
+                }`}
+              >
+                Pagamentos
+              </button>
+              <button
+                type="button"
                 onClick={() => setAdminSection("logs")}
                 className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
                   adminSection === "logs" ? "bg-brand-teal text-white shadow-xs" : "text-brand-teal/70 hover:text-brand-teal"
@@ -1788,6 +1882,8 @@ export default function App() {
                 onDeleteUser={handleDeleteUser}
                 onNotify={showToast}
               />
+            ) : adminSection === "payments" ? (
+              <AdminPayments />
             ) : (
               <AdminLogs />
             )}
@@ -1894,8 +1990,8 @@ export default function App() {
               onDeleteFarmacia={handleDeleteFarmacia}
               onAddCupom={handleAddCupom}
               onDeleteCupom={handleDeleteCupom}
-              canScan={canPerformScan(activeUser, "receipt")}
-              onSubscribe={() => setShowSubscription(true)}
+              scanBlock={getScanBlockReason(activeUser, "receipt")}
+              onBlockedScanAttempt={() => handleBlockedScanAttempt("receipt")}
             />
           )}
 
@@ -1906,8 +2002,8 @@ export default function App() {
               medicamentos={medicamentos}
               onAddReceita={handleAddReceita}
               onDeleteReceita={handleDeleteReceita}
-              canScan={canPerformScan(activeUser, "prescription")}
-              onSubscribe={() => setShowSubscription(true)}
+              scanBlock={getScanBlockReason(activeUser, "prescription")}
+              onBlockedScanAttempt={() => handleBlockedScanAttempt("prescription")}
             />
           )}
 

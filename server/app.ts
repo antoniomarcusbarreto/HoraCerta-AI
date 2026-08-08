@@ -13,7 +13,7 @@ import cors from "cors";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { initializeApp, getApps, getApp, cert, type App } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
-import { getFirestore, FieldValue, Timestamp, type Firestore } from "firebase-admin/firestore";
+import { getFirestore, FieldValue, Timestamp, AggregateField, type Firestore } from "firebase-admin/firestore";
 import webpush from "web-push";
 import { MercadoPagoConfig, Payment, Preference } from "mercadopago";
 import { createHash, createHmac, timingSafeEqual, randomInt, randomUUID } from "node:crypto";
@@ -225,7 +225,12 @@ async function getUserEmail(uid: string): Promise<string> {
 // security rules on purpose (Admin SDK) — the client is blocked from writing
 // these fields. Idempotent per paymentId so a re-delivered notification can't
 // extend the period twice. Renewals stack on top of any remaining time.
-async function activateSubscription(uid: string, plan: PlanId, paymentId: string | number): Promise<boolean> {
+async function activateSubscription(
+  uid: string,
+  plan: PlanId,
+  paymentId: string | number,
+  paymentMethod?: string
+): Promise<boolean> {
   const db = getDb();
   const userRef = db.collection("users").doc(uid);
   const paymentRef = userRef.collection("payments").doc(String(paymentId));
@@ -251,8 +256,16 @@ async function activateSubscription(uid: string, plan: PlanId, paymentId: string
 
   await paymentRef.set({
     paymentId: String(paymentId),
+    // Redundante com o caminho do documento (users/{uid}/payments/...), mas
+    // explícito: numa consulta collectionGroup o dono só sairia de
+    // ref.parent.parent.id, e registros gravados antes disso dependem
+    // justamente desse fallback na leitura.
+    userId: uid,
     plan,
     amount: planDef.amount,
+    // PIX e cartão têm taxas bem diferentes no Mercado Pago, então a forma de
+    // pagamento é informação de negócio real na conciliação — não só rótulo.
+    ...(paymentMethod ? { paymentMethod } : {}),
     status: "approved",
     processed: true,
     periodEnd: newEndIso,
@@ -718,6 +731,18 @@ const adminActionRateLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: userOrIpKey,
   message: { error: "Limite de ações administrativas excedido. Tente novamente mais tarde." },
+});
+
+// Separado do adminActionRateLimiter (30/h), que existe para MUTAÇÕES: navegar
+// uma lista paginada gasta várias requisições legítimas em sequência e
+// estouraria aquele teto só olhando dados.
+const adminReadRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey,
+  message: { error: "Limite de consultas administrativas excedido. Tente novamente mais tarde." },
 });
 
 const pushWriteRateLimiter = rateLimit({
@@ -1461,6 +1486,106 @@ export function createApiApp(): express.Express {
         details: { targetUid, status: req.body?.status },
       });
       res.status(500).json({ error: "Falha ao alterar o status do usuário." });
+    }
+  });
+
+  // Lista os pagamentos aprovados de TODOS os usuários (aba "Pagamentos" do
+  // Painel Admin). Vive no servidor, e não no cliente como as abas de log,
+  // porque `payments` é uma subcoleção sem regra em firestore.rules: o
+  // default-deny a torna ilegível pelo SDK cliente, e é assim que deve
+  // continuar — registro financeiro só sai daqui, atrás de requireAdmin.
+  app.get("/api/admin/payments", requireAdmin, adminReadRateLimiter, async (req, res) => {
+    try {
+      const db = getDb();
+      const pageSize = Math.min(Math.max(parseInt(String(req.query.limit ?? "30"), 10) || 30, 1), 100);
+      const cursor = typeof req.query.cursor === "string" ? req.query.cursor : undefined;
+      const from = typeof req.query.from === "string" ? req.query.from : undefined;
+      const to = typeof req.query.to === "string" ? req.query.to : undefined;
+
+      // `createdAt` é gravado como STRING ISO (new Date().toISOString()), não
+      // como Timestamp. Comparar Timestamp contra campo string não dá erro no
+      // Firestore — simplesmente nunca casa, e o filtro falha em silêncio
+      // (mesma armadilha documentada em buildLogQuery, src/firebase.ts).
+      let query = db.collectionGroup("payments").orderBy("createdAt", "desc");
+      if (from) query = query.where("createdAt", ">=", from);
+      if (to) query = query.where("createdAt", "<=", to);
+
+      // Agregado do INTERVALO INTEIRO, não só da página — um total que só
+      // somasse o que está carregado pareceria faturamento e não seria.
+      let totalAmount: number | null = null;
+      let totalCount: number | null = null;
+      // Flag explícita em vez de inferir pelo valor: com zero pagamentos a
+      // agregação devolve sum=null legitimamente, e tratar isso como "falhou"
+      // faria a tela rotular um total correto como meramente "carregado".
+      let aggregated = false;
+      try {
+        const agg = await query.aggregate({
+          count: AggregateField.count(),
+          sum: AggregateField.sum("amount"),
+        }).get();
+        totalCount = agg.data().count ?? 0;
+        totalAmount = agg.data().sum ?? 0;
+        aggregated = true;
+      } catch (aggErr) {
+        // Não é fatal: a lista é o que importa. O cliente rotula o total como
+        // "carregado" quando `aggregated` vier false.
+        console.warn("Agregação de pagamentos indisponível:", aggErr);
+      }
+
+      const snap = await (cursor ? query.startAfter(cursor) : query).limit(pageSize).get();
+
+      // O documento de pagamento não guarda nome/e-mail. Resolve a identidade
+      // dos donos da página em UMA chamada, em vez de um get por linha.
+      const rows = snap.docs.map((d) => {
+        const data = d.data();
+        return {
+          data,
+          // Registros gravados antes de userId passar a ser explícito só têm o
+          // dono no caminho do documento.
+          uid: (data.userId as string | undefined) || d.ref.parent.parent?.id || "",
+        };
+      });
+
+      const uniqueUids = [...new Set(rows.map((r) => r.uid).filter(Boolean))];
+      const profiles = new Map<string, { name?: string; email?: string }>();
+      if (uniqueUids.length > 0) {
+        const userDocs = await db.getAll(...uniqueUids.map((uid) => db.collection("users").doc(uid)));
+        for (const doc of userDocs) {
+          if (doc.exists) {
+            const u = doc.data() as any;
+            profiles.set(doc.id, { name: u?.name, email: u?.email });
+          }
+        }
+      }
+
+      const payments = rows.map(({ data, uid }) => ({
+        paymentId: String(data.paymentId ?? ""),
+        userId: uid,
+        userName: profiles.get(uid)?.name ?? null,
+        userEmail: profiles.get(uid)?.email ?? null,
+        plan: data.plan ?? null,
+        amount: typeof data.amount === "number" ? data.amount : null,
+        paymentMethod: data.paymentMethod ?? null,
+        status: data.status ?? null,
+        periodEnd: data.periodEnd ?? null,
+        createdAt: data.createdAt ?? null,
+      }));
+
+      res.json({
+        payments,
+        hasMore: snap.size === pageSize,
+        nextCursor: payments.length > 0 ? payments[payments.length - 1].createdAt : null,
+        aggregated,
+        totalAmount,
+        totalCount,
+      });
+    } catch (error: any) {
+      console.error("Admin list-payments error:", error);
+      await logServerError("GET /api/admin/payments", error, (req as any).uid, { statusCode: 500 });
+      res.status(500).json({
+        error: "Falha ao listar os pagamentos.",
+        details: error instanceof Error ? error.message : String(error),
+      });
     }
   });
 
@@ -2392,6 +2517,14 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
         scanLimitExempt: merged.scanLimitExempt ?? false,
         trialPrescriptionScansUsed: merged.trialPrescriptionScansUsed ?? 0,
         trialReceiptScansUsed: merged.trialReceiptScansUsed ?? 0,
+        // Identidade também: este endpoint é o único que a sessão já aberta
+        // consulta com frequência, então é por ele que uma correção de nome ou
+        // uma suspensão feita no painel alcança um app que não foi recarregado.
+        // avatarUrl fica FORA de propósito (até 500 KB) — ele chega no pull de
+        // perfil do dbLocal.syncFromFirebase.
+        name: merged.name ?? null,
+        status: merged.status ?? null,
+        role: merged.role ?? null,
       });
     } catch (error: any) {
       console.error("Subscription sync error:", error);
@@ -2537,7 +2670,7 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
           plan = amt === PLANS.yearly.amount ? "yearly" : amt === PLANS.monthly.amount ? "monthly" : undefined;
         }
         if (plan) {
-          await activateSubscription(uid, plan, info.id ?? paymentId);
+          await activateSubscription(uid, plan, info.id ?? paymentId, info.payment_method_id);
           subscriptionActive = true;
         } else {
           await logServerError(
@@ -2615,7 +2748,7 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
           plan = amt === PLANS.yearly.amount ? "yearly" : amt === PLANS.monthly.amount ? "monthly" : undefined;
         }
         if (uid && plan) {
-          await activateSubscription(uid, plan, info.id ?? dataId);
+          await activateSubscription(uid, plan, info.id ?? dataId, info.payment_method_id);
         } else {
           // Money already moved on Mercado Pago's side (status === "approved")
           // but we couldn't tell who to credit or which plan — must never fail

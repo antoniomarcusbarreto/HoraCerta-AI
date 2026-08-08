@@ -65,19 +65,38 @@ type ScanLimitFields = Pick<
 >;
 
 /**
- * Protege a cota do Gemini: durante o trial, cada usuário só pode realizar
- * TRIAL_SCAN_LIMIT scans de cada tipo (vitalício, não reseta). Assinatura ativa
- * ou carência (usuário que já pagou antes) seguem ilimitados — só o trial
- * inicial é limitado. Um admin pode isentar um usuário específico via
- * `scanLimitExempt`, independente de ele ter ou não assinatura.
+ * Por que o scanner está bloqueado — são dois motivos bem diferentes e a UI
+ * precisa distinguir: "subscription" é fim de acesso (trial/gratuidade vencida
+ * e sem assinatura), enquanto "quota" é o teto de scans grátis dentro de um
+ * período de gratuidade ainda válido. Dizer "Assine para escanear" no segundo
+ * caso mente para quem acabou de receber gratuidade do admin.
  */
-export function canPerformScan(user: ScanLimitFields | null | undefined, scanType: ScanType, now: Date = new Date()): boolean {
+export type ScanBlockReason = "subscription" | "quota" | null;
+
+/**
+ * Protege a cota do Gemini: durante o trial, cada usuário só pode realizar
+ * TRIAL_SCAN_LIMIT scans de cada tipo. Assinatura ativa ou carência (usuário
+ * que já pagou antes) seguem ilimitados — só o trial/gratuidade é limitado. Um
+ * admin pode isentar um usuário específico via `scanLimitExempt`, independente
+ * de ele ter ou não assinatura, e conceder gratuidade pelo painel devolve a
+ * cota (zera os contadores) — ver handleTrialSubmit em AdminPanel.tsx.
+ */
+export function getScanBlockReason(
+  user: ScanLimitFields | null | undefined,
+  scanType: ScanType,
+  now: Date = new Date()
+): ScanBlockReason {
   const state = getAccessState(user, now);
-  if (state === "blocked") return false;
-  if (state === "active" || state === "grace") return true;
-  if (user?.scanLimitExempt) return true;
+  if (state === "blocked") return "subscription";
+  if (state === "active" || state === "grace") return null;
+  if (user?.scanLimitExempt) return null;
   const used = scanType === "prescription" ? (user?.trialPrescriptionScansUsed || 0) : (user?.trialReceiptScansUsed || 0);
-  return used < TRIAL_SCAN_LIMIT;
+  return used < TRIAL_SCAN_LIMIT ? null : "quota";
+}
+
+/** Açúcar sobre getScanBlockReason para os pontos que só precisam do sim/não. */
+export function canPerformScan(user: ScanLimitFields | null | undefined, scanType: ScanType, now: Date = new Date()): boolean {
+  return getScanBlockReason(user, scanType, now) === null;
 }
 
 /** Dias inteiros restantes até uma data ISO (0 se já passou / ausente). */
