@@ -1,5 +1,6 @@
 import { User, Medicado, Receita, Medicamento, DoseLog, Consulta, Farmacia, CupomFiscal } from "./types";
 import { dbFirebase } from "./firebase";
+import { reportClientSyncError } from "./clientErrorLog";
 
 // Helper to generate seed dates relative to today
 const offsetDate = (hoursOffset: number): string => {
@@ -292,10 +293,34 @@ class DBLocalFallback {
   // fires for legitimate authorization failures (e.g. a suspended account
   // writing new data). It's only ever used as a trigger to re-check via a
   // real token refresh; the listener decides what that means.
-  private notifyIfAuthShapedError(err: unknown) {
+  private notifyIfAuthShapedError(err: unknown, action?: string, entityType?: string, entityId?: string) {
     if ((err as { code?: unknown })?.code === "permission-denied") {
       this.onAuthShapedWriteError?.(err);
     }
+    this.reportSyncFailureIfReal(err, action, entityType, entityId);
+  }
+
+  // Every add*/update*/delete* method above fire-and-forgets its Firestore
+  // write and only console.warn's on failure — invisible to the user, and
+  // (until now) invisible to us too. This reports genuine validation/permission
+  // failures (e.g. a photoUrl rejected by firestore.rules' size cap) to the
+  // server so they show up in the Admin Portal's "Erros" log for later
+  // investigation, WITHOUT changing the app's offline-first UX: the user still
+  // sees the optimistic success toast, this is purely for after-the-fact
+  // visibility. Plain connectivity failures are skipped — expected/frequent
+  // noise in an offline-first app, not signal.
+  private static readonly BENIGN_SYNC_ERROR_CODES = new Set(["unavailable", "deadline-exceeded", "cancelled"]);
+  private reportSyncFailureIfReal(err: unknown, action?: string, entityType?: string, entityId?: string) {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+    const code = (err as { code?: unknown })?.code;
+    if (typeof code !== "string" || DBLocalFallback.BENIGN_SYNC_ERROR_CODES.has(code)) return;
+    reportClientSyncError({
+      action: action ?? "unknown",
+      entityType,
+      entityId,
+      code,
+      message: err instanceof Error ? err.message : String(err),
+    }).catch(() => {});
   }
 
   private get<T>(key: string, defaults: T[]): T[] {
@@ -605,7 +630,7 @@ class DBLocalFallback {
     // Sync to Firestore
     dbFirebase.createUserProfile(updated).catch(e => {
       console.warn("Firestore: erro ao criar/atualizar perfil de usuário.", e);
-      this.notifyIfAuthShapedError(e);
+      this.notifyIfAuthShapedError(e, "createUserProfile", "User", updated.userId);
     });
   }
   // Não existe deleteUser aqui: apagar só o doc de perfil deixava a conta de
@@ -643,7 +668,7 @@ class DBLocalFallback {
     // Sync to Firestore
     dbFirebase.saveMedicado(m).catch(e => {
       console.warn("Firestore: erro ao cadastrar paciente.", e);
-      this.notifyIfAuthShapedError(e);
+      this.notifyIfAuthShapedError(e, "addMedicado", "Medicado", m.medicadoId);
     });
   }
   updateMedicado(updated: Medicado) {
@@ -656,7 +681,7 @@ class DBLocalFallback {
       // Sync to Firestore
       dbFirebase.updateMedicado(updated).catch(e => {
         console.warn("Firestore: erro ao atualizar paciente.", e);
-        this.notifyIfAuthShapedError(e);
+        this.notifyIfAuthShapedError(e, "updateMedicado", "Medicado", updated.medicadoId);
       });
     }
   }
@@ -666,7 +691,7 @@ class DBLocalFallback {
     if (item) {
       dbFirebase.deleteMedicado(item.userId, item.medicadoId).catch(e => {
         console.warn("Firestore: erro ao remover paciente.", e);
-        this.notifyIfAuthShapedError(e);
+        this.notifyIfAuthShapedError(e, "deleteMedicado", "Medicado", item.medicadoId);
       });
     }
 
@@ -686,7 +711,7 @@ class DBLocalFallback {
     // Sync to Firestore
     dbFirebase.saveReceita(r).catch(e => {
       console.warn("Firestore: erro ao cadastrar receita.", e);
-      this.notifyIfAuthShapedError(e);
+      this.notifyIfAuthShapedError(e, "addReceita", "Receita", r.receitaId);
     });
   }
   updateReceita(updated: Receita) {
@@ -699,7 +724,7 @@ class DBLocalFallback {
       // Sync to Firestore
       dbFirebase.updateReceita(updated).catch(e => {
         console.warn("Firestore: erro ao atualizar receita.", e);
-        this.notifyIfAuthShapedError(e);
+        this.notifyIfAuthShapedError(e, "updateReceita", "Receita", updated.receitaId);
       });
     }
   }
@@ -709,7 +734,7 @@ class DBLocalFallback {
     if (item) {
       dbFirebase.deleteReceita(item.userId, item.medicadoId, item.receitaId).catch(e => {
         console.warn("Firestore: erro ao remover receita.", e);
-        this.notifyIfAuthShapedError(e);
+        this.notifyIfAuthShapedError(e, "deleteReceita", "Receita", item.receitaId);
       });
     }
 
@@ -745,7 +770,7 @@ class DBLocalFallback {
     // Sync to Firestore
     dbFirebase.saveMedicamento(m).catch(e => {
       console.warn("Firestore: erro ao cadastrar medicamento.", e);
-      this.notifyIfAuthShapedError(e);
+      this.notifyIfAuthShapedError(e, "addMedicamento", "Medicamento", m.medicamentoId);
     });
   }
   updateMedicamento(updated: Medicamento) {
@@ -758,7 +783,7 @@ class DBLocalFallback {
       // Sync to Firestore
       dbFirebase.updateMedicamento(updated).catch(e => {
         console.warn("Firestore: erro ao atualizar medicamento.", e);
-        this.notifyIfAuthShapedError(e);
+        this.notifyIfAuthShapedError(e, "updateMedicamento", "Medicamento", updated.medicamentoId);
       });
     }
   }
@@ -768,7 +793,7 @@ class DBLocalFallback {
     if (item) {
       dbFirebase.deleteMedicamento(item.userId, item.medicadoId, item.medicamentoId).catch(e => {
         console.warn("Firestore: erro ao remover medicamento.", e);
-        this.notifyIfAuthShapedError(e);
+        this.notifyIfAuthShapedError(e, "deleteMedicamento", "Medicamento", item.medicamentoId);
       });
     }
 
@@ -788,7 +813,7 @@ class DBLocalFallback {
     // Sync to Firestore
     dbFirebase.saveDoseLog(l).catch(e => {
       console.warn("Firestore: erro ao cadastrar log de dose.", e);
-      this.notifyIfAuthShapedError(e);
+      this.notifyIfAuthShapedError(e, "addDoseLog", "DoseLog", l.logId);
     });
   }
   updateDoseLog(updated: DoseLog) {
@@ -801,7 +826,7 @@ class DBLocalFallback {
       // Sync to Firestore
       dbFirebase.updateDoseLog(updated).catch(e => {
         console.warn("Firestore: erro ao atualizar log de dose.", e);
-        this.notifyIfAuthShapedError(e);
+        this.notifyIfAuthShapedError(e, "updateDoseLog", "DoseLog", updated.logId);
       });
     }
   }
@@ -811,7 +836,7 @@ class DBLocalFallback {
     if (item) {
       dbFirebase.deleteDoseLog(item.userId, item.medicadoId, item.medicamentoId, item.logId).catch(e => {
         console.warn("Firestore: erro ao remover log de dose.", e);
-        this.notifyIfAuthShapedError(e);
+        this.notifyIfAuthShapedError(e, "deleteDoseLog", "DoseLog", item.logId);
       });
     }
 
@@ -831,7 +856,7 @@ class DBLocalFallback {
     // Sync to Firestore
     dbFirebase.saveConsulta(c).catch(e => {
       console.warn("Firestore: erro ao cadastrar consulta.", e);
-      this.notifyIfAuthShapedError(e);
+      this.notifyIfAuthShapedError(e, "addConsulta", "Consulta", c.consultaId);
     });
   }
   updateConsulta(updated: Consulta) {
@@ -844,7 +869,7 @@ class DBLocalFallback {
       // Sync to Firestore
       dbFirebase.updateConsulta(updated).catch(e => {
         console.warn("Firestore: erro ao atualizar consulta.", e);
-        this.notifyIfAuthShapedError(e);
+        this.notifyIfAuthShapedError(e, "updateConsulta", "Consulta", updated.consultaId);
       });
     }
   }
@@ -854,7 +879,7 @@ class DBLocalFallback {
     if (item) {
       dbFirebase.deleteConsulta(item.userId, item.consultaId).catch(e => {
         console.warn("Firestore: erro ao remover consulta.", e);
-        this.notifyIfAuthShapedError(e);
+        this.notifyIfAuthShapedError(e, "deleteConsulta", "Consulta", item.consultaId);
       });
     }
 
@@ -874,7 +899,7 @@ class DBLocalFallback {
     // Sync to Firestore
     dbFirebase.saveFarmacia(f).catch(e => {
       console.warn("Firestore: erro ao cadastrar farmácia.", e);
-      this.notifyIfAuthShapedError(e);
+      this.notifyIfAuthShapedError(e, "addFarmacia", "Farmacia", f.farmaciaId);
     });
   }
   updateFarmacia(updated: Farmacia) {
@@ -887,7 +912,7 @@ class DBLocalFallback {
       // Sync to Firestore
       dbFirebase.updateFarmacia(updated).catch(e => {
         console.warn("Firestore: erro ao atualizar farmácia.", e);
-        this.notifyIfAuthShapedError(e);
+        this.notifyIfAuthShapedError(e, "updateFarmacia", "Farmacia", updated.farmaciaId);
       });
     }
   }
@@ -897,7 +922,7 @@ class DBLocalFallback {
     if (item) {
       dbFirebase.deleteFarmacia(item.userId, item.farmaciaId).catch(e => {
         console.warn("Firestore: erro ao remover farmácia.", e);
-        this.notifyIfAuthShapedError(e);
+        this.notifyIfAuthShapedError(e, "deleteFarmacia", "Farmacia", item.farmaciaId);
       });
     }
 
@@ -917,7 +942,7 @@ class DBLocalFallback {
     // Sync to Firestore
     dbFirebase.saveCupom(c).catch(e => {
       console.warn("Firestore: erro ao cadastrar cupom fiscal.", e);
-      this.notifyIfAuthShapedError(e);
+      this.notifyIfAuthShapedError(e, "addCupom", "CupomFiscal", c.cupomId);
     });
   }
   deleteCupom(id: string) {
@@ -926,7 +951,7 @@ class DBLocalFallback {
     if (item) {
       dbFirebase.deleteCupom(item.userId, item.cupomId).catch(e => {
         console.warn("Firestore: erro ao remover cupom fiscal.", e);
-        this.notifyIfAuthShapedError(e);
+        this.notifyIfAuthShapedError(e, "deleteCupom", "CupomFiscal", item.cupomId);
       });
     }
 

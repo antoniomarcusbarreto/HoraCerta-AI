@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Medicado, Medicamento, DoseLog } from "../types";
 import { getDoseTimesForMedOnDate, isMedActiveOnDay, isDoseTaken } from "../utils/doseSchedule";
-import { processImageFile, IMAGE_MAX_DIMENSION } from "../imageUtils";
+import { processImageFile, resizeImageDataUrl, MAX_STORED_BYTES, IMAGE_MAX_DIMENSION } from "../imageUtils";
 import ConfirmDialog from "./ConfirmDialog";
 import { InstallAppCard } from "./InstallAppPrompt";
 import {
@@ -113,24 +113,41 @@ export default function Dashboard({
     setCameraActive(false);
   };
 
-  const capturePhoto = () => {
-    if (videoRef.current) {
-      // Cap the captured square at IMAGE_MAX_DIMENSION so the stored base64 stays
-      // small (patient photos live inside the Firestore doc / localStorage).
-      const srcSize = Math.min(videoRef.current.videoWidth, videoRef.current.videoHeight) || 300;
-      const outSize = Math.min(srcSize, IMAGE_MAX_DIMENSION);
-      const canvas = document.createElement("canvas");
-      canvas.width = outSize;
-      canvas.height = outSize;
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        const sx = (videoRef.current.videoWidth - srcSize) / 2;
-        const sy = (videoRef.current.videoHeight - srcSize) / 2;
-        ctx.drawImage(videoRef.current, sx, sy, srcSize, srcSize, 0, 0, outSize, outSize);
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-        setPhotoUrl(dataUrl);
-      }
+  const capturePhoto = async () => {
+    if (!videoRef.current) return;
+    // Cap the captured square at IMAGE_MAX_DIMENSION so resizeImageDataUrl below
+    // (same step-down ladder the gallery upload uses) doesn't have to decode a
+    // full-resolution frame — this is just a cheap pre-downscale, not the size
+    // guarantee itself.
+    const srcSize = Math.min(videoRef.current.videoWidth, videoRef.current.videoHeight) || 300;
+    const outSize = Math.min(srcSize, IMAGE_MAX_DIMENSION);
+    const canvas = document.createElement("canvas");
+    canvas.width = outSize;
+    canvas.height = outSize;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
       stopCamera();
+      return;
+    }
+    const sx = (videoRef.current.videoWidth - srcSize) / 2;
+    const sy = (videoRef.current.videoHeight - srcSize) / 2;
+    ctx.drawImage(videoRef.current, sx, sy, srcSize, srcSize, 0, 0, outSize, outSize);
+    const rawDataUrl = canvas.toDataURL("image/jpeg", 0.85);
+    stopCamera();
+
+    // A single fixed-quality shot here (unlike the gallery path, which already
+    // goes through processImageFile) could still land above what firestore.rules
+    // accepts for photoUrl — run it through the same safety net so a detailed
+    // camera capture can't silently fail to sync (see imageUtils.ts).
+    try {
+      const resized = await resizeImageDataUrl(rawDataUrl);
+      if (resized.length > MAX_STORED_BYTES) {
+        onNotify("Não foi possível reduzir esta imagem o suficiente. Tente outra foto.");
+        return;
+      }
+      setPhotoUrl(resized);
+    } catch (err: any) {
+      onNotify(err?.message || "Não foi possível processar a foto capturada.");
     }
   };
 

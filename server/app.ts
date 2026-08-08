@@ -1205,6 +1205,34 @@ export function createApiApp(): express.Express {
     }
   });
 
+  // Best-effort report of a Firestore write failure the CLIENT observed but
+  // couldn't surface to the user — dbLocalFallback.ts's add*/update*/delete*
+  // methods are fire-and-forget by design (offline-first), so a rejected write
+  // today only console.warn's in the browser. Reuses logServerError / the
+  // existing errorLogs collection (same LGPD retention/purge, same
+  // AdminLogs.tsx "Erros" tab) with an action prefixed "client-sync-failed:"
+  // so these are distinguishable, by substring search, from server-route
+  // failures already logged there. requireAuth is what makes `userId` in the
+  // log trustworthy — read from the verified token, never the request body.
+  app.post("/api/logs/client-error", requireAuth, logWriteRateLimiter, async (req, res) => {
+    const uid = (req as any).uid as string;
+    try {
+      const { action, entityType, entityId, code, message } = req.body || {};
+      const safeAction = typeof action === "string" ? action.slice(0, 64) : "unknown";
+      const safeMessage = typeof message === "string" ? message.slice(0, 500) : "";
+      const parts = [
+        entityType && entityId ? `${String(entityType).slice(0, 64)}:${String(entityId).slice(0, 128)}` : null,
+        code ? `code=${String(code).slice(0, 64)}` : null,
+        safeMessage,
+      ].filter(Boolean);
+      await logServerError(`client-sync-failed:${safeAction}`, parts.join(" — "), uid);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Client error log error:", error);
+      res.status(500).json({ error: "Falha ao registrar log de erro do cliente." });
+    }
+  });
+
   // Admin: change another user's real Firebase Auth password. The web/client
   // SDK has no way to do this for anyone but the currently signed-in user —
   // it requires the Admin SDK, hence this server-side, claim-gated endpoint.
