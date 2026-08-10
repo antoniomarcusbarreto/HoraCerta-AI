@@ -556,6 +556,42 @@ async function purgeUserShares(uid: string): Promise<{ sharesDeleted: number; me
   return { sharesDeleted: allDocs.size, medicadosResynced: toResync.size };
 }
 
+// Extrai uma mensagem LEGÍVEL de qualquer coisa que tenha sido lançada.
+//
+// Existe porque `String(erro)` num objeto comum devolve "[object Object]" — foi
+// exatamente o que os logs registraram na primeira falha real de PIX em
+// produção, deixando o diagnóstico cego. O SDK do Mercado Pago não lança
+// `Error`: lança um objeto com `message`/`status` e um array `cause` onde mora
+// a descrição que realmente importa (ex.: chave PIX não habilitada na conta).
+function describeError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object") {
+    const e = error as Record<string, any>;
+    const partes: string[] = [];
+    if (e.message && typeof e.message === "string") partes.push(e.message);
+    if (e.status || e.statusCode) partes.push(`status=${e.status ?? e.statusCode}`);
+    // `cause` do Mercado Pago: [{ code, description }]
+    const cause = e.cause ?? e.error?.cause;
+    if (Array.isArray(cause)) {
+      for (const c of cause) {
+        if (!c) continue;
+        const desc = c.description ?? c.message ?? (typeof c === "string" ? c : null);
+        if (desc) partes.push(`[${c.code ?? "?"}] ${desc}`);
+      }
+    }
+    if (partes.length > 0) return partes.join(" | ");
+    try {
+      // Último recurso: o objeto inteiro, que ainda é infinitamente melhor que
+      // "[object Object]" para descobrir o que o terceiro respondeu.
+      return JSON.stringify(error, Object.getOwnPropertyNames(error)).slice(0, 1500);
+    } catch {
+      return "[erro não serializável]";
+    }
+  }
+  return String(error);
+}
+
 // Persists a server-side failure for the Admin Portal's "Logs" tab.
 // Best-effort and swallows its own errors — a logging failure must never mask
 // or replace the original error response already sent to the caller.
@@ -574,7 +610,7 @@ async function logServerError(
   extra?: { statusCode?: number; details?: Record<string, string | number | boolean | undefined> }
 ): Promise<void> {
   try {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = describeError(error);
     const stack = error instanceof Error && error.stack ? error.stack.slice(0, 2000) : undefined;
     const errorLogId = `err_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const payload: Record<string, any> = {
@@ -2667,7 +2703,7 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
         statusCode: 500,
         details: { plan: req.body?.plan },
       });
-      res.status(500).json({ error: "Falha ao gerar cobrança PIX.", details: error?.message });
+      res.status(500).json({ error: "Falha ao gerar cobrança PIX.", details: describeError(error) });
     }
   });
 
@@ -2719,7 +2755,7 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
         statusCode: 500,
         details: { plan: req.body?.plan },
       });
-      res.status(500).json({ error: "Falha ao criar checkout de cartão.", details: error?.message });
+      res.status(500).json({ error: "Falha ao criar checkout de cartão.", details: describeError(error) });
     }
   });
 
