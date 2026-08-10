@@ -2,6 +2,7 @@ import React, { useState, useRef } from "react";
 import { auth } from "../firebase";
 import { CupomFiscal } from "../types";
 import { TRIAL_SCAN_LIMIT } from "../subscription";
+import { prepareScanImage } from "../imageUtils";
 import { Upload, Camera, FileText, Sparkles, Check, ArrowRight, Loader2, Calendar, ShoppingBag, Plus, Trash2, AlertCircle } from "lucide-react";
 
 interface ReceiptScannerProps {
@@ -90,19 +91,6 @@ export default function ReceiptScanner({
     }
   };
 
-  // Convert File to Base64
-  const convertToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => {
-        const base64String = (reader.result as string).split(",")[1];
-        resolve(base64String);
-      };
-      reader.onerror = (error) => reject(error);
-    });
-  };
-
   // Trigger Gemini Scanner
   const handleStartScan = async () => {
     if (!file) return;
@@ -121,7 +109,9 @@ export default function ReceiptScanner({
     }, 1200);
 
     try {
-      const base64Data = await convertToBase64(file);
+      // Reduz antes de enviar (ver prepareScanImage): o corpo do POST precisa
+      // caber no limite da plataforma.
+      const { base64, mimeType } = await prepareScanImage(file);
       const idToken = await auth.currentUser?.getIdToken();
       if (!idToken) {
         throw new Error("Sessão expirada. Faça login novamente.");
@@ -133,8 +123,8 @@ export default function ReceiptScanner({
           Authorization: `Bearer ${idToken}`,
         },
         body: JSON.stringify({
-          imageBase64: base64Data,
-          mimeType: file.type || "image/jpeg",
+          imageBase64: base64,
+          mimeType,
         }),
       });
 

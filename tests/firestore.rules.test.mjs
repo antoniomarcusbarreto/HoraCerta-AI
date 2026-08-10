@@ -381,3 +381,17 @@ test("compartilhado: estranho não lê o convite de outra pessoa", async () => {
   const db = authed(ATTACKER);
   await assertFails(getDoc(doc(db, "shares", "share_1")));
 });
+
+// O contador do rate limit durável (durableRateLimiter em server/app.ts) é o
+// que segura o gasto com o Gemini e o envio de e-mail para terceiros quando o
+// limiter em memória não vale nada (serverless). Escrever nele anularia o
+// limite; ler já entregaria quanto falta para o teto.
+test("rate limit: cliente não escreve no contador durável", async () => {
+  const db = authed(OWNER);
+  await assertFails(setDoc(doc(db, "rateLimits", `scan_0_${OWNER}`), { count: 0 }));
+});
+
+test("rate limit: cliente não lê o contador durável", async () => {
+  const db = authed(OWNER);
+  await assertFails(getDoc(doc(db, "rateLimits", `scan_0_${OWNER}`)));
+});

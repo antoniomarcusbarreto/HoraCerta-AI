@@ -235,44 +235,52 @@ async function activateSubscription(
   const userRef = db.collection("users").doc(uid);
   const paymentRef = userRef.collection("payments").doc(String(paymentId));
 
-  const existing = await paymentRef.get();
-  if (existing.exists && existing.data()?.processed === true) {
-    return false; // already applied — ignore duplicate webhook
-  }
-
   const planDef = PLANS[plan];
-  const nowMs = Date.now();
-  const userSnap = await userRef.get();
-  const currentEndIso = userSnap.exists ? (userSnap.data()?.subscriptionCurrentPeriodEnd as string | undefined) : undefined;
-  const currentEndMs = currentEndIso ? new Date(currentEndIso).getTime() : 0;
-  const baseMs = Math.max(nowMs, Number.isFinite(currentEndMs) ? currentEndMs : 0);
-  const newEndIso = new Date(baseMs + planDef.days * 24 * 60 * 60 * 1000).toISOString();
 
-  await userRef.set({
-    subscriptionStatus: "active",
-    subscriptionPlan: plan,
-    subscriptionCurrentPeriodEnd: newEndIso,
-  }, { merge: true });
+  // TRANSAÇÃO: a checagem de idempotência e as duas escritas precisam ser
+  // atômicas. O webhook do Mercado Pago e o /verify-payment (que o cliente
+  // dispara ao voltar do checkout) chegam praticamente juntos para o mesmo
+  // pagamento; com get-e-depois-set, os dois liam `processed: false` e
+  // estendiam o período DUAS vezes — o assinante ganhava o dobro de dias.
+  return await db.runTransaction(async (tx) => {
+    const existing = await tx.get(paymentRef);
+    if (existing.exists && existing.data()?.processed === true) {
+      return false; // já aplicado — ignora a notificação repetida
+    }
 
-  await paymentRef.set({
-    paymentId: String(paymentId),
-    // Redundante com o caminho do documento (users/{uid}/payments/...), mas
-    // explícito: numa consulta collectionGroup o dono só sairia de
-    // ref.parent.parent.id, e registros gravados antes disso dependem
-    // justamente desse fallback na leitura.
-    userId: uid,
-    plan,
-    amount: planDef.amount,
-    // PIX e cartão têm taxas bem diferentes no Mercado Pago, então a forma de
-    // pagamento é informação de negócio real na conciliação — não só rótulo.
-    ...(paymentMethod ? { paymentMethod } : {}),
-    status: "approved",
-    processed: true,
-    periodEnd: newEndIso,
-    createdAt: new Date().toISOString(),
-  }, { merge: true });
+    const nowMs = Date.now();
+    const userSnap = await tx.get(userRef);
+    const currentEndIso = userSnap.exists ? (userSnap.data()?.subscriptionCurrentPeriodEnd as string | undefined) : undefined;
+    const currentEndMs = currentEndIso ? new Date(currentEndIso).getTime() : 0;
+    const baseMs = Math.max(nowMs, Number.isFinite(currentEndMs) ? currentEndMs : 0);
+    const newEndIso = new Date(baseMs + planDef.days * 24 * 60 * 60 * 1000).toISOString();
 
-  return true;
+    tx.set(userRef, {
+      subscriptionStatus: "active",
+      subscriptionPlan: plan,
+      subscriptionCurrentPeriodEnd: newEndIso,
+    }, { merge: true });
+
+    tx.set(paymentRef, {
+      paymentId: String(paymentId),
+      // Redundante com o caminho do documento (users/{uid}/payments/...), mas
+      // explícito: numa consulta collectionGroup o dono só sairia de
+      // ref.parent.parent.id, e registros gravados antes disso dependem
+      // justamente desse fallback na leitura.
+      userId: uid,
+      plan,
+      amount: planDef.amount,
+      // PIX e cartão têm taxas bem diferentes no Mercado Pago, então a forma de
+      // pagamento é informação de negócio real na conciliação — não só rótulo.
+      ...(paymentMethod ? { paymentMethod } : {}),
+      status: "approved",
+      processed: true,
+      periodEnd: newEndIso,
+      createdAt: new Date().toISOString(),
+    }, { merge: true });
+
+    return true;
+  });
 }
 
 // Validates the `x-signature` HMAC that Mercado Pago attaches to every webhook.
@@ -319,28 +327,58 @@ function validateMpSignature(req: express.Request): boolean {
 // client gate, and we must not lock out paying users on a transient read error.
 // Stashes the resolved access state on the request so the route handler can
 // decide whether to bump the trial scan counter without a second Firestore read.
+// O campo de contagem por tipo de scan, para reserva e estorno.
+const SCAN_COUNTER_FIELD: Record<ScanType, string> = {
+  prescription: "trialPrescriptionScansUsed",
+  receipt: "trialReceiptScansUsed",
+};
+
 function requireScanAccess(scanType: ScanType) {
   return async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const uid = (req as any).uid as string;
     try {
-      const uid = (req as any).uid as string;
-      const snap = await getDb().collection("users").doc(uid).get();
-      const data = snap.exists ? snap.data() : null;
-      const user = {
-        freeTrialUntil: data?.freeTrialUntil as string | undefined,
-        subscriptionCurrentPeriodEnd: data?.subscriptionCurrentPeriodEnd as string | undefined,
-        scanLimitExempt: data?.scanLimitExempt as boolean | undefined,
-        trialPrescriptionScansUsed: data?.trialPrescriptionScansUsed as number | undefined,
-        trialReceiptScansUsed: data?.trialReceiptScansUsed as number | undefined,
-      };
-      const state = getAccessState(user);
-      if (state === "blocked") {
+      const db = getDb();
+      const userRef = db.collection("users").doc(uid);
+
+      // RESERVA, não só checagem. O incremento acontece na MESMA transação que
+      // lê o contador, antes de a imagem ir para o Gemini. Duas razões:
+      //  1. concorrência: checar-depois-incrementar deixava uma janela de vários
+      //     segundos (o tempo da chamada ao Gemini) em que N requisições
+      //     paralelas liam o mesmo valor e passavam todas pela cota;
+      //  2. serverless: o incremento pós-resposta podia nunca ser gravado, já
+      //     que a invocação da Vercel pode congelar assim que o corpo é enviado.
+      // Se o scan falhar depois, a rota estorna (ver refundScanReservation).
+      const outcome = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(userRef);
+        const data = snap.exists ? snap.data() : null;
+        const user = {
+          freeTrialUntil: data?.freeTrialUntil as string | undefined,
+          subscriptionCurrentPeriodEnd: data?.subscriptionCurrentPeriodEnd as string | undefined,
+          scanLimitExempt: data?.scanLimitExempt as boolean | undefined,
+          trialPrescriptionScansUsed: data?.trialPrescriptionScansUsed as number | undefined,
+          trialReceiptScansUsed: data?.trialReceiptScansUsed as number | undefined,
+        };
+        const state = getAccessState(user);
+        if (state === "blocked") return { denied: "subscription" as const };
+        if (!canPerformScan(user, scanType)) return { denied: "quota" as const };
+
+        // Só o trial consome cota: assinante, carência e isento são ilimitados
+        // (mesma precedência de getScanBlockReason, em src/subscription.ts).
+        const consumes = state === "trial" && !user.scanLimitExempt;
+        if (consumes) {
+          tx.set(userRef, { [SCAN_COUNTER_FIELD[scanType]]: FieldValue.increment(1) }, { merge: true });
+        }
+        return { denied: null, reserved: consumes };
+      });
+
+      if (outcome.denied === "subscription") {
         res.status(403).json({
           error: "É necessária uma assinatura ativa para usar o scanner.",
           code: "SUBSCRIPTION_REQUIRED",
         });
         return;
       }
-      if (!canPerformScan(user, scanType)) {
+      if (outcome.denied === "quota") {
         res.status(403).json({
           error: scanType === "prescription"
             ? `Você já utilizou seus ${TRIAL_SCAN_LIMIT} scans gratuitos de receita do período de testes. Assine um plano para continuar usando o leitor de receitas.`
@@ -349,13 +387,40 @@ function requireScanAccess(scanType: ScanType) {
         });
         return;
       }
-      (req as any).scanAccessState = state;
+
+      (req as any).scanReserved = outcome.reserved === true;
+      (req as any).scanType = scanType;
       next();
     } catch (err) {
-      console.warn("Verificação de acesso ao scanner falhou (liberando por segurança de disponibilidade):", err);
+      // Continua liberando diante de erro de infraestrutura: este é o guarda
+      // secundário (a UI já bloqueia) e derrubar o scanner de um assinante por
+      // uma falha transitória de leitura é pior que o risco de um scan a mais.
+      // Agora registrado no errorLogs — antes só ia para o console e ninguém
+      // via que a cota tinha parado de ser aplicada.
+      await logServerError("requireScanAccess (liberado por indisponibilidade)", err, uid, {
+        details: { scanType },
+      });
+      (req as any).scanReserved = false;
+      (req as any).scanType = scanType;
       next();
     }
   };
+}
+
+// Devolve a cota reservada quando o scan não chegou a produzir resultado. É
+// awaited de propósito (ao contrário do incremento antigo): em serverless, uma
+// escrita disparada sem await depois da resposta pode simplesmente não ocorrer.
+async function refundScanReservation(req: express.Request): Promise<void> {
+  if (!(req as any).scanReserved) return;
+  const uid = (req as any).uid as string;
+  const scanType = (req as any).scanType as ScanType;
+  try {
+    await getDb().collection("users").doc(uid)
+      .set({ [SCAN_COUNTER_FIELD[scanType]]: FieldValue.increment(-1) }, { merge: true });
+    (req as any).scanReserved = false;
+  } catch (err) {
+    console.warn("Falha ao estornar cota de scan:", err);
+  }
 }
 
 // Requires a valid Firebase ID token in the Authorization header. Rejects with
@@ -870,6 +935,64 @@ const shareWriteRateLimiter = rateLimit({
   message: { error: "Muitas operações de compartilhamento. Tente novamente mais tarde." },
 });
 
+// ------------------------------------------
+// RATE LIMIT DURÁVEL (Firestore)
+// ------------------------------------------
+// Os limiters acima guardam o contador na MEMÓRIA do processo. Em serverless
+// isso quase não limita nada: cada invocação da Vercel pode ser um processo
+// novo, e o contador nasce zerado junto com ela. Para os endpoints em que
+// estourar o teto custa dinheiro (Gemini) ou manda e-mail para terceiros
+// (reset de senha, convites), o contador precisa viver fora do processo.
+//
+// Janela fixa, não deslizante: é o suficiente para conter abuso e cabe em uma
+// única transação por requisição. `expiresAt` alimenta o TTL nativo do
+// Firestore, então a coleção se limpa sozinha.
+const durableLimits = {
+  scan: { max: 10, windowMs: 60 * 60 * 1000, message: "Limite de leituras por Inteligência Artificial excedido. Tente novamente mais tarde." },
+  passwordResetRequest: { max: 8, windowMs: 60 * 60 * 1000, message: "Muitas solicitações de redefinição de senha. Tente novamente mais tarde." },
+  passwordResetConfirm: { max: 20, windowMs: 60 * 60 * 1000, message: "Muitas tentativas. Tente novamente mais tarde." },
+  shareInvite: { max: 30, windowMs: 60 * 60 * 1000, message: "Muitas operações de compartilhamento. Tente novamente mais tarde." },
+} as const;
+
+type DurableLimitName = keyof typeof durableLimits;
+
+// Middleware que consome 1 unidade da janela atual. Falha ABERTO: se o
+// Firestore estiver indisponível, o limiter em memória que acompanha a rota
+// continua valendo e é preferível atender o usuário legítimo.
+function durableRateLimiter(name: DurableLimitName) {
+  const { max, windowMs, message } = durableLimits[name];
+  return async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    try {
+      const bucket = Math.floor(Date.now() / windowMs);
+      // A chave inclui a janela, então o documento de uma janela vencida nunca
+      // é reaproveitado — não é preciso zerar contador em lugar nenhum.
+      const key = `${name}_${bucket}_${userOrIpKey(req)}`.replace(/[^a-zA-Z0-9_.:@-]/g, "_").slice(0, 400);
+      const ref = getDb().collection("rateLimits").doc(key);
+
+      const allowed = await getDb().runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        const count = snap.exists ? Number(snap.data()?.count) || 0 : 0;
+        if (count >= max) return false;
+        tx.set(ref, {
+          count: count + 1,
+          name,
+          expiresAt: Timestamp.fromDate(new Date((bucket + 2) * windowMs)),
+        }, { merge: true });
+        return true;
+      });
+
+      if (!allowed) {
+        res.status(429).json({ error: message });
+        return;
+      }
+      next();
+    } catch (err) {
+      console.warn(`Rate limit durável (${name}) indisponível, seguindo com o limiter em memória:`, err);
+      next();
+    }
+  };
+}
+
 // ==========================================
 // COMPARTILHAMENTO ENTRE CUIDADORES
 // ==========================================
@@ -1268,13 +1391,23 @@ export function createApiApp(): express.Express {
   app.post("/api/logs/login", requireAuth, logWriteRateLimiter, async (req, res) => {
     try {
       const uid = (req as any).uid as string;
-      const { userName, userEmail } = req.body || {};
+      // Identidade lida do registro do Auth, NUNCA do corpo. Antes o nome e o
+      // e-mail vinham de `req.body`: o uid e o IP eram confiáveis, mas os dois
+      // campos que o admin realmente lê no painel podiam ser forjados por
+      // qualquer autenticado, permitindo poluir a trilha com identidade alheia.
+      // displayName só existe para quem se cadastrou depois do updateProfile no
+      // AuthScreen; contas mais antigas caem no nome do perfil no Firestore.
+      const [authUser, profileSnap] = await Promise.all([
+        getAuth(getAdminApp()).getUser(uid).catch(() => null),
+        getDb().collection("users").doc(uid).get().catch(() => null),
+      ]);
+      const resolvedName = authUser?.displayName || (profileSnap?.data()?.name as string | undefined) || "";
       const logId = `login_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       await getDb().collection("loginLogs").doc(logId).set({
         logId,
         userId: uid,
-        userName: typeof userName === "string" ? userName.slice(0, 128) : "",
-        userEmail: typeof userEmail === "string" ? userEmail.slice(0, 128) : "",
+        userName: resolvedName.slice(0, 128),
+        userEmail: (authUser?.email || "").slice(0, 128),
         ip: getClientIp(req),
         userAgent: typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"].slice(0, 256) : null,
         createdAt: new Date().toISOString(),
@@ -1767,7 +1900,7 @@ export function createApiApp(): express.Express {
   //     single admin anyway (e.g. the user isn't sure which email they used),
   //     who can investigate and reset manually via the existing
   //     /api/admin/change-user-password flow.
-  app.post("/api/auth/request-password-reset", passwordResetRequestRateLimiter, async (req, res) => {
+  app.post("/api/auth/request-password-reset", passwordResetRequestRateLimiter, durableRateLimiter("passwordResetRequest"), async (req, res) => {
     try {
       const { email, forceSend } = req.body || {};
 
@@ -1866,7 +1999,7 @@ export function createApiApp(): express.Express {
   // are intentionally generic ("código inválido ou expirado") whether the
   // account doesn't exist, the code is wrong, or it expired — same reasoning
   // as the request endpoint, this must never confirm which emails exist.
-  app.post("/api/auth/confirm-password-reset", passwordResetConfirmRateLimiter, async (req, res) => {
+  app.post("/api/auth/confirm-password-reset", passwordResetConfirmRateLimiter, durableRateLimiter("passwordResetConfirm"), async (req, res) => {
     const INVALID_CODE_RESPONSE = { error: "Código inválido ou expirado. Solicite um novo código." };
 
     try {
@@ -1940,16 +2073,23 @@ export function createApiApp(): express.Express {
   });
 
   // AI Prescription Reading Endpoint
-  app.post("/api/gemini/extract", requireAuth, requireScanAccess("prescription"), geminiRateLimiter, async (req, res) => {
+  // Ordem importa: os dois limiters vêm ANTES de requireScanAccess, que é quem
+  // reserva a cota. Ao contrário, um 429 descartaria a requisição depois de já
+  // ter consumido um scan gratuito do usuário.
+  app.post("/api/gemini/extract", requireAuth, durableRateLimiter("scan"), geminiRateLimiter, requireScanAccess("prescription"), async (req, res) => {
     try {
       const { imageBase64, mimeType } = req.body;
 
       if (!imageBase64 || typeof imageBase64 !== "string") {
+        // A reserva de cota roda no middleware, ANTES desta validação — sem o
+        // estorno, um corpo malformado queimaria um scan gratuito.
+        await refundScanReservation(req);
         res.status(400).json({ error: "Missing imageBase64 parameter in request body." });
         return;
       }
       const resolvedMime = typeof mimeType === "string" ? mimeType : "image/jpeg";
       if (!ALLOWED_IMAGE_MIME.includes(resolvedMime)) {
+        await refundScanReservation(req);
         res.status(400).json({ error: "Formato de imagem não suportado." });
         return;
       }
@@ -2013,25 +2153,21 @@ Instruções:
 
       const extractedText = response.text;
       if (!extractedText) {
+        // A cota já foi reservada antes da chamada — sem resultado, devolve.
+        await refundScanReservation(req);
         res.status(500).json({ error: "No text returned from Gemini API." });
         return;
       }
 
+      // O parse entra no try de propósito: JSON inválido também é scan sem
+      // resultado e cai no catch abaixo, que estorna a cota.
       const parsedResult = JSON.parse(extractedText.trim());
-
-      // The scan succeeded — if this was a trial user (not exempt, not paid),
-      // count it against their one free prescription scan. Never blocks the
-      // response: a bookkeeping hiccup shouldn't cost the user a result they
-      // already paid Gemini tokens to produce.
-      if ((req as any).scanAccessState === "trial") {
-        getDb().collection("users").doc((req as any).uid)
-          .set({ trialPrescriptionScansUsed: FieldValue.increment(1) }, { merge: true })
-          .catch((e) => console.warn("Falha ao incrementar trialPrescriptionScansUsed:", e));
-      }
 
       res.json(parsedResult);
     } catch (error: any) {
       console.error("Gemini Extraction Error:", error);
+      // O usuário não pode perder um scan gratuito por falha nossa.
+      await refundScanReservation(req);
       await logServerError("POST /api/gemini/extract", error, (req as any).uid, {
         statusCode: 500,
         details: { mimeType: req.body?.mimeType },
@@ -2044,16 +2180,20 @@ Instruções:
   });
 
   // AI Fiscal Receipt Reading Endpoint
-  app.post("/api/gemini/extract-receipt", requireAuth, requireScanAccess("receipt"), geminiRateLimiter, async (req, res) => {
+  app.post("/api/gemini/extract-receipt", requireAuth, durableRateLimiter("scan"), geminiRateLimiter, requireScanAccess("receipt"), async (req, res) => {
     try {
       const { imageBase64, mimeType } = req.body;
 
       if (!imageBase64 || typeof imageBase64 !== "string") {
+        // A reserva de cota roda no middleware, ANTES desta validação — sem o
+        // estorno, um corpo malformado queimaria um scan gratuito.
+        await refundScanReservation(req);
         res.status(400).json({ error: "Missing imageBase64 parameter in request body." });
         return;
       }
       const resolvedMime = typeof mimeType === "string" ? mimeType : "image/jpeg";
       if (!ALLOWED_IMAGE_MIME.includes(resolvedMime)) {
+        await refundScanReservation(req);
         res.status(400).json({ error: "Formato de imagem não suportado." });
         return;
       }
@@ -2108,22 +2248,17 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
 
       const extractedText = response.text;
       if (!extractedText) {
+        await refundScanReservation(req);
         res.status(500).json({ error: "No text returned from Gemini API." });
         return;
       }
 
       const parsedResult = JSON.parse(extractedText.trim());
 
-      // Same trial-scan bookkeeping as /api/gemini/extract, for the receipt type.
-      if ((req as any).scanAccessState === "trial") {
-        getDb().collection("users").doc((req as any).uid)
-          .set({ trialReceiptScansUsed: FieldValue.increment(1) }, { merge: true })
-          .catch((e) => console.warn("Falha ao incrementar trialReceiptScansUsed:", e));
-      }
-
       res.json(parsedResult);
     } catch (error: any) {
       console.error("Gemini Receipt Extraction Error:", error);
+      await refundScanReservation(req);
       await logServerError("POST /api/gemini/extract-receipt", error, (req as any).uid, {
         statusCode: 500,
         details: { mimeType: req.body?.mimeType },
@@ -2353,7 +2488,7 @@ Preencha os valores nulos ou faltantes com estimativas seguras se baseadas no te
   });
 
   // Convida alguém para acompanhar UM paciente.
-  app.post("/api/shares", requireAuth, shareWriteRateLimiter, async (req, res) => {
+  app.post("/api/shares", requireAuth, shareWriteRateLimiter, durableRateLimiter("shareInvite"), async (req, res) => {
     const uid = (req as any).uid as string;
     try {
       const { medicadoId, granteeEmail, role } = req.body || {};

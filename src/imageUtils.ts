@@ -66,6 +66,77 @@ export function resizeImageDataUrl(dataUrl: string, maxBytes: number = MAX_STORE
   });
 }
 
+// ==========================================
+// IMAGEM ENVIADA AOS SCANNERS DE IA
+// ==========================================
+// Caminho diferente do avatar/foto de paciente: a foto da receita ou da nota
+// não é guardada em lugar nenhum, vai no corpo de um POST para o backend. O
+// teto aqui não é o documento do Firestore e sim o limite de corpo da
+// plataforma — a Vercel corta a requisição por volta de 4,5 MB e o base64 ainda
+// infla o binário em ~33%. Um celular atual gera 8-12 MB por foto, então sem
+// esta redução o scan falharia justo para quem tem a câmera melhor.
+//
+// A escada começa MUITO acima de IMAGE_MAX_DIMENSION (512px) de propósito:
+// naquele tamanho a posologia de uma receita fica ilegível para o modelo.
+// 1600px na maior aresta preserva o texto e mantém o corpo em centenas de KB.
+export const SCAN_MAX_BYTES = 3 * 1024 * 1024;
+const SCAN_RESIZE_ATTEMPTS: { dimension: number; quality: number }[] = [
+  { dimension: 1600, quality: 0.85 },
+  { dimension: 1600, quality: 0.7 },
+  { dimension: 1200, quality: 0.7 },
+];
+
+/**
+ * Prepara a foto de receita/nota para envio: reduz quando necessário e devolve
+ * o payload base64 (sem o prefixo `data:`) com o mimeType correspondente.
+ * Nunca rejeita por formato — se o navegador não souber decodificar (HEIC fora
+ * do Safari), envia o original e deixa o backend responder, que é onde a
+ * allowlist de mimeType vive.
+ */
+export async function prepareScanImage(file: File): Promise<{ base64: string; mimeType: string }> {
+  const dataUrl: string = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error("Não foi possível ler o arquivo selecionado."));
+    reader.readAsDataURL(file);
+  });
+
+  // Já pequena o suficiente: não recodifica (evita perder nitidez à toa).
+  if (dataUrl.length <= SCAN_MAX_BYTES) {
+    return { base64: dataUrl.split(",")[1], mimeType: file.type || "image/jpeg" };
+  }
+
+  try {
+    const resized = await new Promise<string>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const ctx = document.createElement("canvas").getContext("2d");
+        if (!ctx) {
+          reject(new Error("Canvas indisponível."));
+          return;
+        }
+        let smallest = "";
+        for (const { dimension, quality } of SCAN_RESIZE_ATTEMPTS) {
+          const scale = Math.min(1, dimension / Math.max(img.width, img.height));
+          const canvas = ctx.canvas;
+          canvas.width = Math.max(1, Math.round(img.width * scale));
+          canvas.height = Math.max(1, Math.round(img.height * scale));
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const out = canvas.toDataURL("image/jpeg", quality);
+          smallest = out;
+          if (out.length <= SCAN_MAX_BYTES) break;
+        }
+        resolve(smallest);
+      };
+      img.onerror = () => reject(new Error("Não foi possível processar a imagem."));
+      img.src = dataUrl;
+    });
+    return { base64: resized.split(",")[1], mimeType: "image/jpeg" };
+  } catch {
+    return { base64: dataUrl.split(",")[1], mimeType: file.type || "image/jpeg" };
+  }
+}
+
 export interface ProcessedImage {
   ok: boolean;
   dataUrl?: string; // present when ok

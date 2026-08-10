@@ -577,5 +577,14 @@ service cloud.firestore {
       allow read: if isAdmin();
       allow write: if false;
     }
+
+    // Contadores do rate limit durável (ver durableRateLimiter em server/app.ts).
+    // Escritos e lidos SOMENTE pelo Admin SDK, que bypassa estas regras. Zero
+    // acesso do cliente — poder ler já revelaria quanto falta para o teto, e
+    // poder escrever anularia o limite. O default-deny global no topo já
+    // bloqueia; a regra explícita registra a intenção.
+    match /rateLimits/{limitKey} {
+      allow read, write: if false;
+    }
   }
 }

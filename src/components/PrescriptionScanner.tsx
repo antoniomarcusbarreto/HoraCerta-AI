@@ -2,6 +2,7 @@ import React, { useState, useRef } from "react";
 import { auth } from "../firebase";
 import { Medicado, Medicamento, MedicineCategory } from "../types";
 import { TRIAL_SCAN_LIMIT } from "../subscription";
+import { prepareScanImage } from "../imageUtils";
 import { Upload, Camera, FileText, Sparkles, Check, ArrowRight, Loader2, Calendar, User, Edit2, AlertCircle, Bell } from "lucide-react";
 
 interface PrescriptionScannerProps {
@@ -129,19 +130,6 @@ export default function PrescriptionScanner({
     }
   };
 
-  // Convert File to Base64 String
-  const convertToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => {
-        const base64String = (reader.result as string).split(",")[1];
-        resolve(base64String);
-      };
-      reader.onerror = (error) => reject(error);
-    });
-  };
-
   // Trigger real backend API call with Gemini
   const handleStartScan = async () => {
     if (!file) return;
@@ -160,7 +148,9 @@ export default function PrescriptionScanner({
     }, 1500);
 
     try {
-      const base64Data = await convertToBase64(file);
+      // Reduz antes de enviar: a foto vai no corpo do POST e a Vercel corta a
+      // requisição por volta de 4,5 MB (ver prepareScanImage).
+      const { base64, mimeType } = await prepareScanImage(file);
       const idToken = await auth.currentUser?.getIdToken();
       if (!idToken) {
         throw new Error("Sessão expirada. Faça login novamente.");
@@ -172,8 +162,8 @@ export default function PrescriptionScanner({
           Authorization: `Bearer ${idToken}`,
         },
         body: JSON.stringify({
-          imageBase64: base64Data,
-          mimeType: file.type || "image/jpeg",
+          imageBase64: base64,
+          mimeType,
         }),
       });
 

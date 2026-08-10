@@ -773,12 +773,30 @@ class DBLocalFallback {
     }
   }
 
-  // Remove do cache tudo que pertence a outros titulares. Chamado quando a
-  // lista de compartilhamentos aceitos volta vazia — sem isto, um acesso
-  // revogado continuaria visível offline por tempo indeterminado.
-  dropSharedData(myUid: string) {
-    const prune = <T extends { userId: string }>(key: string, seed: T[]) => {
-      this.set(key, this.get<T>(key, seed).filter((item) => item.userId === myUid));
+  // Remove do cache tudo que pertence a titulares que NÃO estão mais na lista
+  // de compartilhamentos aceitos. Precisa rodar a cada recarga de shares, e não
+  // só quando a lista volta vazia: quem cuidava de pacientes de dois titulares
+  // e teve o acesso revogado por um deles continuaria com a lista não-vazia, e
+  // o prontuário do titular que revogou ficaria legível offline para sempre.
+  //
+  // Não dá para delegar isso ao re-sync: `mergeUserCollection` preserva de
+  // propósito o registro que o Firestore não devolve (é assim que uma escrita
+  // ainda em voo não some), e a consulta de um acesso revogado devolve vazio —
+  // ou seja, sem esta purga explícita o dado nunca sairia. Pelo mesmo motivo o
+  // filtro é por titular: `memberUids` no cache também está congelado no estado
+  // de antes da revogação, então não serve de critério.
+  // A granularidade é (titular, paciente), não titular: um mesmo titular pode
+  // compartilhar dois pacientes e revogar só um. Filtrar por titular deixaria o
+  // paciente revogado no cache enquanto o outro seguisse compartilhado.
+  dropSharedData(myUid: string, keepShares: { ownerUid: string; medicadoId: string }[] = []) {
+    const keep = new Set(keepShares.map((s) => `${s.ownerUid}/${s.medicadoId}`));
+    const prune = <T extends { userId: string; medicadoId?: string }>(key: string, seed: T[]) => {
+      this.set(
+        key,
+        this.get<T>(key, seed).filter(
+          (item) => item.userId === myUid || keep.has(`${item.userId}/${item.medicadoId}`)
+        )
+      );
     };
     prune<Medicado>("medicados", SEED_MEDICADOS);
     prune<Receita>("receitas", SEED_RECEITAS);

@@ -221,11 +221,10 @@ export default function App() {
     await firebaseSignOut(auth).catch(() => {});
     dbLocal.clearLocalData();
 
-    // clearLocalData() intentionally leaves `horacerta_users` alone (so a
-    // normal logout doesn't wipe the shared-device directory) — explicitly
-    // evict the dead account from that cache so this device never re-offers
-    // it on the next boot, reusing the same helper the admin's own
-    // delete-user flow already relies on.
+    // clearLocalData() já remove `horacerta_users`, mas o cache é recriado a
+    // partir dos seeds na primeira leitura — evict explícito para garantir que
+    // a conta morta não seja re-oferecida no próximo boot, reusando o mesmo
+    // helper do fluxo de exclusão do admin.
     setActiveUser((prev) => {
       if (prev) dbLocal.removeUserCache(prev.userId);
       return null;
@@ -435,9 +434,16 @@ export default function App() {
         setSharesAsOwner(asOwner);
         setSharesAsGrantee(asGrantee);
         const accepted = asGrantee.filter((s) => s.status === "accepted");
+        // Purga SEMPRE, antes de sincronizar: qualquer titular que saiu da lista
+        // de aceitos teve o acesso revogado e não pode continuar legível offline
+        // (ver dropSharedData). Rodar isto só quando a lista zera deixaria o
+        // prontuário do titular que revogou no aparelho de quem ainda cuida de
+        // outro paciente.
+        dbLocal.dropSharedData(
+          activeUser.userId,
+          accepted.map((s) => ({ ownerUid: s.ownerUid, medicadoId: s.medicadoId })),
+        );
         if (accepted.length === 0) {
-          // Nada compartilhado (ou acesso revogado): limpa resquício do cache.
-          dbLocal.dropSharedData(activeUser.userId);
           loadFromCache();
           return;
         }
@@ -1592,9 +1598,13 @@ export default function App() {
     setSharesAsGrantee(asGrantee);
 
     const accepted = asGrantee.filter((s) => s.status === "accepted");
-    if (accepted.length === 0) {
-      dbLocal.dropSharedData(activeUser.userId);
-    } else {
+    // Purga antes de sincronizar, sempre — é este o caminho percorrido logo
+    // depois de uma revogação (reloadShares roda após cada mutação).
+    dbLocal.dropSharedData(
+      activeUser.userId,
+      accepted.map((s) => ({ ownerUid: s.ownerUid, medicadoId: s.medicadoId })),
+    );
+    if (accepted.length > 0) {
       await dbLocal.syncSharedFromFirebase(
         activeUser.userId,
         accepted.map((s) => ({ ownerUid: s.ownerUid, medicadoId: s.medicadoId })),
