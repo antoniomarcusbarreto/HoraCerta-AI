@@ -1589,6 +1589,98 @@ export function createApiApp(): express.Express {
     }
   });
 
+  // Estado da configuração DESTE deployment (aba "Sistema" do Painel Admin).
+  // Existe porque as variáveis de ambiente da Vercel não são inspecionáveis de
+  // fora, e é justamente nelas que moram as falhas silenciosas de produção:
+  // Mercado Pago ainda em modo teste, webhook sem segredo, e-mail sem chave,
+  // ou o Admin SDK resolvendo o banco Firestore errado.
+  //
+  // REGRA: nunca devolver o valor de um segredo. Só presença (booleano) e, no
+  // caso do Mercado Pago, o PREFIXO do token — `TEST-`/`APP_USR-` não é
+  // sigiloso e é exatamente o que separa sandbox de dinheiro real.
+  app.get("/api/admin/diagnostics", requireAdmin, adminReadRateLimiter, async (req, res) => {
+    try {
+      const db = getDb();
+      const mpToken = process.env.MP_ACCESS_TOKEN || "";
+      const mpMode = !mpToken
+        ? "ausente"
+        : mpToken.startsWith("APP_USR-")
+        ? "producao"
+        : mpToken.startsWith("TEST-")
+        ? "teste"
+        : "desconhecido";
+
+      // Prova viva de que o webhook já funcionou alguma vez: nenhum outro
+      // caminho grava em `payments`. Zero aqui, com o MP em produção, quer
+      // dizer que ninguém conseguiu assinar sozinho.
+      let paymentsCount: number | null = null;
+      let lastPaymentAt: string | null = null;
+      try {
+        paymentsCount = (await db.collectionGroup("payments").count().get()).data().count;
+        if (paymentsCount > 0) {
+          const last = await db.collectionGroup("payments").orderBy("createdAt", "desc").limit(1).get();
+          lastPaymentAt = last.docs[0]?.data()?.createdAt ?? null;
+        }
+      } catch (err) {
+        console.warn("Diagnóstico: falha ao contar pagamentos:", err);
+      }
+
+      // Último erro de webhook, para diagnosticar sem trocar de aba.
+      let lastWebhookError: { createdAt: string; message: string } | null = null;
+      try {
+        const errSnap = await db.collection("errorLogs").orderBy("createdAt", "desc").limit(50).get();
+        const hit = errSnap.docs.find((d) => String(d.data()?.action || "").includes("mercadopago/webhook"));
+        if (hit) {
+          lastWebhookError = {
+            createdAt: hit.data().createdAt,
+            message: String(hit.data().message || "").slice(0, 300),
+          };
+        }
+      } catch (err) {
+        console.warn("Diagnóstico: falha ao ler errorLogs:", err);
+      }
+
+      res.json({
+        mercadoPago: {
+          tokenConfigured: !!mpToken,
+          mode: mpMode,
+          webhookSecretConfigured: !!process.env.MP_WEBHOOK_SECRET,
+          paymentsCount,
+          lastPaymentAt,
+          lastWebhookError,
+        },
+        email: {
+          resendConfigured: !!process.env.RESEND_API_KEY,
+          fromAddress: RESEND_FROM_EMAIL,
+        },
+        gemini: {
+          configured: !!process.env.GEMINI_API_KEY,
+          model: GEMINI_MODEL,
+        },
+        push: {
+          vapidConfigured: pushEnabled,
+          cronSecretConfigured: !!process.env.CRON_SECRET,
+          schedulerFlag: process.env.ENABLE_PUSH_SCHEDULER ?? "(não definido)",
+        },
+        firebase: {
+          // Se isto não casar com firebase-applet-config.json, o servidor está
+          // lendo/gravando num banco diferente do que o app usa.
+          databaseId: getDatabaseId(),
+          serviceAccountEnv: !!process.env.FIREBASE_SERVICE_ACCOUNT,
+        },
+        app: {
+          // Não é segredo, e é o que governa o CORS e as back_urls do checkout.
+          appUrl: process.env.APP_URL || "(não definido)",
+          nodeEnv: process.env.NODE_ENV || "(não definido)",
+        },
+      });
+    } catch (error: any) {
+      console.error("Admin diagnostics error:", error);
+      await logServerError("GET /api/admin/diagnostics", error, (req as any).uid, { statusCode: 500 });
+      res.status(500).json({ error: "Falha ao obter o diagnóstico do sistema." });
+    }
+  });
+
   // Pré-checagem de cadastro: o client chama isto ANTES de
   // createUserWithEmailAndPassword para evitar criar uma segunda conta
   // Firebase Auth para um e-mail já cadastrado — o SDK client-side rejeita

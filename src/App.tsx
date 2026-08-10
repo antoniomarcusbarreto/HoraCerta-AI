@@ -19,6 +19,7 @@ import Schedule from "./components/Schedule";
 import AdminPanel from "./components/AdminPanel";
 import AdminLogs from "./components/AdminLogs";
 import AdminPayments from "./components/AdminPayments";
+import AdminDiagnostics from "./components/AdminDiagnostics";
 import Appointments from "./components/Appointments";
 import Pharmacies from "./components/Pharmacies";
 import AuthScreen from "./components/AuthScreen";
@@ -122,7 +123,7 @@ export default function App() {
   const activeUserRef = useRef<User | null>(null);
   activeUserRef.current = activeUser;
   const [activeAdminUser, setActiveAdminUser] = useState<User | null>(null);
-  const [adminSection, setAdminSection] = useState<"users" | "logs" | "payments">("users");
+  const [adminSection, setAdminSection] = useState<"users" | "logs" | "payments" | "sistema">("users");
 
   // 2. Global Database States
   const [users, setUsers] = useState<User[]>([]);
@@ -1872,6 +1873,15 @@ export default function App() {
               >
                 Logs
               </button>
+              <button
+                type="button"
+                onClick={() => setAdminSection("sistema")}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
+                  adminSection === "sistema" ? "bg-brand-teal text-white shadow-xs" : "text-brand-teal/70 hover:text-brand-teal"
+                }`}
+              >
+                Sistema
+              </button>
             </div>
 
             {adminSection === "users" ? (
@@ -1884,6 +1894,8 @@ export default function App() {
               />
             ) : adminSection === "payments" ? (
               <AdminPayments />
+            ) : adminSection === "sistema" ? (
+              <AdminDiagnostics />
             ) : (
               <AdminLogs />
             )}
