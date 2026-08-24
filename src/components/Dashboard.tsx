@@ -4,6 +4,7 @@ import { getDoseTimesForMedOnDate, isMedActiveOnDay, isDoseTaken } from "../util
 import { processImageFile, resizeImageDataUrl, MAX_STORED_BYTES, IMAGE_MAX_DIMENSION } from "../imageUtils";
 import ConfirmDialog from "./ConfirmDialog";
 import { InstallAppCard } from "./InstallAppPrompt";
+import { useDialogA11y } from "../hooks/useDialogA11y";
 import {
   Plus, 
   Users, 
@@ -21,6 +22,11 @@ import {
   X,
   RefreshCw 
 } from "lucide-react";
+
+// Placeholder local (SVG inline) para paciente sem foto — evita depender de uma
+// URL remota (Unsplash) que era refeita a cada montagem do Dashboard.
+const DEFAULT_PATIENT_PHOTO =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='50' fill='%23E4ECEE'/%3E%3Ccircle cx='50' cy='38' r='18' fill='%230D3E46'/%3E%3Cpath d='M50 60c-22 0-34 12-34 30v10h68V90c0-18-12-30-34-30z' fill='%230D3E46'/%3E%3C/svg%3E";
 
 interface DashboardProps {
   userName: string;
@@ -249,7 +255,7 @@ export default function Dashboard({
       name: med.name,
       time,
       patient: patientName,
-      photoUrl: patient?.photoUrl || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop"
+      photoUrl: patient?.photoUrl || DEFAULT_PATIENT_PHOTO
     }));
   });
 
@@ -295,6 +301,12 @@ export default function Dashboard({
 
   const todayPatientSchedules = getTodayPatientSchedule();
 
+  const closeAddModal = () => {
+    stopCamera();
+    setShowAddModal(false);
+  };
+  const addModalPanelRef = useDialogA11y<HTMLDivElement>(showAddModal, closeAddModal);
+
   return (
     <div className="pb-32 px-4 max-w-md lg:max-w-none mx-auto lg:mx-0 pt-6 lg:pt-0 lg:px-0 animate-fade-in">
       {/* Top Header Section */}
@@ -304,7 +316,7 @@ export default function Dashboard({
           <h1 className="text-3xl font-display font-bold text-brand-teal mt-0.5 tracking-tight truncate">
             Olá, <span className="text-brand-coral">{userName}</span>
           </h1>
-          <p className="text-xs text-gray-500 font-sans mt-0.5">Sua saúde guiada por inteligência artificial.</p>
+          <p className="text-xs text-ink-soft font-sans mt-0.5">Sua saúde guiada por inteligência artificial.</p>
         </div>
         <div className="w-10 h-10 rounded-full bg-brand-teal-pale border border-brand-cream-darker flex items-center justify-center">
           <Heart className="w-5 h-5 text-brand-teal" />
@@ -382,8 +394,8 @@ export default function Dashboard({
 
         {medicados.length === 0 ? (
           <div className="bg-white border border-dashed border-brand-cream-darker rounded-2xl p-6 text-center">
-            <Users className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-            <p className="text-sm text-gray-500">Nenhum paciente cadastrado ainda.</p>
+            <Users className="w-8 h-8 text-ink-soft mx-auto mb-2" />
+            <p className="text-sm text-ink-soft">Nenhum paciente cadastrado ainda.</p>
             <button
               onClick={handleOpenAdd}
               className="text-xs text-brand-coral font-bold mt-1 inline-block"
@@ -400,13 +412,13 @@ export default function Dashboard({
                 className="flex-shrink-0 lg:w-auto bg-white border border-brand-cream-darker rounded-2xl p-3 w-36 relative shadow-xs hover:shadow-md transition-all"
               >
                 {/* CRUD Controls overlay */}
-                <div className="absolute top-2 right-2 flex space-x-1">
+                <div className="absolute top-1.5 right-1.5 flex space-x-1">
                   <button
                     onClick={(e) => handleOpenEdit(p, e)}
-                    className="p-1 rounded bg-white/80 hover:bg-white text-brand-teal hover:text-brand-coral transition-all"
-                    title="Editar"
+                    className="w-8 h-8 flex items-center justify-center rounded-lg bg-white/80 hover:bg-white text-brand-teal hover:text-brand-coral transition-all"
+                    aria-label={`Editar ${p.name}`}
                   >
-                    <Edit2 className="w-3 h-3" />
+                    <Edit2 className="w-3.5 h-3.5" />
                   </button>
                   <button
                     onClick={(e) => {
@@ -420,22 +432,23 @@ export default function Dashboard({
                         },
                       });
                     }}
-                    className="p-1 rounded bg-white/80 hover:bg-white text-red-500 hover:text-red-700 transition-all"
-                    title="Excluir"
+                    className="w-8 h-8 flex items-center justify-center rounded-lg bg-white/80 hover:bg-white text-error-500 hover:text-error-700 transition-all"
+                    aria-label={`Excluir ${p.name}`}
                   >
-                    <Trash2 className="w-3 h-3" />
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
 
                 <div className="flex flex-col items-center text-center mt-2">
                   <img
-                    src={p.photoUrl || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop"}
+                    src={p.photoUrl || DEFAULT_PATIENT_PHOTO}
                     alt={p.name}
                     referrerPolicy="no-referrer"
+                    loading="lazy"
                     className="w-12 h-12 rounded-full border-2 border-brand-teal/20 object-cover mb-2"
                   />
                   <h4 className="text-xs font-semibold text-brand-teal line-clamp-1">{p.name}</h4>
-                  <span className="text-[10px] text-gray-500 font-medium px-2 py-0.5 bg-brand-teal-pale rounded-full mt-1">
+                  <span className="text-[10px] text-ink-soft font-medium px-2 py-0.5 bg-brand-teal-pale rounded-full mt-1">
                     {p.relationship}
                   </span>
                 </div>
@@ -457,16 +470,16 @@ export default function Dashboard({
             <div className="bg-brand-peach border border-brand-coral/10 rounded-3xl p-6 flex flex-col justify-center items-center text-center h-44 shadow-sm hover:scale-[1.02] transition-transform w-full">
               <Clock className="w-8 h-8 text-brand-coral mb-2 opacity-80" />
               <h3 className="font-display font-bold text-sm text-brand-teal">Sem Remédios</h3>
-              <p className="text-[11px] text-gray-500 mt-1 px-4 text-center">Nenhum paciente possui medicamentos programados para o dia de hoje.</p>
+              <p className="text-[11px] text-ink-soft mt-1 px-4 text-center">Nenhum paciente possui medicamentos programados para o dia de hoje.</p>
             </div>
           ) : (
             todayPatientSchedules.map(({ patient, meds }, index) => {
-              const patientPhoto = patient.photoUrl || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop";
+              const patientPhoto = patient.photoUrl || DEFAULT_PATIENT_PHOTO;
               
               // Cycle through 3 different premium styling themes to keep the design highly polished and distinct
               let cardBgClass = "bg-brand-peach border border-brand-coral/10 shadow-xs";
               let textTitleClass = "text-brand-teal";
-              let textSubClass = "text-gray-500";
+              let textSubClass = "text-ink-soft";
               let pillBgClass = "bg-brand-coral/15 text-brand-teal/80";
               let avatarBorderClass = "border-brand-coral/20";
               let badgeBgClass = "bg-brand-coral/10 text-brand-coral";
@@ -476,7 +489,7 @@ export default function Dashboard({
                 // Light Cream / White Card
                 cardBgClass = "bg-white border border-brand-cream-darker shadow-xs";
                 textTitleClass = "text-brand-teal";
-                textSubClass = "text-gray-500";
+                textSubClass = "text-ink-soft";
                 pillBgClass = "bg-brand-teal-pale text-brand-teal";
                 avatarBorderClass = "border-brand-teal/10";
                 badgeBgClass = "bg-brand-teal/5 text-brand-teal/70";
@@ -505,6 +518,7 @@ export default function Dashboard({
                         src={patientPhoto}
                         alt={patient.name}
                         referrerPolicy="no-referrer"
+                        loading="lazy"
                         className={`w-9 h-9 rounded-full object-cover border-2 ${avatarBorderClass} shrink-0`}
                       />
                       <div>
@@ -545,9 +559,9 @@ export default function Dashboard({
                                 key={time}
                                 className={`flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded-lg shrink-0 ${
                                   taken
-                                    ? "bg-emerald-500 text-white"
+                                    ? "bg-success-500 text-white"
                                     : isOverdue
-                                    ? "bg-red-500 text-white ring-2 ring-red-300 animate-pulse"
+                                    ? "bg-error-500 text-white ring-2 ring-error-300 animate-pulse"
                                     : pillBgClass
                                 }`}
                               >
@@ -571,34 +585,43 @@ export default function Dashboard({
       {/* Add / Edit Patient Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="bg-brand-cream rounded-3xl max-w-sm lg:max-w-md w-full p-6 shadow-xl border border-brand-cream-darker animate-scale-up">
-            <h3 className="text-lg font-display font-bold text-brand-teal mb-4">
+          <div
+            ref={addModalPanelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-patient-title"
+            tabIndex={-1}
+            className="bg-brand-cream rounded-3xl max-w-sm lg:max-w-md w-full p-6 shadow-xl border border-brand-cream-darker animate-scale-up"
+          >
+            <h3 id="add-patient-title" className="text-lg font-display font-bold text-brand-teal mb-4">
               {editingPatient ? "Editar Paciente" : "Novo Paciente Monitorado"}
             </h3>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
+                <label htmlFor="patient-name" className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
                   Nome Completo
                 </label>
                 <input
+                  id="patient-name"
                   type="text"
                   required
                   placeholder="Ex: Lívia Barreto"
                   value={patientName}
                   onChange={(e) => setPatientName(e.target.value)}
-                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden focus:border-brand-coral"
+                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral focus:border-brand-coral"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
+                  <label htmlFor="patient-relationship" className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
                     Parentesco
                   </label>
                   <select
+                    id="patient-relationship"
                     value={relationship}
                     onChange={(e) => setRelationship(e.target.value)}
-                    className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden"
+                    className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral"
                   >
                     <option value="Filho(a)">Filho(a)</option>
                     <option value="Pai">Pai</option>
@@ -609,14 +632,15 @@ export default function Dashboard({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
+                  <label htmlFor="patient-birthdate" className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
                     Nascimento
                   </label>
                   <input
+                    id="patient-birthdate"
                     type="date"
                     value={birthDate}
                     onChange={(e) => setBirthDate(e.target.value)}
-                    className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden"
+                    className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral"
                   />
                 </div>
               </div>
@@ -665,16 +689,17 @@ export default function Dashboard({
                     {/* Preview circle */}
                     <div className="relative shrink-0">
                       <img
-                        src={photoUrl || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop"}
+                        src={photoUrl || DEFAULT_PATIENT_PHOTO}
                         alt="Preview"
                         referrerPolicy="no-referrer"
+                        loading="lazy"
                         className="w-16 h-16 rounded-full border-2 border-brand-teal/20 object-cover"
                       />
                       {photoUrl && (
                         <button
                           type="button"
                           onClick={() => setPhotoUrl("")}
-                          className="absolute -top-1 -right-1 bg-red-500 hover:bg-red-600 text-white p-1 rounded-full shadow-sm transition-all"
+                          className="absolute -top-1 -right-1 bg-error-500 hover:bg-error-600 text-white p-1 rounded-full shadow-sm transition-all"
                           title="Remover foto"
                         >
                           <X className="w-3 h-3" />
@@ -699,7 +724,7 @@ export default function Dashboard({
                           <Camera className="w-3 h-3" /> Tirar Foto
                         </button>
                       </div>
-                      <p className="text-[9px] text-gray-500 font-sans leading-tight">
+                      <p className="text-[9px] text-ink-soft font-sans leading-tight">
                         PNG, JPG ou foto de câmera
                       </p>
                     </div>
@@ -712,11 +737,8 @@ export default function Dashboard({
               <div className="flex space-x-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    stopCamera();
-                    setShowAddModal(false);
-                  }}
-                  className="flex-1 border border-brand-cream-darker text-gray-500 rounded-xl py-2 text-sm font-semibold hover:bg-gray-50 transition-all"
+                  onClick={closeAddModal}
+                  className="flex-1 border border-brand-cream-darker text-ink-soft rounded-xl py-2 text-sm font-semibold hover:bg-gray-50 transition-all"
                 >
                   Cancelar
                 </button>

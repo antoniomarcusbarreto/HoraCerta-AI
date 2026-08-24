@@ -279,7 +279,7 @@ export default function PrescriptionScanner({
               <Sparkles className="w-6 h-6 fill-brand-coral/10" />
             </div>
             <h2 className="text-xl font-display font-bold text-brand-teal">Leitor de Receitas com IA</h2>
-            <p className="text-xs text-gray-500 mt-1 max-w-[85%] mx-auto font-sans">
+            <p className="text-xs text-ink-soft mt-1 max-w-[85%] mx-auto font-sans">
               Envie uma foto legível da sua receita médica. HoraCerta AI irá extrair as dosagens e horários automaticamente.
             </p>
           </div>
@@ -289,8 +289,8 @@ export default function PrescriptionScanner({
               intentionally do not set extractedData, so the review screen —
               where the other scanError banner lives — never renders. */}
           {scanError && (
-            <div className="mb-5 bg-red-50 text-red-800 border border-red-100 rounded-2xl p-3.5 flex items-start gap-2.5 text-xs animate-fade-in">
-              <AlertCircle className="w-4 h-4 shrink-0 text-red-500 mt-0.5" />
+            <div className="mb-5 bg-error-50 text-error-800 border border-error-100 rounded-2xl p-3.5 flex items-start gap-2.5 text-xs animate-fade-in">
+              <AlertCircle className="w-4 h-4 shrink-0 text-error-500 mt-0.5" />
               <span className="leading-snug font-sans">{scanError}</span>
             </div>
           )}
@@ -299,24 +299,24 @@ export default function PrescriptionScanner({
           {hasApiKey !== null && (
             <div className="mb-5 animate-fade-in">
               {hasApiKey ? (
-                <div className="flex items-center justify-center gap-2 bg-emerald-50 text-emerald-800 border border-emerald-100 rounded-2xl py-2 px-3 text-xs font-medium">
+                <div className="flex items-center justify-center gap-2 bg-success-50 text-success-800 border border-success-100 rounded-2xl py-2 px-3 text-xs font-medium">
                   <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-duration-1000"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success-400 opacity-75 animate-duration-1000"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-success-500"></span>
                   </span>
                   HoraCerta AI Ativo e Pronto
                 </div>
               ) : (
-                <div className="bg-amber-50 text-amber-900 border border-amber-200/60 rounded-2xl p-4 text-xs text-left">
+                <div className="bg-warning-50 text-warning-900 border border-warning-200/60 rounded-2xl p-4 text-xs text-left">
                   <div className="flex gap-2.5 items-start">
-                    <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    <AlertCircle className="w-5 h-5 text-warning-600 shrink-0 mt-0.5" />
                     <div className="space-y-1">
-                      <p className="font-bold text-amber-950">Chave AI Não Detectada (Modo Demonstração)</p>
-                      <p className="text-[11px] text-amber-800 leading-relaxed font-sans">
-                        A variável <code className="font-mono bg-amber-100 px-1 rounded text-red-600">GEMINI_API_KEY</code> está ausente no ambiente de execução.
+                      <p className="font-bold text-warning-900">Chave AI Não Detectada (Modo Demonstração)</p>
+                      <p className="text-[11px] text-warning-800 leading-relaxed font-sans">
+                        A variável <code className="font-mono bg-warning-100 px-1 rounded text-error-600">GEMINI_API_KEY</code> está ausente no ambiente de execução.
                       </p>
-                      <p className="text-[11px] text-amber-800 leading-relaxed font-sans mt-1">
-                        Para habilitar a leitura real de suas próprias fotos, clique no ícone de <strong className="font-semibold">Engrenagem (Settings)</strong> no canto superior direito do painel do AI Studio, selecione a aba <strong className="font-semibold">Secrets</strong>, e adicione uma nova chave com o nome <strong className="font-semibold text-amber-950">GEMINI_API_KEY</strong>.
+                      <p className="text-[11px] text-warning-800 leading-relaxed font-sans mt-1">
+                        Para habilitar a leitura real de suas próprias fotos, clique no ícone de <strong className="font-semibold">Engrenagem (Settings)</strong> no canto superior direito do painel do AI Studio, selecione a aba <strong className="font-semibold">Secrets</strong>, e adicione uma nova chave com o nome <strong className="font-semibold text-warning-900">GEMINI_API_KEY</strong>.
                       </p>
                     </div>
                   </div>
@@ -345,6 +345,7 @@ export default function PrescriptionScanner({
                 <img
                   src={previewUrl}
                   alt="Prescription Preview"
+                  loading="lazy"
                   className="max-h-44 object-contain rounded-xl"
                 />
                 <div className="absolute inset-0 bg-black/35 flex items-center justify-center text-white text-xs font-semibold rounded-xl">
@@ -353,12 +354,12 @@ export default function PrescriptionScanner({
               </div>
             ) : (
               <div className="space-y-3">
-                <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center mx-auto shadow-xs text-gray-400">
+                <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center mx-auto shadow-xs text-ink-soft">
                   <Upload className="w-6 h-6" />
                 </div>
                 <div>
                   <p className="text-xs font-bold text-brand-teal">Selecione ou Arraste a Foto</p>
-                  <p className="text-[10px] text-gray-400 font-sans mt-0.5">Suporta JPG, PNG ou PDF</p>
+                  <p className="text-[10px] text-ink-soft font-sans mt-0.5">Suporta JPG, PNG ou PDF</p>
                 </div>
               </div>
             )}
@@ -373,7 +374,7 @@ export default function PrescriptionScanner({
               className={`w-full py-3.5 rounded-2xl font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 ${
                 file
                   ? "bg-brand-teal hover:bg-brand-teal-light text-brand-cream active:scale-95"
-                  : "bg-gray-100 text-gray-400 cursor-not-allowed shadow-none"
+                  : "bg-gray-100 text-ink-soft cursor-not-allowed shadow-none"
               }`}
             >
               <Sparkles className="w-4 h-4 fill-brand-cream/10" />
@@ -382,7 +383,7 @@ export default function PrescriptionScanner({
 
             <button
               onClick={onCancel}
-              className="w-full border border-brand-cream-darker text-gray-500 font-semibold py-3.5 rounded-2xl text-xs transition-colors"
+              className="w-full border border-brand-cream-darker text-ink-soft font-semibold py-3.5 rounded-2xl text-xs transition-colors"
             >
               Cancelar
             </button>
@@ -411,12 +412,12 @@ export default function PrescriptionScanner({
                   idx === scanStep
                     ? "opacity-100 scale-100 text-brand-teal font-medium"
                     : idx < scanStep
-                    ? "opacity-60 text-green-600 font-sans"
-                    : "opacity-30 text-gray-400 font-sans"
+                    ? "opacity-60 text-success-600 font-sans"
+                    : "opacity-30 text-ink-soft font-sans"
                 }`}
               >
                 <div className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] ${
-                  idx < scanStep ? "bg-green-100 text-green-600" : "bg-brand-teal-pale text-brand-teal"
+                  idx < scanStep ? "bg-success-100 text-success-600" : "bg-brand-teal-pale text-brand-teal"
                 }`}>
                   {idx < scanStep ? <Check className="w-3 h-3 stroke-[3]" /> : idx + 1}
                 </div>
@@ -443,7 +444,7 @@ export default function PrescriptionScanner({
                 setFile(null);
                 setPreviewUrl(null);
               }}
-              className="text-xs text-gray-400 hover:text-brand-teal font-semibold"
+              className="text-xs text-ink-soft hover:text-brand-teal font-semibold"
             >
               Novo Escaneamento
             </button>
@@ -460,14 +461,15 @@ export default function PrescriptionScanner({
           {/* Form setup for patient / metadata */}
           <div className="space-y-3 mb-6 bg-brand-cream-dark p-4 rounded-2xl border border-brand-cream-darker">
             <div>
-              <label className="block text-[10px] font-bold text-brand-teal uppercase tracking-wider mb-1">
+              <label htmlFor="rx-patient" className="block text-[10px] font-bold text-brand-teal uppercase tracking-wider mb-1">
                 Para Qual Paciente?
               </label>
               <select
+                id="rx-patient"
                 required
                 value={selectedPatientId}
                 onChange={(e) => setSelectedPatientId(e.target.value)}
-                className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-xs text-brand-teal focus:outline-hidden"
+                className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-xs text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral"
               >
                 <option value="">Selecione...</option>
                 {medicados.map(p => (
@@ -478,25 +480,27 @@ export default function PrescriptionScanner({
 
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-[10px] font-bold text-brand-teal uppercase tracking-wider mb-1 flex items-center gap-1">
+                <label htmlFor="rx-doctor" className="block text-[10px] font-bold text-brand-teal uppercase tracking-wider mb-1 flex items-center gap-1">
                   <User className="w-3 h-3" /> Médico(a)
                 </label>
                 <input
+                  id="rx-doctor"
                   type="text"
                   value={extractedData.doctorName}
                   onChange={(e) => setExtractedData({ ...extractedData, doctorName: e.target.value })}
-                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-1.5 text-xs text-brand-teal focus:outline-hidden"
+                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-1.5 text-xs text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral"
                 />
               </div>
               <div>
-                <label className="block text-[10px] font-bold text-brand-teal uppercase tracking-wider mb-1 flex items-center gap-1">
+                <label htmlFor="rx-date" className="block text-[10px] font-bold text-brand-teal uppercase tracking-wider mb-1 flex items-center gap-1">
                   <Calendar className="w-3 h-3" /> Data da Receita
                 </label>
                 <input
+                  id="rx-date"
                   type="text"
                   value={extractedData.date}
                   onChange={(e) => setExtractedData({ ...extractedData, date: e.target.value })}
-                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-1.5 text-xs text-brand-teal focus:outline-hidden"
+                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-1.5 text-xs text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral"
                 />
               </div>
             </div>
@@ -544,31 +548,34 @@ export default function PrescriptionScanner({
                 {/* Inline Editing elements */}
                 <div className="space-y-2 pt-1">
                   <div>
-                    <label className="text-[9px] font-bold text-gray-400 uppercase block">Nome do Medicamento</label>
+                    <label htmlFor={`rx-med-${index}-name`} className="text-[9px] font-bold text-ink-soft uppercase block">Nome do Medicamento</label>
                     <input
+                      id={`rx-med-${index}-name`}
                       type="text"
                       value={med.name}
                       onChange={(e) => handleFieldChange(index, "name", e.target.value)}
-                      className="w-full border-b border-brand-cream-darker focus:border-brand-coral text-xs py-1 text-brand-teal font-semibold focus:outline-hidden"
+                      className="w-full border-b border-brand-cream-darker focus:border-brand-coral text-xs py-1 text-brand-teal font-semibold focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral"
                     />
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-[9px] font-bold text-gray-400 uppercase block">Dosagem / Quantidade</label>
+                      <label htmlFor={`rx-med-${index}-dosage`} className="text-[9px] font-bold text-ink-soft uppercase block">Dosagem / Quantidade</label>
                       <input
+                        id={`rx-med-${index}-dosage`}
                         type="text"
                         value={med.dosage}
                         onChange={(e) => handleFieldChange(index, "dosage", e.target.value)}
-                        className="w-full border-b border-brand-cream-darker focus:border-brand-coral text-xs py-1 focus:outline-hidden"
+                        className="w-full border-b border-brand-cream-darker focus:border-brand-coral text-xs py-1 focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral"
                       />
                     </div>
                     <div>
-                      <label className="text-[9px] font-bold text-gray-400 uppercase block">Tipo / Categoria</label>
+                      <label htmlFor={`rx-med-${index}-category`} className="text-[9px] font-bold text-ink-soft uppercase block">Tipo / Categoria</label>
                       <select
+                        id={`rx-med-${index}-category`}
                         value={med.category}
                         onChange={(e) => handleFieldChange(index, "category", e.target.value)}
-                        className="w-full border-b border-brand-cream-darker text-xs py-1 focus:outline-hidden bg-white text-brand-teal"
+                        className="w-full border-b border-brand-cream-darker text-xs py-1 focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral bg-white text-brand-teal"
                       >
                         <option value="pill">Comprimido</option>
                         <option value="syrup">Xarope</option>
@@ -582,53 +589,58 @@ export default function PrescriptionScanner({
 
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-[9px] font-bold text-gray-400 uppercase block">Intervalo de Horas</label>
+                      <label htmlFor={`rx-med-${index}-interval`} className="text-[9px] font-bold text-ink-soft uppercase block">Intervalo de Horas</label>
                       <input
+                        id={`rx-med-${index}-interval`}
                         type="number"
                         value={med.intervalHours}
                         onChange={(e) => handleFieldChange(index, "intervalHours", Number(e.target.value))}
-                        className="w-full border-b border-brand-cream-darker focus:border-brand-coral text-xs py-1 focus:outline-hidden"
+                        className="w-full border-b border-brand-cream-darker focus:border-brand-coral text-xs py-1 focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral"
                       />
                     </div>
                     <div>
-                      <label className="text-[9px] font-bold text-gray-400 uppercase block">Duração (Dias)</label>
+                      <label htmlFor={`rx-med-${index}-duration`} className="text-[9px] font-bold text-ink-soft uppercase block">Duração (Dias)</label>
                       <input
+                        id={`rx-med-${index}-duration`}
                         type="number"
                         value={med.durationDays}
                         onChange={(e) => handleFieldChange(index, "durationDays", Number(e.target.value))}
-                        className="w-full border-b border-brand-cream-darker focus:border-brand-coral text-xs py-1 focus:outline-hidden"
+                        className="w-full border-b border-brand-cream-darker focus:border-brand-coral text-xs py-1 focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="text-[9px] font-bold text-gray-400 uppercase block">Instruções Extras</label>
+                    <label htmlFor={`rx-med-${index}-instructions`} className="text-[9px] font-bold text-ink-soft uppercase block">Instruções Extras</label>
                     <input
+                      id={`rx-med-${index}-instructions`}
                       type="text"
                       value={med.instructions || ""}
                       onChange={(e) => handleFieldChange(index, "instructions", e.target.value)}
                       placeholder="Ex: Tomar com água abundante"
-                      className="w-full border-b border-brand-cream-darker focus:border-brand-coral text-xs py-1 focus:outline-hidden placeholder-gray-300"
+                      className="w-full border-b border-brand-cream-darker focus:border-brand-coral text-xs py-1 focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral placeholder-gray-300"
                     />
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-[9px] font-bold text-gray-400 uppercase block">Data de Início</label>
+                      <label htmlFor={`rx-med-${index}-start-date`} className="text-[9px] font-bold text-ink-soft uppercase block">Data de Início</label>
                       <input
+                        id={`rx-med-${index}-start-date`}
                         type="date"
                         value={med.startDate || ""}
                         onChange={(e) => handleFieldChange(index, "startDate", e.target.value)}
-                        className="w-full border-b border-brand-cream-darker focus:border-brand-coral text-xs py-1 focus:outline-hidden bg-white text-brand-teal"
+                        className="w-full border-b border-brand-cream-darker focus:border-brand-coral text-xs py-1 focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral bg-white text-brand-teal"
                       />
                     </div>
                     <div>
-                      <label className="text-[9px] font-bold text-gray-400 uppercase block">Horário da 1ª Dose</label>
+                      <label htmlFor={`rx-med-${index}-start-time`} className="text-[9px] font-bold text-ink-soft uppercase block">Horário da 1ª Dose</label>
                       <input
+                        id={`rx-med-${index}-start-time`}
                         type="time"
                         value={med.startTime || ""}
                         onChange={(e) => handleFieldChange(index, "startTime", e.target.value)}
-                        className="w-full border-b border-brand-cream-darker focus:border-brand-coral text-xs py-1 focus:outline-hidden bg-white text-brand-teal"
+                        className="w-full border-b border-brand-cream-darker focus:border-brand-coral text-xs py-1 focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral bg-white text-brand-teal"
                       />
                     </div>
                   </div>
@@ -645,7 +657,7 @@ export default function PrescriptionScanner({
             className={`w-full py-4 rounded-2xl font-bold text-sm shadow-md flex items-center justify-center gap-2 transition-transform active:scale-95 ${
               selectedPatientId
                 ? "bg-brand-coral hover:bg-brand-coral-light text-brand-cream"
-                : "bg-gray-100 text-gray-400 cursor-not-allowed shadow-none"
+                : "bg-gray-100 text-ink-soft cursor-not-allowed shadow-none"
             }`}
           >
             Confirmar e Agendar Medicamentos

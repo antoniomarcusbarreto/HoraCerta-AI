@@ -114,7 +114,7 @@ export default function Pharmacies({
           </h3>
 
           {cupons.length === 0 ? (
-            <div className="bg-white border border-brand-cream-darker rounded-3xl p-8 text-center text-xs text-gray-400 font-sans">
+            <div className="bg-white border border-brand-cream-darker rounded-3xl p-8 text-center text-xs text-ink-soft font-sans">
               <Receipt className="w-8 h-8 mx-auto mb-2 text-brand-teal-pale" />
               Nenhuma nota fiscal escaneada.<br />
               <button
@@ -137,7 +137,7 @@ export default function Pharmacies({
                   <div className="flex justify-between items-start">
                     <div className="space-y-1 pr-8">
                       <h4 className="text-sm font-bold text-brand-teal font-display">{cupom.establishment}</h4>
-                      <p className="text-[10px] text-gray-400 font-sans flex items-center gap-1">
+                      <p className="text-[10px] text-ink-soft font-sans flex items-center gap-1">
                         <Calendar className="w-3.5 h-3.5 text-brand-teal/40" />
                         <span>{cupom.date}</span>
                       </p>
@@ -145,8 +145,8 @@ export default function Pharmacies({
 
                     <button
                       onClick={() => setConfirmCupomId({ id: cupom.cupomId, establishment: cupom.establishment })}
-                      className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all absolute top-4 right-4"
-                      title="Remover comprovante"
+                      className="w-9 h-9 flex items-center justify-center rounded-lg text-gray-300 hover:text-error-500 hover:bg-error-50 transition-all absolute top-2 right-2"
+                      aria-label={`Remover comprovante de ${cupom.establishment}`}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -154,7 +154,7 @@ export default function Pharmacies({
 
                   <div className="border-t border-brand-cream-darker mt-4 pt-3 flex items-center justify-between">
                     <div>
-                      <span className="text-[9px] text-gray-400 uppercase tracking-wide block">Valor Total</span>
+                      <span className="text-[9px] text-ink-soft uppercase tracking-wide block">Valor Total</span>
                       <span className="text-base font-display font-extrabold text-brand-coral">
                         R$ {cupom.totalPrice.toFixed(2).replace(".", ",")}
                       </span>

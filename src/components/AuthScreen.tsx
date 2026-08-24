@@ -358,7 +358,7 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
           <h1 className="text-3xl font-display font-bold text-brand-teal tracking-tight">
             Hora Certa
           </h1>
-          <p className="text-xs text-gray-500 font-sans mt-1">
+          <p className="text-xs text-ink-soft font-sans mt-1">
             Gestão inteligente de medicamentos e receitas médicas
           </p>
         </div>
@@ -393,22 +393,22 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
 
         {/* Notifications */}
         {error && (
-          <div className="mb-4 bg-red-50 border border-red-100 text-red-700 text-xs rounded-2xl p-3.5 flex items-start gap-2.5 animate-fade-in">
-            <AlertCircle className="w-4.5 h-4.5 shrink-0 text-red-500 mt-0.5" />
+          <div className="mb-4 bg-error-50 border border-error-100 text-error-700 text-xs rounded-2xl p-3.5 flex items-start gap-2.5 animate-fade-in">
+            <AlertCircle className="w-4.5 h-4.5 shrink-0 text-error-500 mt-0.5" />
             <span className="font-sans leading-snug">{error}</span>
           </div>
         )}
 
         {success && (
-          <div className="mb-4 bg-emerald-50 border border-emerald-100 text-emerald-700 text-xs rounded-2xl p-3.5 flex items-start gap-2.5 animate-fade-in">
-            <Check className="w-4.5 h-4.5 shrink-0 text-emerald-500 mt-0.5 animate-bounce" />
+          <div className="mb-4 bg-success-50 border border-success-100 text-success-700 text-xs rounded-2xl p-3.5 flex items-start gap-2.5 animate-fade-in">
+            <Check className="w-4.5 h-4.5 shrink-0 text-success-500 mt-0.5" />
             <span className="font-sans leading-snug font-semibold">{success}</span>
           </div>
         )}
 
         {resetInfo && (
-          <div className="mb-4 bg-amber-50 border border-amber-100 text-amber-800 text-xs rounded-2xl p-3.5 flex items-start gap-2.5 animate-fade-in">
-            <AlertCircle className="w-4.5 h-4.5 shrink-0 text-amber-500 mt-0.5" />
+          <div className="mb-4 bg-warning-50 border border-warning-100 text-warning-800 text-xs rounded-2xl p-3.5 flex items-start gap-2.5 animate-fade-in">
+            <AlertCircle className="w-4.5 h-4.5 shrink-0 text-warning-500 mt-0.5" />
             <span className="font-sans leading-snug">{resetInfo}</span>
           </div>
         )}
@@ -417,16 +417,17 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
         {forgotPasswordMode ? (
           resetStage === "otp" ? (
             <form onSubmit={handleConfirmResetSubmit} className="space-y-4 relative z-10">
-              <p className="text-xs text-gray-500 font-sans leading-snug -mt-1 mb-2">
+              <p className="text-xs text-ink-soft font-sans leading-snug -mt-1 mb-2">
                 Código enviado para <span className="font-semibold text-brand-teal">{resetEmail}</span>. Informe-o
                 abaixo junto com sua nova senha.
               </p>
 
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block ml-1">
+                <label htmlFor="reset-code" className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block ml-1">
                   Código de Verificação
                 </label>
                 <input
+                  id="reset-code"
                   type="text"
                   inputMode="numeric"
                   maxLength={6}
@@ -434,30 +435,31 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
                   placeholder="000000"
                   value={resetCode}
                   onChange={(e) => setResetCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                  className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl px-4 py-3 text-sm tracking-[0.3em] text-center text-brand-teal placeholder-gray-400 font-sans focus:outline-none focus:border-brand-teal/50 transition-all font-semibold"
+                  className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl px-4 py-3 text-sm tracking-[0.3em] text-center text-brand-teal placeholder-gray-400 font-sans focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral focus:border-brand-teal/50 transition-all font-semibold"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block ml-1">
+                <label htmlFor="reset-new-password" className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block ml-1">
                   Nova Senha
                 </label>
                 <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-gray-400">
+                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-ink-soft">
                     <Lock className="w-4 h-4" />
                   </span>
                   <input
+                    id="reset-new-password"
                     type={showPassword ? "text" : "password"}
                     required
                     placeholder="Crie uma senha forte"
                     value={resetNewPassword}
                     onChange={(e) => setResetNewPassword(e.target.value)}
-                    className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl pl-10 pr-10 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline-none focus:border-brand-teal/50 transition-all font-medium"
+                    className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl pl-10 pr-10 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral focus:border-brand-teal/50 transition-all font-medium"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-gray-400 hover:text-brand-teal"
+                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-ink-soft hover:text-brand-teal"
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -465,16 +467,17 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block ml-1">
+                <label htmlFor="reset-confirm-password" className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block ml-1">
                   Confirmar Nova Senha
                 </label>
                 <input
+                  id="reset-confirm-password"
                   type={showPassword ? "text" : "password"}
                   required
                   placeholder="Repita a nova senha"
                   value={resetConfirmPassword}
                   onChange={(e) => setResetConfirmPassword(e.target.value)}
-                  className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl px-4 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline-none focus:border-brand-teal/50 transition-all font-medium"
+                  className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl px-4 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral focus:border-brand-teal/50 transition-all font-medium"
                 />
               </div>
 
@@ -483,52 +486,52 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
                   <p className="font-semibold text-brand-teal/90 mb-1">Requisitos de Segurança da Senha:</p>
                   <div className="flex items-center gap-2">
                     {resetIsMinLength ? (
-                      <span className="w-4 h-4 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center shrink-0">
+                      <span className="w-4 h-4 bg-success-100 text-success-700 rounded-full flex items-center justify-center shrink-0">
                         <Check className="w-3 h-3" />
                       </span>
                     ) : (
-                      <span className="w-4 h-4 bg-red-100 text-red-600 rounded-full flex items-center justify-center shrink-0">
+                      <span className="w-4 h-4 bg-error-100 text-error-600 rounded-full flex items-center justify-center shrink-0">
                         <X className="w-3 h-3" />
                       </span>
                     )}
-                    <span className={resetIsMinLength ? "text-emerald-800" : "text-gray-500"}>Mínimo de 6 caracteres</span>
+                    <span className={resetIsMinLength ? "text-success-800" : "text-ink-soft"}>Mínimo de 6 caracteres</span>
                   </div>
                   <div className="flex items-center gap-2">
                     {resetHasLetter ? (
-                      <span className="w-4 h-4 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center shrink-0">
+                      <span className="w-4 h-4 bg-success-100 text-success-700 rounded-full flex items-center justify-center shrink-0">
                         <Check className="w-3 h-3" />
                       </span>
                     ) : (
-                      <span className="w-4 h-4 bg-red-100 text-red-600 rounded-full flex items-center justify-center shrink-0">
+                      <span className="w-4 h-4 bg-error-100 text-error-600 rounded-full flex items-center justify-center shrink-0">
                         <X className="w-3 h-3" />
                       </span>
                     )}
-                    <span className={resetHasLetter ? "text-emerald-800" : "text-gray-500"}>Pelo menos uma letra (A-Z, a-z)</span>
+                    <span className={resetHasLetter ? "text-success-800" : "text-ink-soft"}>Pelo menos uma letra (A-Z, a-z)</span>
                   </div>
                   <div className="flex items-center gap-2">
                     {resetHasNumber ? (
-                      <span className="w-4 h-4 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center shrink-0">
+                      <span className="w-4 h-4 bg-success-100 text-success-700 rounded-full flex items-center justify-center shrink-0">
                         <Check className="w-3 h-3" />
                       </span>
                     ) : (
-                      <span className="w-4 h-4 bg-red-100 text-red-600 rounded-full flex items-center justify-center shrink-0">
+                      <span className="w-4 h-4 bg-error-100 text-error-600 rounded-full flex items-center justify-center shrink-0">
                         <X className="w-3 h-3" />
                       </span>
                     )}
-                    <span className={resetHasNumber ? "text-emerald-800" : "text-gray-500"}>Pelo menos um número (0-9)</span>
+                    <span className={resetHasNumber ? "text-success-800" : "text-ink-soft"}>Pelo menos um número (0-9)</span>
                   </div>
                   {resetConfirmPassword.length > 0 && (
                     <div className="flex items-center gap-2">
                       {resetPasswordsMatch ? (
-                        <span className="w-4 h-4 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center shrink-0">
+                        <span className="w-4 h-4 bg-success-100 text-success-700 rounded-full flex items-center justify-center shrink-0">
                           <Check className="w-3 h-3" />
                         </span>
                       ) : (
-                        <span className="w-4 h-4 bg-red-100 text-red-600 rounded-full flex items-center justify-center shrink-0">
+                        <span className="w-4 h-4 bg-error-100 text-error-600 rounded-full flex items-center justify-center shrink-0">
                           <X className="w-3 h-3" />
                         </span>
                       )}
-                      <span className={resetPasswordsMatch ? "text-emerald-800" : "text-gray-500"}>As senhas conferem</span>
+                      <span className={resetPasswordsMatch ? "text-success-800" : "text-ink-soft"}>As senhas conferem</span>
                     </div>
                   )}
                 </div>
@@ -577,20 +580,21 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
             </div>
           ) : (
             <form onSubmit={(e) => submitPasswordResetRequest(e, false)} className="space-y-4 relative z-10">
-              <p className="text-xs text-gray-500 font-sans leading-snug -mt-1 mb-2">
+              <p className="text-xs text-ink-soft font-sans leading-snug -mt-1 mb-2">
                 Informe o e-mail cadastrado. Se ele existir na nossa base, enviamos um código de verificação para
                 você redefinir a senha na hora.
               </p>
 
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block ml-1">
+                <label htmlFor="reset-email" className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block ml-1">
                   E-mail Cadastrado
                 </label>
                 <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-gray-400">
+                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-ink-soft">
                     <Mail className="w-4 h-4" />
                   </span>
                   <input
+                    id="reset-email"
                     type="email"
                     required
                     placeholder="seu.email@exemplo.com"
@@ -600,7 +604,7 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
                       setResetStage("form");
                       setResetInfo(null);
                     }}
-                    className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl pl-10 pr-4 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline-none focus:border-brand-teal/50 transition-all font-medium"
+                    className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl pl-10 pr-4 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral focus:border-brand-teal/50 transition-all font-medium"
                   />
                 </div>
               </div>
@@ -644,20 +648,21 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
           {/* Campo Nome (Only on Register) */}
           {!isLogin && (
             <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block ml-1">
+              <label htmlFor="auth-name" className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block ml-1">
                 Nome Completo
               </label>
               <div className="relative">
-                <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-gray-400">
+                <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-ink-soft">
                   <UserIcon className="w-4 h-4" />
                 </span>
                 <input
+                  id="auth-name"
                   type="text"
                   required
                   placeholder="Seu nome"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl pl-10 pr-4 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline-none focus:border-brand-teal/50 transition-all font-medium"
+                  className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl pl-10 pr-4 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral focus:border-brand-teal/50 transition-all font-medium"
                 />
               </div>
             </div>
@@ -665,45 +670,47 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
 
           {/* Campo Email */}
           <div className="space-y-1.5">
-            <label className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block ml-1">
+            <label htmlFor="auth-email" className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block ml-1">
               E-mail de Acesso
             </label>
             <div className="relative">
-              <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-gray-400">
+              <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-ink-soft">
                 <Mail className="w-4 h-4" />
               </span>
               <input
+                id="auth-email"
                 type="email"
                 required
                 placeholder="seu.email@exemplo.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl pl-10 pr-4 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline-none focus:border-brand-teal/50 transition-all font-medium"
+                className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl pl-10 pr-4 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral focus:border-brand-teal/50 transition-all font-medium"
               />
             </div>
           </div>
 
           {/* Campo Senha */}
           <div className="space-y-1.5">
-            <label className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block ml-1">
+            <label htmlFor="auth-password" className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block ml-1">
               Senha
             </label>
             <div className="relative">
-              <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-gray-400">
+              <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-ink-soft">
                 <Lock className="w-4 h-4" />
               </span>
               <input
+                id="auth-password"
                 type={showPassword ? "text" : "password"}
                 required
                 placeholder={isLogin ? "Sua senha de acesso" : "Crie uma senha forte"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl pl-10 pr-10 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline-none focus:border-brand-teal/50 transition-all font-medium"
+                className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl pl-10 pr-10 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral focus:border-brand-teal/50 transition-all font-medium"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-gray-400 hover:text-brand-teal"
+                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-ink-soft hover:text-brand-teal"
               >
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
@@ -733,45 +740,45 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
               
               <div className="flex items-center gap-2">
                 {isMinLength ? (
-                  <span className="w-4 h-4 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center shrink-0">
+                  <span className="w-4 h-4 bg-success-100 text-success-700 rounded-full flex items-center justify-center shrink-0">
                     <Check className="w-3 h-3" />
                   </span>
                 ) : (
-                  <span className="w-4 h-4 bg-red-100 text-red-600 rounded-full flex items-center justify-center shrink-0">
+                  <span className="w-4 h-4 bg-error-100 text-error-600 rounded-full flex items-center justify-center shrink-0">
                     <X className="w-3 h-3" />
                   </span>
                 )}
-                <span className={isMinLength ? "text-emerald-800" : "text-gray-500"}>
+                <span className={isMinLength ? "text-success-800" : "text-ink-soft"}>
                   Mínimo de 6 caracteres
                 </span>
               </div>
 
               <div className="flex items-center gap-2">
                 {hasLetter ? (
-                  <span className="w-4 h-4 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center shrink-0">
+                  <span className="w-4 h-4 bg-success-100 text-success-700 rounded-full flex items-center justify-center shrink-0">
                     <Check className="w-3 h-3" />
                   </span>
                 ) : (
-                  <span className="w-4 h-4 bg-red-100 text-red-600 rounded-full flex items-center justify-center shrink-0">
+                  <span className="w-4 h-4 bg-error-100 text-error-600 rounded-full flex items-center justify-center shrink-0">
                     <X className="w-3 h-3" />
                   </span>
                 )}
-                <span className={hasLetter ? "text-emerald-800" : "text-gray-500"}>
+                <span className={hasLetter ? "text-success-800" : "text-ink-soft"}>
                   Pelo menos uma letra (A-Z, a-z)
                 </span>
               </div>
 
               <div className="flex items-center gap-2">
                 {hasNumber ? (
-                  <span className="w-4 h-4 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center shrink-0">
+                  <span className="w-4 h-4 bg-success-100 text-success-700 rounded-full flex items-center justify-center shrink-0">
                     <Check className="w-3 h-3" />
                   </span>
                 ) : (
-                  <span className="w-4 h-4 bg-red-100 text-red-600 rounded-full flex items-center justify-center shrink-0">
+                  <span className="w-4 h-4 bg-error-100 text-error-600 rounded-full flex items-center justify-center shrink-0">
                     <X className="w-3 h-3" />
                   </span>
                 )}
-                <span className={hasNumber ? "text-emerald-800" : "text-gray-500"}>
+                <span className={hasNumber ? "text-success-800" : "text-ink-soft"}>
                   Pelo menos um número (0-9)
                 </span>
               </div>

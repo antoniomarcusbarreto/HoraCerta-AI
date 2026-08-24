@@ -3,6 +3,7 @@ import { Medicado, Medicamento, DoseLog, MedicineCategory } from "../types";
 import { getDoseTimesForMedOnDate, isMedActiveOnDay, isDoseTaken } from "../utils/doseSchedule";
 import ConfirmDialog from "./ConfirmDialog";
 import { ChevronLeft, ChevronRight, Bell, Check, Clock, Plus, Trash2, Edit2, ShieldAlert } from "lucide-react";
+import { useDialogA11y } from "../hooks/useDialogA11y";
 
 interface ScheduleProps {
   medicados: Medicado[];
@@ -294,6 +295,10 @@ export default function Schedule({
     setDoseToConfirm(null);
   };
 
+  const reminderPanelRef = useDialogA11y<HTMLDivElement>(showReminderModal, () => setShowReminderModal(false));
+  const addMedPanelRef = useDialogA11y<HTMLDivElement>(showAddMedModal, () => setShowAddMedModal(false));
+  const doseConfirmPanelRef = useDialogA11y<HTMLDivElement>(!!doseToConfirm, () => setDoseToConfirm(null));
+
   return (
     <div className="pb-32 px-3 sm:px-4 lg:px-0 max-w-md lg:max-w-none mx-auto lg:mx-0 pt-6 lg:pt-0 animate-fade-in">
       {/* Month Header Grid */}
@@ -343,7 +348,7 @@ export default function Schedule({
                 key={day.getTime()}
                 type="button"
                 onClick={() => setSelectedDate(day)}
-                className="flex flex-col items-center focus:outline-hidden flex-1 min-w-0"
+                className="flex flex-col items-center focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral flex-1 min-w-0"
               >
                 <span className="text-[10px] sm:text-xs text-brand-cream/60 font-medium mb-1.5">{dayName}</span>
                 <div
@@ -400,6 +405,7 @@ export default function Schedule({
                 src={patientPhoto}
                 alt={patient.name}
                 referrerPolicy="no-referrer"
+                loading="lazy"
                 className="w-4 h-4 rounded-full object-cover shrink-0"
               />
               <span>{patient.name.split(" ")[0]}</span>
@@ -430,7 +436,7 @@ export default function Schedule({
               <Clock className="w-6 h-6" />
             </div>
             <h3 className="font-display font-bold text-sm text-brand-teal mb-1">Sem compromissos hoje</h3>
-            <p className="text-[11px] text-gray-500 leading-relaxed px-4">
+            <p className="text-[11px] text-ink-soft leading-relaxed px-4">
               Nenhum medicamento programado para esta data.
             </p>
           </div>
@@ -475,16 +481,17 @@ export default function Schedule({
                         src={slot.avatar}
                         alt={slot.patientName}
                         referrerPolicy="no-referrer"
+                        loading="lazy"
                         className="w-8 h-8 sm:w-10 sm:h-10 rounded-full object-cover border border-brand-teal/10 shrink-0"
                       />
                       <div className="overflow-hidden min-w-0 flex-1">
                         <span className="text-[9px] sm:text-[10px] font-bold text-brand-coral uppercase tracking-wider block truncate">
                           {slot.patientName}
                         </span>
-                        <h4 className={`text-xs sm:text-sm font-semibold text-brand-teal leading-tight truncate ${isTaken ? "line-through text-gray-400" : ""}`}>
+                        <h4 className={`text-xs sm:text-sm font-semibold text-brand-teal leading-tight truncate ${isTaken ? "line-through text-ink-soft" : ""}`}>
                           {med.name}
                         </h4>
-                        <p className="text-[10px] sm:text-[11px] text-gray-500 font-sans mt-0.5 truncate">
+                        <p className="text-[10px] sm:text-[11px] text-ink-soft font-sans mt-0.5 truncate">
                           {med.dosage} • {med.instructions || `${med.intervalHours}h em ${med.intervalHours}h`}
                         </p>
                       </div>
@@ -495,14 +502,14 @@ export default function Schedule({
                       <button
                         onClick={() => !isTaken && toggleDoseTaken(med.medicamentoId, slot.time)}
                         disabled={isTaken}
-                        className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center transition-all ${
+                        className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all ${
                           isTaken
-                            ? "bg-emerald-500 text-white shadow-xs cursor-not-allowed"
+                            ? "bg-success-500 text-white shadow-xs cursor-not-allowed"
                             : "border border-brand-cream-darker text-gray-300 hover:text-brand-coral hover:border-brand-coral"
                         }`}
-                        title={isTaken ? "Dose já confirmada" : "Marcar como tomado"}
+                        aria-label={isTaken ? "Dose já confirmada" : `Marcar ${med.name} como tomado às ${slot.time}`}
                       >
-                        <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[3]" />
+                        <Check className="w-4 h-4 sm:w-4.5 sm:h-4.5 stroke-[3]" />
                       </button>
 
                       {/* CRUD Delete Button for Medicines */}
@@ -511,12 +518,12 @@ export default function Schedule({
                           if (!isTaken) setConfirmDeleteMed({ medId: med.medicamentoId, medName: med.name, slotTime: slot.time });
                         }}
                         disabled={isTaken}
-                        className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center transition-colors ${
-                          isTaken ? "text-gray-200 cursor-not-allowed" : "text-gray-300 hover:text-red-500"
+                        className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-colors ${
+                          isTaken ? "text-gray-200 cursor-not-allowed" : "text-gray-300 hover:text-error-500"
                         }`}
-                        title={isTaken ? "Não é possível remover uma dose já confirmada" : "Remover medicamento"}
+                        aria-label={isTaken ? "Não é possível remover uma dose já confirmada" : `Remover ${med.name}`}
                       >
-                        <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                        <Trash2 className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
                       </button>
                     </div>
                   </div>
@@ -530,14 +537,21 @@ export default function Schedule({
       {/* Reminder Config Service Worker Push Simulation Modal */}
       {showReminderModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="bg-brand-cream rounded-3xl max-w-sm w-full p-6 shadow-xl border border-brand-cream-darker animate-scale-up">
+          <div
+            ref={reminderPanelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reminder-modal-title"
+            tabIndex={-1}
+            className="bg-brand-cream rounded-3xl max-w-sm w-full p-6 shadow-xl border border-brand-cream-darker animate-scale-up"
+          >
             <div className="w-12 h-12 rounded-full bg-brand-peach flex items-center justify-center mx-auto mb-4 text-brand-coral">
               <Bell className="w-6 h-6 fill-brand-coral/10" />
             </div>
-            <h3 className="text-lg font-display font-bold text-brand-teal text-center mb-1">
+            <h3 id="reminder-modal-title" className="text-lg font-display font-bold text-brand-teal text-center mb-1">
               Alertas & Notificações Push
             </h3>
-            <p className="text-xs text-gray-500 text-center mb-6">
+            <p className="text-xs text-ink-soft text-center mb-6">
               Configure as notificações do Service Worker para ser lembrado pontualmente sobre seus medicamentos.
             </p>
 
@@ -579,20 +593,28 @@ export default function Schedule({
       {/* Manual Add Medicine Modal */}
       {showAddMedModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="bg-brand-cream rounded-3xl max-w-sm lg:max-w-md w-full p-6 shadow-xl border border-brand-cream-darker max-h-[85vh] overflow-y-auto animate-scale-up">
-            <h3 className="text-lg font-display font-bold text-brand-teal mb-4">
+          <div
+            ref={addMedPanelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-med-modal-title"
+            tabIndex={-1}
+            className="bg-brand-cream rounded-3xl max-w-sm lg:max-w-md w-full p-6 shadow-xl border border-brand-cream-darker max-h-[85vh] overflow-y-auto animate-scale-up"
+          >
+            <h3 id="add-med-modal-title" className="text-lg font-display font-bold text-brand-teal mb-4">
               Adicionar Medicamento Manualmente
             </h3>
             <form onSubmit={handleCreateMedicine} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
+                <label htmlFor="med-patient" className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
                   Paciente
                 </label>
                 <select
+                  id="med-patient"
                   required
                   value={selectedPatientId}
                   onChange={(e) => setSelectedPatientId(e.target.value)}
-                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden"
+                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral"
                 >
                   <option value="">Selecione...</option>
                   {medicados.map(p => (
@@ -602,41 +624,44 @@ export default function Schedule({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
+                <label htmlFor="med-name" className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
                   Nome do Medicamento
                 </label>
                 <input
+                  id="med-name"
                   type="text"
                   required
                   placeholder="Ex: Paracetamol 500mg"
                   value={medName}
                   onChange={(e) => setMedName(e.target.value)}
-                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden focus:border-brand-coral"
+                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral focus:border-brand-coral"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
+                  <label htmlFor="med-dosage" className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
                     Dosagem
                   </label>
                   <input
+                    id="med-dosage"
                     type="text"
                     required
                     placeholder="Ex: 1 comprimido, 5ml"
                     value={dosage}
                     onChange={(e) => setDosage(e.target.value)}
-                    className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden"
+                    className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
+                  <label htmlFor="med-category" className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
                     Categoria
                   </label>
                   <select
+                    id="med-category"
                     value={category}
                     onChange={(e) => setCategory(e.target.value as MedicineCategory)}
-                    className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden"
+                    className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral"
                   >
                     <option value="pill">Comprimido</option>
                     <option value="syrup">Xarope</option>
@@ -650,28 +675,30 @@ export default function Schedule({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
+                  <label htmlFor="med-start-date" className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
                     Data de Início
                   </label>
                   <input
+                    id="med-start-date"
                     type="date"
                     required
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden focus:border-brand-coral"
+                    className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral focus:border-brand-coral"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
+                  <label htmlFor="med-start-time" className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
                     Horário da 1ª Dose
                   </label>
                   <div className="flex gap-1">
                     <input
+                      id="med-start-time"
                       type="time"
                       required
                       value={startTime}
                       onChange={(e) => setStartTime(e.target.value)}
-                      className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden focus:border-brand-coral"
+                      className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral focus:border-brand-coral"
                     />
                     <button
                       type="button"
@@ -691,44 +718,47 @@ export default function Schedule({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
+                  <label htmlFor="med-interval" className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
                     Intervalo (Horas)
                   </label>
                   <input
+                    id="med-interval"
                     type="number"
                     required
                     min="1"
                     max="168"
                     value={intervalHours}
                     onChange={(e) => setIntervalHours(Number(e.target.value))}
-                    className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden"
+                    className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
+                  <label htmlFor="med-duration" className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
                     Duração (Dias)
                   </label>
                   <input
+                    id="med-duration"
                     type="number"
                     required
                     min="1"
                     max="365"
                     value={durationDays}
                     onChange={(e) => setDurationDays(Number(e.target.value))}
-                    className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden"
+                    className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
+                <label htmlFor="med-instructions" className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
                   Instruções Adicionais
                 </label>
                 <textarea
+                  id="med-instructions"
                   placeholder="Ex: Tomar após as refeições."
                   value={instructions}
                   onChange={(e) => setInstructions(e.target.value)}
-                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden focus:border-brand-coral h-16 resize-none"
+                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral focus:border-brand-coral h-16 resize-none"
                 />
               </div>
 
@@ -759,7 +789,7 @@ export default function Schedule({
                 <button
                   type="button"
                   onClick={() => setShowAddMedModal(false)}
-                  className="flex-1 border border-brand-cream-darker text-gray-500 rounded-xl py-2 text-sm font-semibold hover:bg-gray-50 transition-all"
+                  className="flex-1 border border-brand-cream-darker text-ink-soft rounded-xl py-2 text-sm font-semibold hover:bg-gray-50 transition-all"
                 >
                   Cancelar
                 </button>
@@ -778,15 +808,22 @@ export default function Schedule({
       {/* Confirm Dose Administration Modal */}
       {doseToConfirm && (
         <div className="fixed inset-0 bg-black/50 z-55 flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="bg-brand-cream rounded-3xl max-w-sm w-full p-6 shadow-xl border border-brand-cream-darker animate-scale-up">
+          <div
+            ref={doseConfirmPanelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="dose-confirm-modal-title"
+            tabIndex={-1}
+            className="bg-brand-cream rounded-3xl max-w-sm w-full p-6 shadow-xl border border-brand-cream-darker animate-scale-up"
+          >
             <div className="w-12 h-12 rounded-full bg-brand-peach flex items-center justify-center mx-auto mb-4 text-brand-coral">
               <ShieldAlert className="w-6 h-6" />
             </div>
-            
-            <h3 className="text-lg font-display font-bold text-brand-teal text-center mb-1">
+
+            <h3 id="dose-confirm-modal-title" className="text-lg font-display font-bold text-brand-teal text-center mb-1">
               Confirmar Ministração
             </h3>
-            <p className="text-xs text-gray-500 text-center mb-5">
+            <p className="text-xs text-ink-soft text-center mb-5">
               Por favor, confirme se você ministrou o seguinte medicamento.
             </p>
 
@@ -795,6 +832,7 @@ export default function Schedule({
                 src={doseToConfirm.avatar}
                 alt={doseToConfirm.patientName}
                 referrerPolicy="no-referrer"
+                loading="lazy"
                 className="w-10 h-10 rounded-full object-cover border border-brand-teal/10 shrink-0"
               />
               <div className="min-w-0 flex-1">
@@ -804,10 +842,10 @@ export default function Schedule({
                 <h4 className="text-sm font-semibold text-brand-teal leading-tight truncate">
                   {doseToConfirm.medName}
                 </h4>
-                <p className="text-xs text-gray-500 mt-0.5">
+                <p className="text-xs text-ink-soft mt-0.5">
                   Dosagem: <span className="font-semibold text-brand-teal">{doseToConfirm.dosage}</span>
                 </p>
-                <div className="flex items-center gap-1.5 mt-2 text-[10px] text-gray-500 font-mono">
+                <div className="flex items-center gap-1.5 mt-2 text-[10px] text-ink-soft font-mono">
                   <Clock className="w-3.5 h-3.5 text-brand-coral" />
                   <span>Horário Programado: <strong className="text-brand-teal">{doseToConfirm.slotTime}</strong></span>
                 </div>
@@ -816,16 +854,17 @@ export default function Schedule({
 
             <form onSubmit={handleConfirmDose} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
+                <label htmlFor="dose-confirm-time" className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
                   Horário Real da Ministração
                 </label>
                 <div className="flex gap-2">
                   <input
+                    id="dose-confirm-time"
                     type="time"
                     required
                     value={confirmTime}
                     onChange={(e) => setConfirmTime(e.target.value)}
-                    className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden focus:border-brand-coral font-mono text-center"
+                    className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral focus:border-brand-coral font-mono text-center"
                   />
                   <button
                     type="button"
@@ -846,7 +885,7 @@ export default function Schedule({
                 <button
                   type="button"
                   onClick={() => setDoseToConfirm(null)}
-                  className="flex-1 border border-brand-cream-darker text-gray-500 rounded-xl py-2.5 text-xs font-semibold hover:bg-gray-50 transition-all"
+                  className="flex-1 border border-brand-cream-darker text-ink-soft rounded-xl py-2.5 text-xs font-semibold hover:bg-gray-50 transition-all"
                 >
                   Cancelar
                 </button>

@@ -19,7 +19,7 @@ export default function BottomNavBar({
             id="nav-home"
             onClick={() => setActiveTab("home")}
             className={`flex flex-col items-center justify-center p-2 transition-all relative ${
-              activeTab === "home" ? "text-brand-teal scale-110 lg:text-brand-cream" : "text-gray-400 hover:text-brand-teal-light lg:text-brand-teal-pale/60 lg:hover:text-brand-cream"
+              activeTab === "home" ? "text-brand-teal scale-110 lg:text-brand-cream" : "text-brand-teal/45 hover:text-brand-teal-light lg:text-brand-teal-pale/60 lg:hover:text-brand-cream"
             }`}
           >
             <LayoutGrid className="w-6 h-6 stroke-[2]" />
@@ -33,7 +33,7 @@ export default function BottomNavBar({
             id="nav-schedule"
             onClick={() => setActiveTab("schedule")}
             className={`flex flex-col items-center justify-center p-2 transition-all relative ${
-              activeTab === "schedule" ? "text-brand-teal scale-110 lg:text-brand-cream" : "text-gray-400 hover:text-brand-teal-light lg:text-brand-teal-pale/60 lg:hover:text-brand-cream"
+              activeTab === "schedule" ? "text-brand-teal scale-110 lg:text-brand-cream" : "text-brand-teal/45 hover:text-brand-teal-light lg:text-brand-teal-pale/60 lg:hover:text-brand-cream"
             }`}
           >
             <Calendar className="w-6 h-6 stroke-[2]" />
@@ -50,7 +50,7 @@ export default function BottomNavBar({
             id="nav-pharmacies"
             onClick={() => setActiveTab("pharmacies")}
             className={`flex flex-col items-center justify-center p-2 transition-all relative ${
-              activeTab === "pharmacies" ? "text-brand-teal scale-110 lg:text-brand-cream" : "text-gray-400 hover:text-brand-teal-light lg:text-brand-teal-pale/60 lg:hover:text-brand-cream"
+              activeTab === "pharmacies" ? "text-brand-teal scale-110 lg:text-brand-cream" : "text-brand-teal/45 hover:text-brand-teal-light lg:text-brand-teal-pale/60 lg:hover:text-brand-cream"
             }`}
           >
             <ShoppingBag className="w-6 h-6 stroke-[2]" />
@@ -64,7 +64,7 @@ export default function BottomNavBar({
             id="nav-receitas"
             onClick={() => setActiveTab("receitas")}
             className={`flex flex-col items-center justify-center p-2 transition-all relative ${
-              activeTab === "receitas" ? "text-brand-teal scale-110 lg:text-brand-cream" : "text-gray-400 hover:text-brand-teal-light lg:text-brand-teal-pale/60 lg:hover:text-brand-cream"
+              activeTab === "receitas" ? "text-brand-teal scale-110 lg:text-brand-cream" : "text-brand-teal/45 hover:text-brand-teal-light lg:text-brand-teal-pale/60 lg:hover:text-brand-cream"
             }`}
           >
             <FileText className="w-6 h-6 stroke-[2]" />
@@ -80,7 +80,7 @@ export default function BottomNavBar({
             className={`flex flex-col items-center justify-center p-2 transition-all relative ${
               activeTab === "profile"
                 ? "text-brand-teal scale-110 lg:text-brand-cream"
-                : "text-gray-400 hover:text-brand-teal-light lg:text-brand-teal-pale/60 lg:hover:text-brand-cream"
+                : "text-brand-teal/45 hover:text-brand-teal-light lg:text-brand-teal-pale/60 lg:hover:text-brand-cream"
             }`}
           >
             <User className="w-6 h-6 stroke-[2]" />

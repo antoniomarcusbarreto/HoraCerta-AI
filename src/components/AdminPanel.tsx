@@ -3,6 +3,7 @@ import { User } from "../types";
 import { auth } from "../firebase";
 import { getAccessState, PLANS, TRIAL_SCAN_LIMIT, type PlanId } from "../subscription";
 import ConfirmDialog from "./ConfirmDialog";
+import { useDialogA11y } from "../hooks/useDialogA11y";
 import {
   Shield,
   ShieldAlert,
@@ -307,6 +308,11 @@ export default function AdminPanel({
   const trialActiveCount = users.filter(u => getTrialInfo(u.freeTrialUntil).status === "active").length;
   const subscribedCount = users.filter(u => u.subscriptionStatus === "active").length;
 
+  const trialPanelRef = useDialogA11y<HTMLDivElement>(!!editingTrialUser, () => setEditingTrialUser(null));
+  const subscriptionPanelRef = useDialogA11y<HTMLDivElement>(!!editingSubscriptionUser, () => setEditingSubscriptionUser(null));
+  const namePanelRef = useDialogA11y<HTMLDivElement>(!!editingNameUser, () => { setEditingNameUser(null); setNameInput(""); });
+  const passwordPanelRef = useDialogA11y<HTMLDivElement>(!!editingPasswordUser, () => setEditingPasswordUser(null));
+
   return (
     <div className="pb-32 px-4 pt-6 animate-fade-in space-y-6">
       {/* Segmented Switcher for Admin Session */}
@@ -348,16 +354,16 @@ export default function AdminPanel({
       {/* Stats Board */}
       <div className="grid grid-cols-3 gap-2 lg:gap-4">
         <div className="bg-white border border-brand-cream-darker rounded-2xl p-3 text-center">
-          <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider block">Cadastrados</span>
+          <span className="text-[10px] text-ink-soft font-bold uppercase tracking-wider block">Cadastrados</span>
           <span className="text-lg font-display font-bold text-brand-teal">{users.length}</span>
         </div>
         <div className="bg-white border border-brand-cream-darker rounded-2xl p-3 text-center">
-          <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider block">Ativos</span>
-          <span className="text-lg font-display font-bold text-emerald-600">{activeCount}</span>
+          <span className="text-[10px] text-ink-soft font-bold uppercase tracking-wider block">Ativos</span>
+          <span className="text-lg font-display font-bold text-success-600">{activeCount}</span>
         </div>
         <div className="bg-white border border-brand-cream-darker rounded-2xl p-3 text-center">
-          <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider block">Assinantes</span>
-          <span className="text-lg font-display font-bold text-amber-600">{subscribedCount}</span>
+          <span className="text-[10px] text-ink-soft font-bold uppercase tracking-wider block">Assinantes</span>
+          <span className="text-lg font-display font-bold text-warning-600">{subscribedCount}</span>
         </div>
       </div>
 
@@ -382,13 +388,13 @@ export default function AdminPanel({
           </div>
 
           <div className="relative">
-            <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+            <Search className="absolute left-3 top-2.5 w-4 h-4 text-ink-soft" />
             <input
               type="text"
               placeholder="Buscar por nome ou e-mail..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-white border border-brand-cream-darker rounded-xl pl-9 pr-4 py-2 text-xs text-brand-teal focus:outline-hidden focus:border-brand-coral font-sans"
+              className="w-full bg-white border border-brand-cream-darker rounded-xl pl-9 pr-4 py-2 text-xs text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral focus:border-brand-coral font-sans"
             />
           </div>
         </div>
@@ -396,7 +402,7 @@ export default function AdminPanel({
         {/* Registered Users List */}
         <div className="space-y-3">
           {filteredUsers.length === 0 ? (
-            <div className="bg-white border border-brand-cream-darker rounded-3xl p-8 text-center text-gray-400">
+            <div className="bg-white border border-brand-cream-darker rounded-3xl p-8 text-center text-ink-soft">
               <AlertCircle className="w-8 h-8 mx-auto mb-2 text-gray-300" />
               <p className="text-xs font-semibold">Nenhum usuário correspondente.</p>
             </div>
@@ -418,7 +424,7 @@ export default function AdminPanel({
                   id={`user-row-${u.userId}`}
                   className={`rounded-2xl p-4 border transition-all space-y-3 ${
                     isSuspended 
-                      ? "bg-red-50/40 border-red-100 opacity-80" 
+                      ? "bg-error-50/40 border-error-100 opacity-80" 
                       : "bg-white border-brand-cream-darker shadow-2xs"
                   }`}
                 >
@@ -432,7 +438,7 @@ export default function AdminPanel({
                             setEditingNameUser(u);
                             setNameInput(u.name);
                           }}
-                          className="p-0.5 rounded-md text-gray-400 hover:text-brand-teal hover:bg-brand-cream transition-colors"
+                          className="p-0.5 rounded-md text-ink-soft hover:text-brand-teal hover:bg-brand-cream transition-colors"
                           title="Editar Nome"
                         >
                           <Pencil className="w-3 h-3" />
@@ -444,13 +450,13 @@ export default function AdminPanel({
                         )}
                         <span
                           className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide ${
-                            isSuspended ? "bg-red-100 text-red-600" : "bg-emerald-100 text-emerald-600"
+                            isSuspended ? "bg-error-100 text-error-600" : "bg-success-100 text-success-600"
                           }`}
                         >
                           {isSuspended ? "Bloqueado" : "Ativo"}
                         </span>
                       </div>
-                      <p className="text-xs text-gray-500 font-mono mt-0.5">{u.email}</p>
+                      <p className="text-xs text-ink-soft font-mono mt-0.5">{u.email}</p>
                     </div>
 
                     {/* Quick switch roles & delete actions */}
@@ -491,7 +497,7 @@ export default function AdminPanel({
                             },
                           });
                         }}
-                        className="p-1 rounded-md border border-red-100 bg-red-50 text-red-500 hover:bg-red-600 hover:text-white transition-all"
+                        className="p-1 rounded-md border border-error-100 bg-error-50 text-error-500 hover:bg-error-600 hover:text-white transition-all"
                         title="Excluir Usuário"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -513,11 +519,11 @@ export default function AdminPanel({
                       {/* Um assinante em dia aparecia aqui em vermelho como
                           "Expirado" — tecnicamente verdade sobre o campo, mas
                           lido como "sem acesso". O que vale é o estado real. */}
-                      <div className="text-xs text-gray-500 leading-relaxed">
-                        Status: <strong className={hasActiveSub ? "text-gray-500" : trial.status === "active" ? "text-emerald-600" : "text-red-500"}>
+                      <div className="text-xs text-ink-soft leading-relaxed">
+                        Status: <strong className={hasActiveSub ? "text-ink-soft" : trial.status === "active" ? "text-success-600" : "text-error-500"}>
                           {hasActiveSub ? "Coberto pela assinatura" : trial.status === "active" ? "Válido" : "Expirado"}
                         </strong>
-                        <div className="truncate text-gray-500 mt-0.5">{trial.text}</div>
+                        <div className="truncate text-ink-soft mt-0.5">{trial.text}</div>
                       </div>
                       <button
                         onClick={() => setEditingTrialUser(u)}
@@ -533,15 +539,15 @@ export default function AdminPanel({
                         <CreditCard className="w-3.5 h-3.5 text-brand-teal shrink-0" />
                         <span>Assinatura</span>
                       </div>
-                      <div className="text-xs text-gray-500 leading-relaxed">
-                        Acesso real: <strong className={hasActiveSub ? "text-emerald-600" : "text-gray-500"}>
+                      <div className="text-xs text-ink-soft leading-relaxed">
+                        Acesso real: <strong className={hasActiveSub ? "text-success-600" : "text-ink-soft"}>
                           {accessState === "active" ? "Ativa" : accessState === "grace" ? "Carência" : accessState === "trial" ? "Trial" : "Bloqueada"}
                         </strong>
-                        <div className="truncate text-gray-500 mt-0.5">
+                        <div className="truncate text-ink-soft mt-0.5">
                           Plano: <span className="capitalize font-semibold text-brand-teal">{u.subscriptionPlan || "Nenhum"}</span>
                         </div>
                         {hasActiveSub && u.subscriptionCurrentPeriodEnd && (
-                          <div className="truncate text-gray-500 mt-0.5">
+                          <div className="truncate text-ink-soft mt-0.5">
                             Válida até {formatDateString(u.subscriptionCurrentPeriodEnd)}
                           </div>
                         )}
@@ -569,11 +575,11 @@ export default function AdminPanel({
                       {/* A cota só existe para quem está em gratuidade/trial:
                           assinante pago e isento escaneiam à vontade, e mostrar
                           "1/3" para eles sugeria um limite que não se aplica. */}
-                      <div className="text-xs text-gray-500 mt-1 leading-relaxed">
+                      <div className="text-xs text-ink-soft mt-1 leading-relaxed">
                         {hasActiveSub ? (
                           <span>Sem limite — assinatura paga vigente.</span>
                         ) : u.scanLimitExempt ? (
-                          <span>Sem limite — <span className="text-emerald-600 font-bold">isento pelo admin</span>.</span>
+                          <span>Sem limite — <span className="text-success-600 font-bold">isento pelo admin</span>.</span>
                         ) : (
                           <>
                             Receita: <strong>{u.trialPrescriptionScansUsed || 0}/{TRIAL_SCAN_LIMIT}</strong> · Nota: <strong>{u.trialReceiptScansUsed || 0}/{TRIAL_SCAN_LIMIT}</strong>
@@ -585,7 +591,7 @@ export default function AdminPanel({
                       onClick={() => handleToggleScanExempt(u)}
                       className={`shrink-0 text-xs font-bold uppercase rounded-lg px-2.5 py-1.5 border transition-colors ${
                         u.scanLimitExempt
-                          ? "bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100"
+                          ? "bg-success-50 text-success-600 border-success-200 hover:bg-success-100"
                           : "bg-white text-brand-teal border-brand-cream-darker hover:bg-brand-peach"
                       }`}
                     >
@@ -611,17 +617,17 @@ export default function AdminPanel({
                       onClick={() => handleToggleStatus(u)}
                       className={`flex-1 rounded-xl py-1.5 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1 transition-all ${
                         isSuspended
-                          ? "bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100"
-                          : "bg-red-50 text-red-500 border border-red-100 hover:bg-red-100"
+                          ? "bg-success-50 text-success-600 border border-success-200 hover:bg-success-100"
+                          : "bg-error-50 text-error-500 border border-error-100 hover:bg-error-100"
                       }`}
                     >
                       {isSuspended ? (
                         <>
-                          <UserCheck className="w-3.5 h-3.5 text-emerald-600" /> Ativar Usuário
+                          <UserCheck className="w-3.5 h-3.5 text-success-600" /> Ativar Usuário
                         </>
                       ) : (
                         <>
-                          <UserX className="w-3.5 h-3.5 text-red-500" /> Desativar Conta
+                          <UserX className="w-3.5 h-3.5 text-error-500" /> Desativar Conta
                         </>
                       )}
                     </button>
@@ -636,15 +642,22 @@ export default function AdminPanel({
       {/* MODAL: Conceder Período de Gratuidade */}
       {editingTrialUser && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="bg-brand-cream rounded-3xl max-w-sm w-full p-6 shadow-xl border border-brand-cream-darker animate-scale-up">
+          <div
+            ref={trialPanelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="trial-modal-title"
+            tabIndex={-1}
+            className="bg-brand-cream rounded-3xl max-w-sm w-full p-6 shadow-xl border border-brand-cream-darker animate-scale-up"
+          >
             <div className="w-10 h-10 rounded-full bg-brand-peach text-brand-coral flex items-center justify-center mx-auto mb-3">
               <Gift className="w-5 h-5" />
             </div>
 
-            <h3 className="text-base font-display font-bold text-brand-teal text-center mb-1">
+            <h3 id="trial-modal-title" className="text-base font-display font-bold text-brand-teal text-center mb-1">
               Conceder Período de Gratuidade
             </h3>
-            <p className="text-[11px] text-gray-500 text-center mb-4 leading-tight">
+            <p className="text-[11px] text-ink-soft text-center mb-4 leading-tight">
               Apenas para o usuário <strong className="text-brand-teal">{editingTrialUser.name}</strong>.<br />
               É esta a forma de liberar acesso de cortesia: o período é acrescentado à
               validade atual ou contado a partir de hoje.
@@ -652,13 +665,14 @@ export default function AdminPanel({
 
             <form onSubmit={handleTrialSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
+                <label htmlFor="trial-days" className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
                   Dias de Gratuidade a Conceder
                 </label>
                 <select
+                  id="trial-days"
                   value={daysToGrant}
                   onChange={(e) => setDaysToGrant(e.target.value)}
-                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden"
+                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral"
                 >
                   <option value="7">7 Dias Grátis (Semana)</option>
                   <option value="15">15 Dias Grátis (Quinzena)</option>
@@ -669,7 +683,7 @@ export default function AdminPanel({
                 </select>
               </div>
 
-              <div className="bg-white rounded-xl p-3 border border-brand-cream-darker text-[10px] text-gray-500 space-y-1">
+              <div className="bg-white rounded-xl p-3 border border-brand-cream-darker text-[10px] text-ink-soft space-y-1">
                 {/* Estado REAL (getAccessState), não só a data do trial: é ele
                     que decide se os scanners abrem no app do usuário. */}
                 <div>
@@ -690,7 +704,7 @@ export default function AdminPanel({
                 <button
                   type="button"
                   onClick={() => setEditingTrialUser(null)}
-                  className="flex-1 border border-brand-cream-darker text-gray-500 rounded-xl py-2.5 text-xs font-semibold hover:bg-gray-50 transition-all"
+                  className="flex-1 border border-brand-cream-darker text-ink-soft rounded-xl py-2.5 text-xs font-semibold hover:bg-gray-50 transition-all"
                 >
                   Cancelar
                 </button>
@@ -709,28 +723,36 @@ export default function AdminPanel({
       {/* MODAL: Gerenciar Assinatura */}
       {editingSubscriptionUser && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="bg-brand-cream rounded-3xl max-w-sm w-full p-6 shadow-xl border border-brand-cream-darker animate-scale-up">
+          <div
+            ref={subscriptionPanelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="subscription-modal-title"
+            tabIndex={-1}
+            className="bg-brand-cream rounded-3xl max-w-sm w-full p-6 shadow-xl border border-brand-cream-darker animate-scale-up"
+          >
             <div className="w-10 h-10 rounded-full bg-teal-50 text-brand-teal flex items-center justify-center mx-auto mb-3 border border-brand-teal/10">
               <CreditCard className="w-5 h-5 text-brand-teal" />
             </div>
 
-            <h3 className="text-base font-display font-bold text-brand-teal text-center mb-1">
+            <h3 id="subscription-modal-title" className="text-base font-display font-bold text-brand-teal text-center mb-1">
               Assinatura Paga do Usuário
             </h3>
-            <p className="text-[11px] text-gray-500 text-center mb-4">
+            <p className="text-[11px] text-ink-soft text-center mb-4">
               Reconcilia o pagamento de <strong className="text-brand-teal">{editingSubscriptionUser.name}</strong> —
               não é aqui que se concede cortesia.
             </p>
 
             <form onSubmit={handleSubscriptionSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
+                <label htmlFor="sub-status" className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
                   Status da Assinatura
                 </label>
                 <select
+                  id="sub-status"
                   value={subStatus}
                   onChange={(e) => setSubStatus(e.target.value as any)}
-                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden"
+                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral"
                 >
                   <option value="active">Ativa (Acesso Liberado)</option>
                   <option value="inactive">Inativa / Cancelada</option>
@@ -739,13 +761,14 @@ export default function AdminPanel({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
+                <label htmlFor="sub-plan" className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
                   Plano Contratado
                 </label>
                 <select
+                  id="sub-plan"
                   value={subPlan}
                   onChange={(e) => setSubPlan(e.target.value as 'monthly' | 'yearly' | 'none')}
-                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden"
+                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral"
                 >
                   <option value="none">Nenhum Plano Ativo</option>
                   <option value="monthly">Plano Mensal (Recorrente)</option>
@@ -753,7 +776,7 @@ export default function AdminPanel({
                 </select>
               </div>
 
-              <div className="bg-white rounded-xl p-3 border border-brand-cream-darker text-[10px] text-gray-500 leading-snug space-y-1">
+              <div className="bg-white rounded-xl p-3 border border-brand-cream-darker text-[10px] text-ink-soft leading-snug space-y-1">
                 {subStatus === "active" ? (
                   <>
                     <p className="text-brand-teal font-bold uppercase tracking-wider text-[10px]">
@@ -788,7 +811,7 @@ export default function AdminPanel({
                 <button
                   type="button"
                   onClick={() => setEditingSubscriptionUser(null)}
-                  className="flex-1 border border-brand-cream-darker text-gray-500 rounded-xl py-2.5 text-xs font-semibold hover:bg-gray-50 transition-all"
+                  className="flex-1 border border-brand-cream-darker text-ink-soft rounded-xl py-2.5 text-xs font-semibold hover:bg-gray-50 transition-all"
                 >
                   Cancelar
                 </button>
@@ -807,30 +830,38 @@ export default function AdminPanel({
       {/* MODAL: Editar Nome */}
       {editingNameUser && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="bg-brand-cream rounded-3xl max-w-sm w-full p-6 shadow-xl border border-brand-cream-darker animate-scale-up">
+          <div
+            ref={namePanelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="name-modal-title"
+            tabIndex={-1}
+            className="bg-brand-cream rounded-3xl max-w-sm w-full p-6 shadow-xl border border-brand-cream-darker animate-scale-up"
+          >
             <div className="w-10 h-10 rounded-full bg-brand-teal-pale text-brand-teal flex items-center justify-center mx-auto mb-3 border border-brand-cream-darker">
               <Pencil className="w-5 h-5 text-brand-teal" />
             </div>
 
-            <h3 className="text-base font-display font-bold text-brand-teal text-center mb-1">
+            <h3 id="name-modal-title" className="text-base font-display font-bold text-brand-teal text-center mb-1">
               Editar Nome do Usuário
             </h3>
-            <p className="text-[11px] text-gray-500 text-center mb-4">
+            <p className="text-[11px] text-ink-soft text-center mb-4">
               Corrige o nome exibido para <strong className="text-brand-teal">{editingNameUser.email}</strong>. Isso atualiza o perfil real no Firestore.
             </p>
 
             <form onSubmit={handleNameSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
+                <label htmlFor="admin-edit-name" className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
                   Nome Completo
                 </label>
                 <input
+                  id="admin-edit-name"
                   type="text"
                   required
                   placeholder="Nome do usuário"
                   value={nameInput}
                   onChange={(e) => setNameInput(e.target.value)}
-                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden text-center font-sans"
+                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral text-center font-sans"
                 />
               </div>
 
@@ -841,7 +872,7 @@ export default function AdminPanel({
                     setEditingNameUser(null);
                     setNameInput("");
                   }}
-                  className="flex-1 border border-brand-cream-darker text-gray-500 rounded-xl py-2.5 text-xs font-semibold hover:bg-gray-50 transition-all"
+                  className="flex-1 border border-brand-cream-darker text-ink-soft rounded-xl py-2.5 text-xs font-semibold hover:bg-gray-50 transition-all"
                 >
                   Cancelar
                 </button>
@@ -861,30 +892,38 @@ export default function AdminPanel({
       {/* MODAL: Alterar Senha */}
       {editingPasswordUser && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="bg-brand-cream rounded-3xl max-w-sm w-full p-6 shadow-xl border border-brand-cream-darker animate-scale-up">
-            <div className="w-10 h-10 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-3 border border-amber-100">
-              <Key className="w-5 h-5 text-amber-600" />
+          <div
+            ref={passwordPanelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="password-modal-title"
+            tabIndex={-1}
+            className="bg-brand-cream rounded-3xl max-w-sm w-full p-6 shadow-xl border border-brand-cream-darker animate-scale-up"
+          >
+            <div className="w-10 h-10 rounded-full bg-warning-50 text-warning-600 flex items-center justify-center mx-auto mb-3 border border-warning-100">
+              <Key className="w-5 h-5 text-warning-600" />
             </div>
 
-            <h3 className="text-base font-display font-bold text-brand-teal text-center mb-1">
+            <h3 id="password-modal-title" className="text-base font-display font-bold text-brand-teal text-center mb-1">
               Alterar Senha do Usuário
             </h3>
-            <p className="text-[11px] text-gray-500 text-center mb-4">
+            <p className="text-[11px] text-ink-soft text-center mb-4">
               Defina uma nova senha de login para <strong className="text-brand-teal">{editingPasswordUser.name}</strong>. Isso altera a conta real no Firebase Auth.
             </p>
 
             <form onSubmit={handlePasswordSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
+                <label htmlFor="admin-new-password" className="block text-xs font-bold text-brand-teal mb-1 uppercase tracking-wider">
                   Nova Senha de Acesso
                 </label>
                 <input
+                  id="admin-new-password"
                   type="text"
                   required
                   placeholder="Mínimo 6 caracteres"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline-hidden text-center font-mono"
+                  className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-sm text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral text-center font-mono"
                 />
               </div>
 
@@ -892,7 +931,7 @@ export default function AdminPanel({
                 <button
                   type="button"
                   onClick={() => setEditingPasswordUser(null)}
-                  className="flex-1 border border-brand-cream-darker text-gray-500 rounded-xl py-2.5 text-xs font-semibold hover:bg-gray-50 transition-all"
+                  className="flex-1 border border-brand-cream-darker text-ink-soft rounded-xl py-2.5 text-xs font-semibold hover:bg-gray-50 transition-all"
                 >
                   Cancelar
                 </button>

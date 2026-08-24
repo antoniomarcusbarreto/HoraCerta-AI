@@ -56,11 +56,11 @@ export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, E
     return (
       <div className="min-h-screen bg-brand-cream text-brand-teal flex flex-col justify-center items-center px-4 py-8 font-sans">
         <div className="w-full max-w-sm bg-white border border-brand-cream-darker rounded-[2.5rem] p-8 shadow-xl text-center">
-          <div className="w-14 h-14 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center mx-auto mb-4">
+          <div className="w-14 h-14 bg-error-50 text-error-500 rounded-3xl flex items-center justify-center mx-auto mb-4">
             <AlertTriangle className="w-7 h-7" />
           </div>
           <h1 className="text-lg font-display font-bold text-brand-teal mb-2">Algo deu errado</h1>
-          <p className="text-xs text-gray-500 leading-relaxed mb-6">
+          <p className="text-xs text-ink-soft leading-relaxed mb-6">
             Encontramos um problema inesperado ao carregar o aplicativo. Toque no botão abaixo para
             reiniciar — seus dados na nuvem não são afetados.
           </p>

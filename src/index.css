@@ -15,6 +15,46 @@
   --color-brand-coral: #EAA15F;
   --color-brand-coral-light: #F3BC8B;
   --color-brand-peach: #FFF1E6;
+  --color-ink: #0E2C30;
+  --color-ink-soft: #4C6469;
+
+  /* The desktop registry's "floating paper" treatment — a wider, slightly
+     darker canvas with a paler card resting on top — repeated identically
+     across App.tsx (admin shell), PrivacyPolicy.tsx and SubscriptionScreen.tsx
+     as raw hex before this token existed. */
+  --color-paper-canvas: #FAF6EC;
+  --color-paper: #FDFBF5;
+  --color-paper-border: #ECE6D8;
+
+  /* Semantic status tokens. Every success/error/warning surface in the app
+     (banners, badges, icons, buttons) reads from this ramp instead of a raw
+     Tailwind hue, so "success" can't drift between emerald here and green
+     there, or "error" between red-500 in one file and red-600 in another. */
+  --color-success-50: #ecfdf5;
+  --color-success-100: #d1fae5;
+  --color-success-200: #a7f3d0;
+  --color-success-400: #34d399;
+  --color-success-500: #10b981;
+  --color-success-600: #059669;
+  --color-success-700: #047857;
+  --color-success-800: #065f46;
+
+  --color-error-50: #fef2f2;
+  --color-error-100: #fee2e2;
+  --color-error-200: #fecaca;
+  --color-error-300: #fca5a5;
+  --color-error-500: #ef4444;
+  --color-error-600: #dc2626;
+  --color-error-700: #b91c1c;
+  --color-error-800: #991b1b;
+
+  --color-warning-50: #fffbeb;
+  --color-warning-100: #fef3c7;
+  --color-warning-200: #fde68a;
+  --color-warning-500: #f59e0b;
+  --color-warning-600: #d97706;
+  --color-warning-800: #92400e;
+  --color-warning-900: #78350f;
 }
 
 body {
@@ -98,6 +138,23 @@ body {
   .animate-dash {
     animation: none;
     stroke-dashoffset: 0;
+  }
+  /* Every animate-pulse/animate-ping in this app is a decorative attention-pull
+     (CTA nudge, "live" status dot, overdue-dose ring) layered on top of a
+     control that already communicates its state through color, icon, or text —
+     never the only cue. animate-spin is deliberately left alone: every use is
+     a real loading spinner gated on an async `loading` boolean, so freezing it
+     would remove the only sign that something is in progress. */
+  .animate-pulse {
+    animation: none;
+  }
+  .animate-ping {
+    animation: none;
+    /* The ping halo is a second, purely decorative element layered on a solid
+       dot of the same color (see PrescriptionScanner/ReceiptScanner's "live"
+       indicator) — hide it instead of freezing it mid-scale-and-fade, which
+       would otherwise leave a half-transparent, oversized ghost dot on screen. */
+    opacity: 0;
   }
 }
 

@@ -1738,7 +1738,7 @@ export default function App() {
                 <h1 className="text-2xl font-display font-bold text-brand-teal tracking-tight">
                   Portal do Administrador
                 </h1>
-                <p className="text-xs text-gray-400 font-sans mt-1">
+                <p className="text-xs text-ink-soft font-sans mt-1">
                   Acesso seguro e restrito para gestão global da plataforma
                 </p>
               </div>
@@ -1759,37 +1759,39 @@ export default function App() {
                 className="space-y-4 relative z-10"
               >
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block">
+                  <label htmlFor="admin-login-email" className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block">
                     E-mail do Administrador
                   </label>
                   <div className="relative">
-                    <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-gray-400">
+                    <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-ink-soft">
                       <Mail className="w-4 h-4" />
                     </span>
                     <input
+                      id="admin-login-email"
                       name="email"
                       type="email"
                       required
                       placeholder="seu.email@exemplo.com"
-                      className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl pl-10 pr-4 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline-none focus:border-brand-teal/50 transition-all font-medium"
+                      className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl pl-10 pr-4 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral focus:border-brand-teal/50 transition-all font-medium"
                     />
                   </div>
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block">
+                  <label htmlFor="admin-login-password" className="text-[11px] font-bold text-brand-teal uppercase tracking-wider block">
                     Senha Secreta
                   </label>
                   <div className="relative">
-                    <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-gray-400">
+                    <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-ink-soft">
                       <Lock className="w-4 h-4" />
                     </span>
                     <input
+                      id="admin-login-password"
                       name="password"
                       type="password"
                       required
                       placeholder="Senha de acesso admin"
-                      className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl pl-10 pr-4 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline-none focus:border-brand-teal/50 transition-all font-medium"
+                      className="w-full bg-brand-cream/40 border border-brand-cream-darker rounded-xl pl-10 pr-4 py-3 text-xs text-brand-teal placeholder-gray-400 font-sans focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral focus:border-brand-teal/50 transition-all font-medium"
                     />
                   </div>
                 </div>
@@ -1829,7 +1831,7 @@ export default function App() {
                   <h1 className="text-lg font-display font-bold text-brand-teal leading-tight">
                     HoraCerta AI - Portal Admin
                   </h1>
-                  <p className="text-xs text-gray-400">
+                  <p className="text-xs text-ink-soft">
                     Sessão ativa: <strong className="text-brand-coral">{activeAdminUser.name}</strong>
                   </p>
                 </div>
@@ -1848,7 +1850,7 @@ export default function App() {
                 </button>
                 <button
                   onClick={handleAdminLogout}
-                  className="px-3.5 py-2 bg-red-50 hover:bg-red-100 border border-red-100 text-red-600 text-xs font-bold rounded-xl transition-all shadow-sm active:scale-95"
+                  className="px-3.5 py-2 bg-error-50 hover:bg-error-100 border border-error-100 text-error-600 text-xs font-bold rounded-xl transition-all shadow-sm active:scale-95"
                 >
                   Sair do Painel
                 </button>
@@ -1916,7 +1918,7 @@ export default function App() {
   }
 
   const appShell = (
-    <div className="min-h-screen bg-brand-cream text-brand-teal relative selection:bg-brand-coral/20 select-none pb-20 lg:pb-8 lg:pl-24 lg:bg-[#FAF6EC]">
+    <div className="min-h-screen bg-brand-cream text-brand-teal relative selection:bg-brand-coral/20 select-none pb-20 lg:pb-8 lg:pl-24 lg:bg-paper-canvas">
 
       <UpdateBanner open={updateReady} onUpdate={() => void applyAppUpdate()} />
 
@@ -1963,8 +1965,13 @@ export default function App() {
       {!activeUser ? (
         <AuthScreen onLoginSuccess={handleLoginSuccess} />
       ) : (
-        <div className="lg:max-w-[1080px] lg:mx-auto lg:my-8 lg:bg-[#FDFBF5] lg:border lg:border-[#ECE6D8] lg:rounded-[28px] lg:p-8 lg:shadow-[0_2px_10px_rgba(0,0,0,0.03)]">
-          {activeTab === "home" && (
+        <div className="lg:max-w-[1080px] lg:mx-auto lg:my-8 lg:bg-paper lg:border lg:border-paper-border lg:rounded-[28px] lg:p-8 lg:shadow-[0_2px_10px_rgba(0,0,0,0.03)]">
+          {/* As quatro abas ficam sempre montadas e só alternam visibilidade via
+              CSS: desmontar/remontar a cada troca de aba perdia o estado local
+              de UI de cada tela (filtros, modais abertos) e forçava o navegador
+              a reemitir as requisições de imagem recriadas do zero — o que na
+              aba Network parecia "releitura" a cada navegação. */}
+          <div className={activeTab === "home" ? "" : "hidden"}>
             <Dashboard
               userName={activeUser.name}
               medicados={medicados}
@@ -1983,9 +1990,9 @@ export default function App() {
               canInstall={install.isInstallable && !isDesktop}
               onInstall={installPWAApp}
             />
-          )}
+          </div>
 
-          {activeTab === "schedule" && (
+          <div className={activeTab === "schedule" ? "" : "hidden"}>
             <Schedule
               medicados={medicados}
               medicamentos={medicamentos}
@@ -2000,9 +2007,9 @@ export default function App() {
               setSelectedPatientFilterId={setSchedulePatientId}
               onNotify={showToast}
             />
-          )}
+          </div>
 
-          {activeTab === "pharmacies" && (
+          <div className={activeTab === "pharmacies" ? "" : "hidden"}>
             <Pharmacies
               farmacias={farmacias}
               medicamentos={medicamentos}
@@ -2015,9 +2022,9 @@ export default function App() {
               scanBlock={getScanBlockReason(activeUser, "receipt")}
               onBlockedScanAttempt={() => handleBlockedScanAttempt("receipt")}
             />
-          )}
+          </div>
 
-          {activeTab === "receitas" && (
+          <div className={activeTab === "receitas" ? "" : "hidden"}>
             <Appointments
               medicados={medicados}
               receitas={receitas}
@@ -2027,7 +2034,7 @@ export default function App() {
               scanBlock={getScanBlockReason(activeUser, "prescription")}
               onBlockedScanAttempt={() => handleBlockedScanAttempt("prescription")}
             />
-          )}
+          </div>
 
           {/* Profile Tab */}
           {activeTab === "profile" && (
@@ -2041,6 +2048,7 @@ export default function App() {
                       src={activeUser.avatarUrl}
                       alt={activeUser.name}
                       referrerPolicy="no-referrer"
+                      loading="lazy"
                       className="w-full h-full object-cover rounded-full border-2 border-brand-coral shadow-inner"
                     />
                   ) : (
@@ -2154,7 +2162,7 @@ export default function App() {
                         <h4 className="text-xs font-bold text-brand-teal uppercase tracking-wider">
                           Alterar Senha de Acesso
                         </h4>
-                        <p className="text-[11px] text-gray-400 font-sans mt-0.5">
+                        <p className="text-[11px] text-ink-soft font-sans mt-0.5">
                           Proteja sua conta atualizando suas credenciais
                         </p>
                       </div>
@@ -2175,7 +2183,7 @@ export default function App() {
                           setShowPassword(false);
                           setProfilePassword("");
                         }}
-                        className="text-[10px] font-bold text-gray-400 hover:text-gray-600 transition-all"
+                        className="text-[10px] font-bold text-ink-soft hover:text-brand-teal transition-all"
                       >
                         Cancelar
                       </button>
@@ -2183,16 +2191,17 @@ export default function App() {
 
                     <div className="space-y-3">
                       <div>
-                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wide block mb-1">
+                        <label htmlFor="profile-new-password" className="text-[10px] font-bold text-ink-soft uppercase tracking-wide block mb-1">
                           Nova Senha de Acesso
                         </label>
                         <div className="relative">
                           <input
+                            id="profile-new-password"
                             type={showPassword ? "text" : "password"}
                             value={profilePassword}
                             onChange={(e) => setProfilePassword(e.target.value)}
                             placeholder="Insira sua nova senha"
-                            className="w-full bg-brand-cream border border-brand-cream-darker rounded-xl px-3.5 py-2.5 text-xs font-medium text-brand-teal outline-none focus:border-brand-teal focus:ring-1 focus:ring-brand-teal/15 transition-all pr-10"
+                            className="w-full bg-brand-cream border border-brand-cream-darker rounded-xl px-3.5 py-2.5 text-xs font-medium text-brand-teal outline-none focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral focus:border-brand-teal focus:ring-1 focus:ring-brand-teal/15 transition-all pr-10"
                           />
                           <button
                             type="button"
@@ -2234,7 +2243,7 @@ export default function App() {
                       <h4 className="text-xs font-bold text-brand-teal uppercase tracking-wider">
                         Privacidade e Proteção de Dados (LGPD)
                       </h4>
-                      <p className="text-[11px] text-gray-400 font-sans mt-0.5">
+                      <p className="text-[11px] text-ink-soft font-sans mt-0.5">
                         Veja como seus dados são coletados e usados
                       </p>
                     </div>
@@ -2262,7 +2271,7 @@ export default function App() {
                   <h4 className="text-xs font-bold text-brand-teal uppercase tracking-wider flex items-center gap-1.5">
                     <CreditCard className="w-4 h-4 text-brand-coral" /> Status da Assinatura
                   </h4>
-                  <span className="text-[10px] font-mono text-gray-400">Hora Certa Premium</span>
+                  <span className="text-[10px] font-mono text-ink-soft">Hora Certa Premium</span>
                 </div>
 
                 <div className="space-y-3">
@@ -2278,20 +2287,20 @@ export default function App() {
                       const subscriptionCovers = state === "active" || state === "grace";
                       return (
                         <div className={`w-8 h-8 rounded-lg border flex items-center justify-center shrink-0 ${
-                          subscriptionCovers ? "bg-emerald-50 border-emerald-100" : "bg-orange-50 border-orange-100"
+                          subscriptionCovers ? "bg-success-50 border-success-100" : "bg-orange-50 border-orange-100"
                         }`}>
-                          <Gift className={`w-4 h-4 ${subscriptionCovers ? "text-emerald-600" : "text-orange-600"}`} />
+                          <Gift className={`w-4 h-4 ${subscriptionCovers ? "text-success-600" : "text-orange-600"}`} />
                         </div>
                       );
                     })()}
                     <div>
                       <h5 className="text-[11px] font-bold text-brand-teal uppercase tracking-wide">Período de Gratuidade</h5>
-                      <p className="text-[11px] text-gray-500 mt-0.5">
+                      <p className="text-[11px] text-ink-soft mt-0.5">
                         {(() => {
                           const state = getAccessState(activeUser);
                           if (state === "active" || state === "grace") {
                             return (
-                              <span className="text-emerald-600 font-semibold">
+                              <span className="text-success-600 font-semibold">
                                 Sua assinatura já está ativa — o período de gratuidade não é mais necessário.
                               </span>
                             );
@@ -2304,12 +2313,12 @@ export default function App() {
                           if (diff > 0) {
                             return (
                               <span>
-                                Você tem <strong className="text-emerald-600 font-bold">{diff} {diff === 1 ? "dia" : "dias"}</strong> de teste gratuito restantes (até {expiry.toLocaleDateString("pt-BR")}).
+                                Você tem <strong className="text-success-600 font-bold">{diff} {diff === 1 ? "dia" : "dias"}</strong> de teste gratuito restantes (até {expiry.toLocaleDateString("pt-BR")}).
                               </span>
                             );
                           }
                           return (
-                            <span className="text-red-500 font-semibold">
+                            <span className="text-error-500 font-semibold">
                               Seu período de gratuidade expirou em {expiry.toLocaleDateString("pt-BR")}.
                             </span>
                           );
@@ -2325,19 +2334,19 @@ export default function App() {
                     </div>
                     <div>
                       <h5 className="text-[11px] font-bold text-brand-teal uppercase tracking-wide">Plano Contratado</h5>
-                      <div className="text-[11px] text-gray-500 mt-0.5 flex flex-col">
+                      <div className="text-[11px] text-ink-soft mt-0.5 flex flex-col">
                         <span>
-                          Status: <strong className={activeUser?.subscriptionStatus === "active" ? "text-emerald-600 font-bold" : "text-gray-400"}>
+                          Status: <strong className={activeUser?.subscriptionStatus === "active" ? "text-success-600 font-bold" : "text-ink-soft"}>
                             {activeUser?.subscriptionStatus === "active" ? "Assinatura Ativa" : "Nenhuma assinatura ativa"}
                           </strong>
                         </span>
                         {activeUser?.subscriptionStatus === "active" && (
-                          <span className="text-[10px] text-gray-400">
+                          <span className="text-[10px] text-ink-soft">
                             Plano: <span className="capitalize text-brand-teal font-semibold">{activeUser.subscriptionPlan === "monthly" ? "Mensal" : "Anual"}</span>
                           </span>
                         )}
                         {activeUser?.subscriptionCurrentPeriodEnd && getAccessState(activeUser) !== "blocked" && getAccessState(activeUser) !== "trial" && (
-                          <span className="text-[10px] text-gray-400">
+                          <span className="text-[10px] text-ink-soft">
                             Válida até {new Date(activeUser.subscriptionCurrentPeriodEnd).toLocaleDateString("pt-BR")}
                             {daysRemaining(activeUser.subscriptionCurrentPeriodEnd) > 0 && ` (${daysRemaining(activeUser.subscriptionCurrentPeriodEnd)} dias)`}
                           </span>
@@ -2383,7 +2392,7 @@ export default function App() {
                     <h4 className="text-xs font-bold text-brand-teal uppercase tracking-wider">
                       Instalação & Alertas do Celular (PWA)
                     </h4>
-                    <p className="text-[11px] text-gray-400 font-sans mt-0.5">
+                    <p className="text-[11px] text-ink-soft font-sans mt-0.5">
                       Receba avisos de medicamentos mesmo com o aplicativo fechado
                     </p>
                   </div>
@@ -2401,7 +2410,7 @@ export default function App() {
                   >
                     <Download className={`w-5 h-5 mb-1.5 transition-transform group-hover:scale-110 ${isPWAInstalled ? "text-brand-teal/60" : "text-brand-coral"}`} />
                     <span className="text-[10px] font-bold uppercase tracking-wider">Instalar no Celular</span>
-                    <span className="text-[9px] text-gray-400 font-sans mt-0.5">
+                    <span className="text-[9px] text-ink-soft font-sans mt-0.5">
                       {isPWAInstalled ? "Já Instalado" : "Adicionar à Tela Inicial"}
                     </span>
                   </button>
@@ -2417,7 +2426,7 @@ export default function App() {
                   >
                     <Bell className={`w-5 h-5 mb-1.5 transition-transform group-hover:scale-110 ${notificationPermission === "granted" ? "text-brand-teal/60" : "text-brand-coral animate-pulse"}`} />
                     <span className="text-[10px] font-bold uppercase tracking-wider">Permitir Alertas</span>
-                    <span className="text-[9px] text-gray-400 font-sans mt-0.5 capitalize">
+                    <span className="text-[9px] text-ink-soft font-sans mt-0.5 capitalize">
                       Status: {
                         notificationPermission !== "granted"
                           ? (notificationPermission === "denied" ? "Bloqueado" : "Ativar")
@@ -2433,18 +2442,18 @@ export default function App() {
                     "permission granted, still doesn't work" state, since the OS
                     permission dialog appears normally even outside standalone mode. */}
                 {isIOSDevice() && !isPWAInstalled && (
-                  <div className="bg-amber-50 border border-amber-200/60 rounded-2xl p-3 flex items-start gap-2 animate-fade-in">
-                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                    <p className="text-[10px] text-amber-900 font-sans leading-relaxed">
+                  <div className="bg-warning-50 border border-warning-200/60 rounded-2xl p-3 flex items-start gap-2 animate-fade-in">
+                    <AlertCircle className="w-4 h-4 text-warning-600 shrink-0 mt-0.5" />
+                    <p className="text-[10px] text-warning-900 font-sans leading-relaxed">
                       <strong className="font-bold">No iPhone, instale o app primeiro:</strong> toque em "Instalar no Celular" acima (Compartilhar {"→"} Adicionar à Tela de Início) e abra pelo ícone criado — só assim os lembretes chegam com a tela bloqueada.
                     </p>
                   </div>
                 )}
 
                 {notificationPermission === "granted" && !pushRegistered && !(isIOSDevice() && !isPWAInstalled) && (
-                  <div className="bg-amber-50 border border-amber-200/60 rounded-2xl p-3 flex items-start gap-2 animate-fade-in">
-                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                    <p className="text-[10px] text-amber-900 font-sans leading-relaxed">
+                  <div className="bg-warning-50 border border-warning-200/60 rounded-2xl p-3 flex items-start gap-2 animate-fade-in">
+                    <AlertCircle className="w-4 h-4 text-warning-600 shrink-0 mt-0.5" />
+                    <p className="text-[10px] text-warning-900 font-sans leading-relaxed">
                       Alertas permitidos neste navegador, mas os lembretes só chegam com o app aberto — a inscrição para funcionar com o app fechado ainda não foi concluída. Toque em "Permitir Alertas" novamente.
                     </p>
                   </div>
@@ -2456,7 +2465,7 @@ export default function App() {
                       <p className="text-[10px] font-bold text-brand-teal uppercase tracking-wider">
                         Testar Notificações Externas
                       </p>
-                      <p className="text-[9px] text-gray-500 font-sans mt-0.5 leading-tight">
+                      <p className="text-[9px] text-ink-soft font-sans mt-0.5 leading-tight">
                         Clique ao lado para receber um alerta teste em 3 segundos. Minimize ou trave a tela para ver!
                       </p>
                     </div>
@@ -2470,7 +2479,7 @@ export default function App() {
                 )}
 
                 <div className="bg-brand-cream/60 border border-dashed border-brand-cream-darker rounded-2xl p-3">
-                  <p className="text-[9px] text-gray-400 font-sans leading-tight">
+                  <p className="text-[9px] text-ink-soft font-sans leading-tight">
                     💡 <strong>Como funciona:</strong> Ao instalar a PWA e conceder permissão de Alertas, o dispositivo rodará o Service Worker em segundo plano. O sistema avisa o horário correto de ministrar o medicamento mesmo se o celular estiver em standby ou você estiver em outro aplicativo!
                   </p>
                 </div>

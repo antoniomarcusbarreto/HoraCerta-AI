@@ -1,4 +1,5 @@
 import { ArrowLeft, Shield } from "lucide-react";
+import { useDialogA11y } from "../hooks/useDialogA11y";
 
 interface PrivacyPolicyProps {
   onBack: () => void;
@@ -90,9 +91,18 @@ const SECTIONS: Section[] = [
 ];
 
 export default function PrivacyPolicy({ onBack }: PrivacyPolicyProps) {
+  const panelRef = useDialogA11y<HTMLDivElement>(true, onBack);
+
   return (
-    <div className="fixed inset-0 lg:left-24 z-[60] bg-brand-cream lg:bg-[#FAF6EC] overflow-y-auto font-sans animate-fade-in">
-      <div className="max-w-md lg:max-w-2xl mx-auto px-4 py-6 lg:my-14 lg:bg-[#FDFBF5] lg:border lg:border-[#ECE6D8] lg:rounded-[28px] lg:p-10 lg:shadow-[0_2px_10px_rgba(0,0,0,0.03)]">
+    <div
+      ref={panelRef}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="privacy-policy-title"
+      tabIndex={-1}
+      className="fixed inset-0 lg:left-24 z-[60] bg-brand-cream lg:bg-paper-canvas overflow-y-auto font-sans animate-fade-in"
+    >
+      <div className="max-w-md lg:max-w-2xl mx-auto px-4 py-6 lg:my-14 lg:bg-paper lg:border lg:border-paper-border lg:rounded-[28px] lg:p-10 lg:shadow-[0_2px_10px_rgba(0,0,0,0.03)]">
         {/* Header */}
         <div className="flex items-center gap-3 mb-6">
           <button
@@ -104,14 +114,14 @@ export default function PrivacyPolicy({ onBack }: PrivacyPolicyProps) {
           </button>
           <div className="flex items-center gap-2 min-w-0">
             <Shield className="w-5 h-5 text-brand-coral shrink-0" />
-            <h1 className="text-xl font-display font-bold text-brand-teal leading-tight truncate">
+            <h1 id="privacy-policy-title" className="text-xl font-display font-bold text-brand-teal leading-tight truncate">
               Privacidade e Proteção de Dados
             </h1>
           </div>
         </div>
 
         <div className="space-y-4 pb-12">
-          <p className="text-[11px] text-gray-400 font-sans">
+          <p className="text-[11px] text-ink-soft font-sans">
             Conformidade com a Lei Geral de Proteção de Dados (LGPD — Lei nº 13.709/2018).
           </p>
 
@@ -125,7 +135,7 @@ export default function PrivacyPolicy({ onBack }: PrivacyPolicyProps) {
               </h3>
               <div className="space-y-2">
                 {section.paragraphs.map((paragraph, index) => (
-                  <p key={index} className="text-[11px] text-gray-500 font-sans leading-relaxed">
+                  <p key={index} className="text-[11px] text-ink-soft font-sans leading-relaxed">
                     {paragraph}
                   </p>
                 ))}

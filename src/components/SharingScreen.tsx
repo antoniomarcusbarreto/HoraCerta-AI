@@ -75,17 +75,17 @@ export default function SharingScreen({
           <h3 className="text-sm font-display font-bold text-brand-teal mb-1">
             {pendingInvites.length === 1 ? "Você tem um convite" : `Você tem ${pendingInvites.length} convites`}
           </h3>
-          <p className="text-[11px] text-gray-600 mb-4 leading-snug">
+          <p className="text-[11px] text-ink-soft mb-4 leading-snug">
             O acesso só começa depois que você aceitar.
           </p>
           <div className="space-y-3">
             {pendingInvites.map((s) => (
               <div key={s.shareId} className="bg-white rounded-2xl p-4 border border-brand-cream-darker">
                 <div className="text-sm font-semibold text-brand-teal">{s.medicadoName}</div>
-                <div className="text-[11px] text-gray-500 mt-0.5">
+                <div className="text-[11px] text-ink-soft mt-0.5">
                   Convite de {s.ownerName} — {SHARE_ROLE_LABELS[s.role]}
                 </div>
-                <div className="text-[11px] text-gray-500 mt-1 leading-snug">
+                <div className="text-[11px] text-ink-soft mt-1 leading-snug">
                   {SHARE_ROLE_DESCRIPTIONS[s.role]}
                 </div>
                 <div className="flex gap-2 mt-3">
@@ -111,8 +111,8 @@ export default function SharingScreen({
       )}
 
       {error && (
-        <div className="bg-red-50 text-red-800 border border-red-100 rounded-2xl p-3.5 flex items-start gap-2.5 text-xs">
-          <AlertCircle className="w-4 h-4 shrink-0 text-red-500 mt-0.5" />
+        <div className="bg-error-50 text-error-800 border border-error-100 rounded-2xl p-3.5 flex items-start gap-2.5 text-xs">
+          <AlertCircle className="w-4 h-4 shrink-0 text-error-500 mt-0.5" />
           <span className="leading-snug">{error}</span>
         </div>
       )}
@@ -123,21 +123,22 @@ export default function SharingScreen({
           <UserPlus className="w-4 h-4 text-brand-coral" />
           <h3 className="text-sm font-display font-bold text-brand-teal">Convidar um cuidador</h3>
         </div>
-        <p className="text-[11px] text-gray-500 mb-4 leading-snug">
+        <p className="text-[11px] text-ink-soft mb-4 leading-snug">
           O convite vale para <strong>um paciente</strong> — quem você convidar não verá os seus outros pacientes.
         </p>
 
         {ownedPatients.length === 0 ? (
-          <p className="text-xs text-gray-400 py-2">Cadastre um paciente para poder compartilhar.</p>
+          <p className="text-xs text-ink-soft py-2">Cadastre um paciente para poder compartilhar.</p>
         ) : (
           <form onSubmit={submit} className="space-y-3">
             <div>
-              <label className="block text-[10px] font-bold text-brand-teal uppercase tracking-wider mb-1">Paciente</label>
+              <label htmlFor="share-patient" className="block text-[10px] font-bold text-brand-teal uppercase tracking-wider mb-1">Paciente</label>
               <select
+                id="share-patient"
                 required
                 value={selectedPatient}
                 onChange={(e) => setSelectedPatient(e.target.value)}
-                className="w-full bg-brand-cream-dark border border-brand-cream-darker rounded-xl px-3 py-2 text-xs text-brand-teal focus:outline-hidden"
+                className="w-full bg-brand-cream-dark border border-brand-cream-darker rounded-xl px-3 py-2 text-xs text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral"
               >
                 <option value="">Selecione...</option>
                 {ownedPatients.map((p) => (
@@ -147,14 +148,15 @@ export default function SharingScreen({
             </div>
 
             <div>
-              <label className="block text-[10px] font-bold text-brand-teal uppercase tracking-wider mb-1">E-mail do cuidador</label>
+              <label htmlFor="share-email" className="block text-[10px] font-bold text-brand-teal uppercase tracking-wider mb-1">E-mail do cuidador</label>
               <input
+                id="share-email"
                 type="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="pessoa@exemplo.com"
-                className="w-full bg-brand-cream-dark border border-brand-cream-darker rounded-xl px-3 py-2 text-xs text-brand-teal focus:outline-hidden"
+                className="w-full bg-brand-cream-dark border border-brand-cream-darker rounded-xl px-3 py-2 text-xs text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral"
               />
             </div>
 
@@ -175,7 +177,7 @@ export default function SharingScreen({
                     <div className="flex items-center gap-1.5 text-[11px] font-bold text-brand-teal">
                       {ROLE_ICON[r]} {SHARE_ROLE_LABELS[r]}
                     </div>
-                    <div className="text-[10px] text-gray-500 mt-1 leading-snug">{SHARE_ROLE_DESCRIPTIONS[r]}</div>
+                    <div className="text-[10px] text-ink-soft mt-1 leading-snug">{SHARE_ROLE_DESCRIPTIONS[r]}</div>
                   </button>
                 ))}
               </div>
@@ -184,7 +186,7 @@ export default function SharingScreen({
             <button
               type="submit"
               disabled={busy || !selectedPatient || !email.trim()}
-              className="w-full bg-brand-coral text-brand-cream font-bold text-sm py-3.5 rounded-2xl disabled:bg-gray-100 disabled:text-gray-400 transition-transform active:scale-95"
+              className="w-full bg-brand-coral text-brand-cream font-bold text-sm py-3.5 rounded-2xl disabled:bg-gray-100 disabled:text-ink-soft transition-transform active:scale-95"
             >
               {busy ? "Enviando..." : "Enviar convite"}
             </button>
@@ -204,7 +206,7 @@ export default function SharingScreen({
               <div key={s.shareId} className="flex items-center justify-between gap-3 bg-brand-cream-dark rounded-2xl p-3.5">
                 <div className="min-w-0">
                   <div className="text-xs font-semibold text-brand-teal truncate">{s.granteeEmail}</div>
-                  <div className="text-[10px] text-gray-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                  <div className="text-[10px] text-ink-soft mt-0.5 flex items-center gap-1.5 flex-wrap">
                     <span>{s.medicadoName}</span>
                     <span className="text-gray-300">•</span>
                     <span className="inline-flex items-center gap-1">{ROLE_ICON[s.role]} {SHARE_ROLE_LABELS[s.role]}</span>
@@ -222,7 +224,7 @@ export default function SharingScreen({
                   disabled={busy}
                   onClick={() => act(() => onRevoke(s.shareId))}
                   title="Encerrar acesso"
-                  className="shrink-0 p-2 text-gray-400 hover:text-red-500 disabled:opacity-50"
+                  className="shrink-0 p-2 text-ink-soft hover:text-error-500 disabled:opacity-50"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -244,7 +246,7 @@ export default function SharingScreen({
               <div key={s.shareId} className="flex items-center justify-between gap-3 bg-brand-cream-dark rounded-2xl p-3.5">
                 <div className="min-w-0">
                   <div className="text-xs font-semibold text-brand-teal truncate">{s.medicadoName}</div>
-                  <div className="text-[10px] text-gray-500 mt-0.5 flex items-center gap-1.5">
+                  <div className="text-[10px] text-ink-soft mt-0.5 flex items-center gap-1.5">
                     <span>de {s.ownerName}</span>
                     <span className="text-gray-300">•</span>
                     <span className="inline-flex items-center gap-1">{ROLE_ICON[s.role]} {SHARE_ROLE_LABELS[s.role]}</span>
@@ -254,7 +256,7 @@ export default function SharingScreen({
                   disabled={busy}
                   onClick={() => act(() => onRevoke(s.shareId))}
                   title="Sair deste compartilhamento"
-                  className="shrink-0 text-[10px] font-bold text-gray-400 hover:text-red-500 disabled:opacity-50 px-2"
+                  className="shrink-0 text-[10px] font-bold text-ink-soft hover:text-error-500 disabled:opacity-50 px-2"
                 >
                   Sair
                 </button>

@@ -6,6 +6,7 @@ import {
   ArrowLeft, Gift, CreditCard, QrCode, Copy, Check, ShieldCheck,
   Sparkles, Loader2, Clock, Lock, AlertTriangle,
 } from "lucide-react";
+import { useDialogA11y } from "../hooks/useDialogA11y";
 
 interface SubscriptionScreenProps {
   user: User;
@@ -144,28 +145,37 @@ export default function SubscriptionScreen({ user, onBack, onSubscribed }: Subsc
     }
     if (state === "grace") {
       return {
-        icon: <Clock className="w-5 h-5 text-amber-600" />,
-        cls: "bg-amber-50 border-amber-100 text-amber-800",
+        icon: <Clock className="w-5 h-5 text-warning-600" />,
+        cls: "bg-warning-50 border-warning-100 text-warning-800",
         text: "Sua assinatura venceu, mas você está nos 2 dias de bônus. Renove agora para não travar os scanners.",
       };
     }
     if (state === "blocked") {
       return {
-        icon: <Lock className="w-5 h-5 text-red-600" />,
-        cls: "bg-red-50 border-red-100 text-red-800",
+        icon: <Lock className="w-5 h-5 text-error-600" />,
+        cls: "bg-error-50 border-error-100 text-error-800",
         text: "Os scanners de receita e nota estão bloqueados. Assine para reativar a leitura inteligente.",
       };
     }
     return {
-      icon: <ShieldCheck className="w-5 h-5 text-emerald-600" />,
-      cls: "bg-emerald-50 border-emerald-100 text-emerald-800",
+      icon: <ShieldCheck className="w-5 h-5 text-success-600" />,
+      cls: "bg-success-50 border-success-100 text-success-800",
       text: "Sua assinatura está ativa. Você pode renovar antecipadamente — os dias são somados ao período atual.",
     };
   })();
 
+  const panelRef = useDialogA11y<HTMLDivElement>(true, onBack);
+
   return (
-    <div className="fixed inset-0 lg:left-24 z-[70] bg-brand-cream lg:bg-[#FAF6EC] text-brand-teal overflow-y-auto font-sans animate-fade-in">
-      <div className="max-w-md lg:max-w-xl mx-auto px-4 py-6 lg:my-14 lg:bg-[#FDFBF5] lg:border lg:border-[#ECE6D8] lg:rounded-[28px] lg:p-10 lg:shadow-[0_2px_10px_rgba(0,0,0,0.03)]">
+    <div
+      ref={panelRef}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="subscription-title"
+      tabIndex={-1}
+      className="fixed inset-0 lg:left-24 z-[70] bg-brand-cream lg:bg-paper-canvas text-brand-teal overflow-y-auto font-sans animate-fade-in"
+    >
+      <div className="max-w-md lg:max-w-xl mx-auto px-4 py-6 lg:my-14 lg:bg-paper lg:border lg:border-paper-border lg:rounded-[28px] lg:p-10 lg:shadow-[0_2px_10px_rgba(0,0,0,0.03)]">
         {/* Header */}
         <div className="flex items-center gap-3 mb-6">
           <button
@@ -176,18 +186,18 @@ export default function SubscriptionScreen({ user, onBack, onSubscribed }: Subsc
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
-            <h1 className="text-xl font-display font-bold text-brand-teal leading-tight">Hora Certa Premium</h1>
-            <p className="text-[11px] text-gray-500">Leitura inteligente de receitas e notas</p>
+            <h1 id="subscription-title" className="text-xl font-display font-bold text-brand-teal leading-tight">Hora Certa Premium</h1>
+            <p className="text-[11px] text-ink-soft">Leitura inteligente de receitas e notas</p>
           </div>
         </div>
 
         {view === "success" ? (
           <div className="bg-white border border-brand-cream-darker rounded-3xl p-8 text-center shadow-xs animate-scale-up">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center">
-              <Check className="w-8 h-8 text-emerald-600" />
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-success-50 border border-success-100 flex items-center justify-center">
+              <Check className="w-8 h-8 text-success-600" />
             </div>
             <h2 className="text-lg font-display font-bold text-brand-teal">Assinatura confirmada!</h2>
-            <p className="text-xs text-gray-500 mt-2 leading-relaxed">
+            <p className="text-xs text-ink-soft mt-2 leading-relaxed">
               Pagamento aprovado. Seu acesso aos scanners já está liberado. Obrigado por cuidar da sua saúde com o Hora Certa.
             </p>
             <button
@@ -203,7 +213,7 @@ export default function SubscriptionScreen({ user, onBack, onSubscribed }: Subsc
               <QrCode className="w-5 h-5 text-brand-coral" />
               <h2 className="text-sm font-display font-bold">Pague com PIX</h2>
             </div>
-            <p className="text-[11px] text-gray-500 leading-relaxed">
+            <p className="text-[11px] text-ink-soft leading-relaxed">
               Escaneie o QR Code no app do seu banco ou copie o código. A confirmação é automática — pode levar alguns segundos.
             </p>
 
@@ -212,18 +222,19 @@ export default function SubscriptionScreen({ user, onBack, onSubscribed }: Subsc
                 <img
                   src={`data:image/png;base64,${pix.qrCodeBase64}`}
                   alt="QR Code PIX"
+                  loading="lazy"
                   className="w-56 h-56 rounded-2xl border border-brand-cream-darker bg-white p-2"
                 />
               </div>
             ) : (
-              <div className="w-56 h-56 mx-auto rounded-2xl border border-dashed border-brand-cream-darker flex items-center justify-center text-gray-400 text-xs">
+              <div className="w-56 h-56 mx-auto rounded-2xl border border-dashed border-brand-cream-darker flex items-center justify-center text-ink-soft text-xs">
                 QR Code indisponível — use o código abaixo
               </div>
             )}
 
             {pix?.qrCode && (
               <div className="space-y-2">
-                <div className="bg-brand-cream/60 border border-brand-cream-darker rounded-xl p-3 text-[10px] text-gray-600 font-mono break-all max-h-24 overflow-y-auto">
+                <div className="bg-brand-cream/60 border border-brand-cream-darker rounded-xl p-3 text-[10px] text-ink-soft font-mono break-all max-h-24 overflow-y-auto">
                   {pix.qrCode}
                 </div>
                 <button
@@ -249,7 +260,7 @@ export default function SubscriptionScreen({ user, onBack, onSubscribed }: Subsc
             </button>
             <button
               onClick={() => { setView("plans"); setPix(null); }}
-              className="w-full text-[11px] text-gray-400 hover:text-brand-teal transition-all"
+              className="w-full text-[11px] text-ink-soft hover:text-brand-teal transition-all"
             >
               Escolher outro plano ou forma de pagamento
             </button>
@@ -286,7 +297,7 @@ export default function SubscriptionScreen({ user, onBack, onSubscribed }: Subsc
                     <div className="flex items-center justify-between">
                       <div>
                         <h3 className="text-sm font-display font-bold text-brand-teal">Plano {plan.label}</h3>
-                        <p className="text-[10px] text-gray-500 mt-0.5">
+                        <p className="text-[10px] text-ink-soft mt-0.5">
                           {planId === "yearly"
                             ? `Equivale a R$ ${monthlyEquivalent.toFixed(2).replace(".", ",")}/mês`
                             : "Renovação a cada 30 dias"}
@@ -296,7 +307,7 @@ export default function SubscriptionScreen({ user, onBack, onSubscribed }: Subsc
                         <span className="text-lg font-display font-extrabold text-brand-coral">
                           R$ {plan.amount.toFixed(2).replace(".", ",")}
                         </span>
-                        <p className="text-[9px] text-gray-400">{planId === "yearly" ? "por ano" : "por mês"}</p>
+                        <p className="text-[9px] text-ink-soft">{planId === "yearly" ? "por ano" : "por mês"}</p>
                       </div>
                     </div>
                   </button>
@@ -313,14 +324,14 @@ export default function SubscriptionScreen({ user, onBack, onSubscribed }: Subsc
                 "Lembretes de dose ilimitados",
               ].map((b) => (
                 <div key={b} className="flex items-center gap-2 text-[11px] text-brand-teal">
-                  <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <Check className="w-3.5 h-3.5 text-success-600 shrink-0" />
                   {b}
                 </div>
               ))}
             </div>
 
             {error && (
-              <div className="mb-4 flex items-start gap-2 bg-red-50 border border-red-100 text-red-700 text-[11px] rounded-xl p-3">
+              <div className="mb-4 flex items-start gap-2 bg-error-50 border border-error-100 text-error-700 text-[11px] rounded-xl p-3">
                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                 <span>{error}</span>
               </div>
@@ -347,7 +358,7 @@ export default function SubscriptionScreen({ user, onBack, onSubscribed }: Subsc
               </button>
             </div>
 
-            <p className="text-[10px] text-gray-400 text-center mt-4 leading-relaxed flex items-center justify-center gap-1">
+            <p className="text-[10px] text-ink-soft text-center mt-4 leading-relaxed flex items-center justify-center gap-1">
               <ShieldCheck className="w-3.5 h-3.5" />
               Pagamento processado com segurança pelo Mercado Pago.
             </p>

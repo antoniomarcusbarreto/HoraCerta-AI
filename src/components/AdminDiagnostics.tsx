@@ -32,9 +32,9 @@ function formatDateTime(iso: string | null | undefined): string {
 
 function Row({ level, label, value, hint }: { level: Level; label: string; value: string; hint?: string }) {
   const styles: Record<Level, { cls: string; icon: React.ReactNode }> = {
-    ok: { cls: "bg-emerald-50 border-emerald-100", icon: <CheckCircle2 className="w-4 h-4 text-emerald-600" /> },
-    warn: { cls: "bg-amber-50 border-amber-100", icon: <AlertTriangle className="w-4 h-4 text-amber-600" /> },
-    bad: { cls: "bg-red-50 border-red-100", icon: <XCircle className="w-4 h-4 text-red-600" /> },
+    ok: { cls: "bg-success-50 border-success-100", icon: <CheckCircle2 className="w-4 h-4 text-success-600" /> },
+    warn: { cls: "bg-warning-50 border-warning-100", icon: <AlertTriangle className="w-4 h-4 text-warning-600" /> },
+    bad: { cls: "bg-error-50 border-error-100", icon: <XCircle className="w-4 h-4 text-error-600" /> },
   };
   const s = styles[level];
   return (
@@ -43,9 +43,9 @@ function Row({ level, label, value, hint }: { level: Level; label: string; value
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
           <span className="text-[11px] font-bold text-brand-teal">{label}</span>
-          <span className="text-[11px] font-mono text-gray-600 text-right break-all">{value}</span>
+          <span className="text-[11px] font-mono text-ink-soft text-right break-all">{value}</span>
         </div>
-        {hint && <p className="text-[10px] text-gray-500 mt-1 leading-snug">{hint}</p>}
+        {hint && <p className="text-[10px] text-ink-soft mt-1 leading-snug">{hint}</p>}
       </div>
     </div>
   );
@@ -125,7 +125,7 @@ export default function AdminDiagnostics() {
       </div>
 
       {error && (
-        <div className="bg-red-50/60 border border-red-100 rounded-2xl p-4 text-xs text-red-600 flex items-center gap-2">
+        <div className="bg-error-50/60 border border-error-100 rounded-2xl p-4 text-xs text-error-600 flex items-center gap-2">
           <AlertCircle className="w-4 h-4 shrink-0" /> {error}
         </div>
       )}
@@ -135,19 +135,19 @@ export default function AdminDiagnostics() {
           {/* Veredito de prontidão para cobrar */}
           <div
             className={`rounded-2xl border p-4 flex items-start gap-3 ${
-              readyToCharge ? "bg-emerald-50 border-emerald-100" : "bg-amber-50 border-amber-100"
+              readyToCharge ? "bg-success-50 border-success-100" : "bg-warning-50 border-warning-100"
             }`}
           >
             {readyToCharge ? (
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+              <CheckCircle2 className="w-5 h-5 text-success-600 shrink-0 mt-0.5" />
             ) : (
-              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <AlertTriangle className="w-5 h-5 text-warning-600 shrink-0 mt-0.5" />
             )}
             <div className="text-[11px] leading-snug">
-              <p className={`font-bold ${readyToCharge ? "text-emerald-800" : "text-amber-900"}`}>
+              <p className={`font-bold ${readyToCharge ? "text-success-800" : "text-warning-900"}`}>
                 {readyToCharge ? "Pronto para cobrar" : "Ainda não está cobrando de verdade"}
               </p>
-              <p className={readyToCharge ? "text-emerald-700 mt-0.5" : "text-amber-800 mt-0.5"}>
+              <p className={readyToCharge ? "text-success-700 mt-0.5" : "text-warning-800 mt-0.5"}>
                 {readyToCharge
                   ? "Credenciais de produção, webhook configurado e pagamentos já confirmados automaticamente."
                   : mp.mode !== "producao"
@@ -257,7 +257,7 @@ export default function AdminDiagnostics() {
       )}
 
       {!data && !error && loading && (
-        <div className="bg-white border border-brand-cream-darker rounded-3xl p-8 text-center text-gray-400">
+        <div className="bg-white border border-brand-cream-darker rounded-3xl p-8 text-center text-ink-soft">
           <RefreshCw className="w-6 h-6 mx-auto mb-2 animate-spin text-gray-300" />
           <p className="text-xs font-semibold">Carregando diagnóstico...</p>
         </div>

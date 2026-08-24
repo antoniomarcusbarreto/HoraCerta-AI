@@ -13,6 +13,7 @@
 
 import { Check, ChevronRight, MoreVertical, PlusSquare, Share, Smartphone, X } from "lucide-react";
 import type { InstallPlatform } from "../hooks/useInstallPrompt";
+import { useDialogA11y } from "../hooks/useDialogA11y";
 
 // ============================================================
 // Bottom sheet
@@ -49,16 +50,16 @@ export function InstallAppSheet({ open, platform, onInstall, onDismiss }: Instal
             <h3 className="text-base font-display font-bold text-brand-teal leading-tight">
               Instale o HoraCerta no seu celular
             </h3>
-            <p className="text-[11px] text-gray-500 font-sans mt-0.5 leading-snug">
+            <p className="text-[11px] text-ink-soft font-sans mt-0.5 leading-snug">
               É grátis e leva 10 segundos — não ocupa espaço como um app comum.
             </p>
           </div>
           <button
             onClick={onDismiss}
             aria-label="Fechar"
-            className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-gray-400 hover:bg-brand-cream-darker transition-all"
+            className="w-10 h-10 shrink-0 rounded-full flex items-center justify-center text-ink-soft hover:bg-brand-cream-darker transition-all"
           >
-            <X className="w-4 h-4" />
+            <X className="w-4.5 h-4.5" />
           </button>
         </div>
 
@@ -82,7 +83,7 @@ export function InstallAppSheet({ open, platform, onInstall, onDismiss }: Instal
         </button>
         <button
           onClick={onDismiss}
-          className="w-full py-2.5 mt-1 text-[11px] font-bold text-gray-400 hover:text-brand-teal transition-all"
+          className="w-full py-2.5 mt-1 text-[11px] font-bold text-ink-soft hover:text-brand-teal transition-all"
         >
           Agora não
         </button>
@@ -112,7 +113,7 @@ export function InstallAppCard({ onInstall }: InstallAppCardProps) {
         <p className="text-xs font-bold text-brand-teal font-display leading-tight">
           Instale o app no seu celular
         </p>
-        <p className="text-[10px] text-gray-500 font-sans mt-0.5 leading-snug">
+        <p className="text-[10px] text-ink-soft font-sans mt-0.5 leading-snug">
           Receba os lembretes de dose mesmo com o app fechado.
         </p>
       </div>
@@ -170,6 +171,8 @@ interface InstallGuideModalProps {
 }
 
 export function InstallGuideModal({ open, platform, onClose, onConfirmInstalled }: InstallGuideModalProps) {
+  const panelRef = useDialogA11y<HTMLDivElement>(open, onClose);
+
   if (!open) return null;
 
   const steps = stepsFor(platform);
@@ -181,16 +184,21 @@ export function InstallGuideModal({ open, platform, onClose, onConfirmInstalled 
       onClick={onClose}
     >
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="install-guide-title"
+        tabIndex={-1}
         className="bg-brand-cream rounded-3xl max-w-sm w-full p-6 shadow-xl border border-brand-cream-darker animate-scale-up max-h-[85vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="w-12 h-12 rounded-full bg-brand-peach text-brand-coral flex items-center justify-center mx-auto mb-4">
           <Smartphone className="w-6 h-6" />
         </div>
-        <h3 className="text-lg font-display font-bold text-brand-teal text-center mb-1">
+        <h3 id="install-guide-title" className="text-lg font-display font-bold text-brand-teal text-center mb-1">
           {isIOS ? "Instalar no iPhone" : "Instalar no seu aparelho"}
         </h3>
-        <p className="text-xs text-gray-500 text-center mb-6 leading-relaxed">
+        <p className="text-xs text-ink-soft text-center mb-6 leading-relaxed">
           {isIOS
             ? "O iPhone não instala sozinho — são três toques e pronto."
             : "Siga os passos abaixo no seu navegador."}

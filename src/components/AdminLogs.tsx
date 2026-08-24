@@ -148,13 +148,13 @@ export default function AdminLogs() {
       {/* Search + Refresh */}
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-2.5 w-4 h-4 text-ink-soft" />
           <input
             type="text"
             placeholder="Buscar por usuário, registro, IP ou erro..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-white border border-brand-cream-darker rounded-xl pl-9 pr-4 py-2 text-xs text-brand-teal focus:outline-hidden focus:border-brand-coral font-sans"
+            className="w-full bg-white border border-brand-cream-darker rounded-xl pl-9 pr-4 py-2 text-xs text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral focus:border-brand-coral font-sans"
           />
         </div>
         <button
@@ -175,23 +175,25 @@ export default function AdminLogs() {
       <div className="flex flex-wrap items-end gap-3 bg-white border border-brand-cream-darker rounded-2xl p-3">
         <CalendarRange className="w-4 h-4 text-brand-teal mb-2.5 shrink-0" />
         <div className="w-36">
-          <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">De</label>
+          <label htmlFor="logs-date-from" className="block text-xs font-bold text-ink-soft uppercase tracking-wide mb-1">De</label>
           <input
+            id="logs-date-from"
             type="date"
             value={dateFrom}
             max={dateTo || undefined}
             onChange={(e) => setDateFrom(e.target.value)}
-            className="w-full bg-white border border-brand-cream-darker rounded-lg px-2 py-1.5 text-sm text-brand-teal focus:outline-hidden focus:border-brand-coral font-sans"
+            className="w-full bg-white border border-brand-cream-darker rounded-lg px-2 py-1.5 text-sm text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral focus:border-brand-coral font-sans"
           />
         </div>
         <div className="w-36">
-          <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Até</label>
+          <label htmlFor="logs-date-to" className="block text-xs font-bold text-ink-soft uppercase tracking-wide mb-1">Até</label>
           <input
+            id="logs-date-to"
             type="date"
             value={dateTo}
             min={dateFrom || undefined}
             onChange={(e) => setDateTo(e.target.value)}
-            className="w-full bg-white border border-brand-cream-darker rounded-lg px-2 py-1.5 text-sm text-brand-teal focus:outline-hidden focus:border-brand-coral font-sans"
+            className="w-full bg-white border border-brand-cream-darker rounded-lg px-2 py-1.5 text-sm text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral focus:border-brand-coral font-sans"
           />
         </div>
         {(dateFrom || dateTo) && (
@@ -209,7 +211,7 @@ export default function AdminLogs() {
       </div>
 
       {error && (
-        <div className="bg-red-50/60 border border-red-100 rounded-2xl p-4 text-xs text-red-600 flex items-center gap-2">
+        <div className="bg-error-50/60 border border-error-100 rounded-2xl p-4 text-xs text-error-600 flex items-center gap-2">
           <AlertCircle className="w-4 h-4 shrink-0" /> {error}
         </div>
       )}
@@ -225,29 +227,29 @@ export default function AdminLogs() {
                 <div className="flex items-center justify-between">
                   <span
                     className={`text-[10px] font-extrabold px-2 py-1 rounded-full uppercase tracking-wide flex items-center gap-1 ${
-                      l.action === "delete" ? "bg-red-100 text-red-600" : "bg-amber-100 text-amber-600"
+                      l.action === "delete" ? "bg-error-100 text-error-600" : "bg-warning-100 text-warning-600"
                     }`}
                   >
                     {l.action === "delete" ? <Trash2 className="w-3 h-3" /> : <Pencil className="w-3 h-3" />}
                     {l.action === "delete" ? "Exclusão" : "Alteração"}
                   </span>
-                  <span className="text-xs text-gray-500 font-mono">{formatDateTime(l.createdAt)}</span>
+                  <span className="text-xs text-ink-soft font-mono">{formatDateTime(l.createdAt)}</span>
                 </div>
                 <p className="text-sm font-bold text-brand-teal leading-tight">{l.entityLabel}</p>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-soft">
                   <span className="flex items-center gap-1">
-                    <Tag className="w-3.5 h-3.5 text-gray-400 shrink-0" /> {l.entityType}
+                    <Tag className="w-3.5 h-3.5 text-ink-soft shrink-0" /> {l.entityType}
                   </span>
                   <span className="flex items-center gap-1">
-                    <MapPin className="w-3.5 h-3.5 text-gray-400 shrink-0" /> {l.page}
+                    <MapPin className="w-3.5 h-3.5 text-ink-soft shrink-0" /> {l.page}
                   </span>
                   <span className="flex items-center gap-1 min-w-0">
-                    <UserIcon className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                    <UserIcon className="w-3.5 h-3.5 text-ink-soft shrink-0" />
                     <span className="truncate">{l.actorName} ({l.actorEmail})</span>
                   </span>
                 </div>
                 {l.changesSummary && (
-                  <p className="text-xs text-gray-600 leading-relaxed break-words bg-brand-cream/40 border border-brand-cream-darker/50 rounded-lg px-2.5 py-1.5">
+                  <p className="text-xs text-ink-soft leading-relaxed break-words bg-brand-cream/40 border border-brand-cream-darker/50 rounded-lg px-2.5 py-1.5">
                     {l.changesSummary}
                   </p>
                 )}
@@ -265,16 +267,16 @@ export default function AdminLogs() {
                   <span className="text-[10px] font-extrabold px-2 py-1 rounded-full uppercase tracking-wide bg-blue-100 text-blue-600 flex items-center gap-1">
                     <LogIn className="w-3 h-3" /> Login
                   </span>
-                  <span className="text-xs text-gray-500 font-mono">{formatDateTime(l.createdAt)}</span>
+                  <span className="text-xs text-ink-soft font-mono">{formatDateTime(l.createdAt)}</span>
                 </div>
                 <p className="text-sm font-bold text-brand-teal leading-tight">{l.userName}</p>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-soft">
                   <span className="flex items-center gap-1 min-w-0">
-                    <Mail className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                    <Mail className="w-3.5 h-3.5 text-ink-soft shrink-0" />
                     <span className="truncate font-mono">{l.userEmail}</span>
                   </span>
                   <span className="flex items-center gap-1">
-                    <Globe className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                    <Globe className="w-3.5 h-3.5 text-ink-soft shrink-0" />
                     <span className="font-mono">{l.ip}</span>
                   </span>
                 </div>
@@ -293,25 +295,25 @@ export default function AdminLogs() {
                 <div key={l.errorLogId} className="bg-white border border-brand-cream-darker rounded-2xl p-5 shadow-2xs space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] font-extrabold px-2 py-1 rounded-full uppercase tracking-wide bg-red-200 text-red-700 flex items-center gap-1">
+                      <span className="text-[10px] font-extrabold px-2 py-1 rounded-full uppercase tracking-wide bg-error-200 text-error-700 flex items-center gap-1">
                         <ServerCrash className="w-3 h-3" /> Erro
                       </span>
                       {l.statusCode && (
                         <span
                           className={`text-[10px] font-extrabold px-2 py-1 rounded-full uppercase tracking-wide ${
-                            isServerFault ? "bg-red-100 text-red-600" : "bg-amber-100 text-amber-600"
+                            isServerFault ? "bg-error-100 text-error-600" : "bg-warning-100 text-warning-600"
                           }`}
                         >
                           {l.statusCode}
                         </span>
                       )}
                     </div>
-                    <span className="text-xs text-gray-500 font-mono">{formatDateTime(l.createdAt)}</span>
+                    <span className="text-xs text-ink-soft font-mono">{formatDateTime(l.createdAt)}</span>
                   </div>
                   <p className="text-sm font-bold text-brand-teal leading-tight font-mono">{l.action}</p>
-                  <p className="text-xs text-gray-600 leading-relaxed break-words">{l.message}</p>
+                  <p className="text-xs text-ink-soft leading-relaxed break-words">{l.message}</p>
                   {detailsText && (
-                    <p className="text-xs text-gray-500 leading-relaxed break-words bg-brand-cream/40 border border-brand-cream-darker/50 rounded-lg px-2.5 py-1.5 font-mono">
+                    <p className="text-xs text-ink-soft leading-relaxed break-words bg-brand-cream/40 border border-brand-cream-darker/50 rounded-lg px-2.5 py-1.5 font-mono">
                       {detailsText}
                     </p>
                   )}
@@ -339,7 +341,7 @@ export default function AdminLogs() {
 
 function EmptyState() {
   return (
-    <div className="bg-white border border-brand-cream-darker rounded-3xl p-8 text-center text-gray-400 lg:col-span-2">
+    <div className="bg-white border border-brand-cream-darker rounded-3xl p-8 text-center text-ink-soft lg:col-span-2">
       <AlertCircle className="w-8 h-8 mx-auto mb-2 text-gray-300" />
       <p className="text-xs font-semibold">Nenhum registro encontrado.</p>
     </div>

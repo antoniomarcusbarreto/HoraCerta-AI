@@ -242,7 +242,7 @@ export default function ReceiptScanner({
               <Sparkles className="w-6 h-6 fill-brand-coral/10" />
             </div>
             <h2 className="text-xl font-display font-bold text-brand-teal">Leitor de Nota Fiscal com IA</h2>
-            <p className="text-xs text-gray-500 mt-1 max-w-[85%] mx-auto font-sans">
+            <p className="text-xs text-ink-soft mt-1 max-w-[85%] mx-auto font-sans">
               Envie uma foto da nota ou cupom fiscal de compra da farmácia. HoraCerta AI lerá o local, os itens comprados, os preços e a data para seu controle de gastos.
             </p>
           </div>
@@ -252,8 +252,8 @@ export default function ReceiptScanner({
               intentionally do not set extractedData, so the review screen —
               where the other scanError banner lives — never renders. */}
           {scanError && (
-            <div className="mb-5 bg-red-50 text-red-800 border border-red-100 rounded-2xl p-3.5 flex items-start gap-2.5 text-xs animate-fade-in">
-              <AlertCircle className="w-4 h-4 shrink-0 text-red-500 mt-0.5" />
+            <div className="mb-5 bg-error-50 text-error-800 border border-error-100 rounded-2xl p-3.5 flex items-start gap-2.5 text-xs animate-fade-in">
+              <AlertCircle className="w-4 h-4 shrink-0 text-error-500 mt-0.5" />
               <span className="leading-snug font-sans">{scanError}</span>
             </div>
           )}
@@ -262,21 +262,21 @@ export default function ReceiptScanner({
           {hasApiKey !== null && (
             <div className="mb-5 animate-fade-in">
               {hasApiKey ? (
-                <div className="flex items-center justify-center gap-2 bg-emerald-50 text-emerald-800 border border-emerald-100 rounded-2xl py-2 px-3 text-xs font-medium">
+                <div className="flex items-center justify-center gap-2 bg-success-50 text-success-800 border border-success-100 rounded-2xl py-2 px-3 text-xs font-medium">
                   <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-success-500"></span>
                   </span>
                   HoraCerta AI Ativo e Pronto
                 </div>
               ) : (
-                <div className="bg-amber-50 text-amber-900 border border-amber-200/60 rounded-2xl p-4 text-xs text-left">
+                <div className="bg-warning-50 text-warning-900 border border-warning-200/60 rounded-2xl p-4 text-xs text-left">
                   <div className="flex gap-2.5 items-start">
-                    <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    <AlertCircle className="w-5 h-5 text-warning-600 shrink-0 mt-0.5" />
                     <div className="space-y-1">
-                      <p className="font-bold text-amber-950 font-display">Modo Demonstração Ativo</p>
-                      <p className="text-[11px] text-amber-800 leading-relaxed font-sans">
-                        Sem a chave <code className="font-mono bg-amber-100 px-1 rounded text-red-600">GEMINI_API_KEY</code>, usaremos um comprovante farmacêutico simulado super realista para você testar a funcionalidade agora mesmo.
+                      <p className="font-bold text-warning-900 font-display">Modo Demonstração Ativo</p>
+                      <p className="text-[11px] text-warning-800 leading-relaxed font-sans">
+                        Sem a chave <code className="font-mono bg-warning-100 px-1 rounded text-error-600">GEMINI_API_KEY</code>, usaremos um comprovante farmacêutico simulado super realista para você testar a funcionalidade agora mesmo.
                       </p>
                     </div>
                   </div>
@@ -305,6 +305,7 @@ export default function ReceiptScanner({
                 <img
                   src={previewUrl}
                   alt="Receipt Preview"
+                  loading="lazy"
                   className="max-h-44 object-contain rounded-xl"
                 />
                 <div className="absolute inset-0 bg-black/35 flex items-center justify-center text-white text-xs font-semibold rounded-xl">
@@ -313,12 +314,12 @@ export default function ReceiptScanner({
               </div>
             ) : (
               <div className="space-y-3">
-                <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center mx-auto shadow-xs text-gray-400">
+                <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center mx-auto shadow-xs text-ink-soft">
                   <Upload className="w-6 h-6" />
                 </div>
                 <div>
                   <p className="text-xs font-bold text-brand-teal">Selecione ou Arraste a Nota Fiscal</p>
-                  <p className="text-[10px] text-gray-400 font-sans mt-0.5">Suporta JPG, PNG ou PDF</p>
+                  <p className="text-[10px] text-ink-soft font-sans mt-0.5">Suporta JPG, PNG ou PDF</p>
                 </div>
               </div>
             )}
@@ -334,7 +335,7 @@ export default function ReceiptScanner({
               className={`w-full py-3.5 rounded-2xl font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 ${
                 file
                   ? "bg-brand-teal hover:bg-brand-teal-light text-brand-cream active:scale-95"
-                  : "bg-gray-100 text-gray-400 cursor-not-allowed shadow-none"
+                  : "bg-gray-100 text-ink-soft cursor-not-allowed shadow-none"
               }`}
             >
               <Sparkles className="w-4 h-4 fill-brand-cream/10" />
@@ -343,7 +344,7 @@ export default function ReceiptScanner({
 
             <button
               onClick={onCancel}
-              className="w-full border border-brand-cream-darker text-gray-500 font-semibold py-3 rounded-2xl text-xs transition-colors"
+              className="w-full border border-brand-cream-darker text-ink-soft font-semibold py-3 rounded-2xl text-xs transition-colors"
             >
               Voltar
             </button>
@@ -372,12 +373,12 @@ export default function ReceiptScanner({
                   idx === scanStep
                     ? "opacity-100 scale-100 text-brand-teal font-medium"
                     : idx < scanStep
-                    ? "opacity-60 text-green-600 font-sans"
-                    : "opacity-30 text-gray-400 font-sans"
+                    ? "opacity-60 text-success-600 font-sans"
+                    : "opacity-30 text-ink-soft font-sans"
                 }`}
               >
                 <div className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] ${
-                  idx < scanStep ? "bg-green-100 text-green-600" : "bg-brand-teal-pale text-brand-teal"
+                  idx < scanStep ? "bg-success-100 text-success-600" : "bg-brand-teal-pale text-brand-teal"
                 }`}>
                   {idx < scanStep ? <Check className="w-3 h-3 stroke-[3]" /> : idx + 1}
                 </div>
@@ -404,7 +405,7 @@ export default function ReceiptScanner({
                 setFile(null);
                 setPreviewUrl(null);
               }}
-              className="text-xs text-gray-400 hover:text-brand-teal font-semibold"
+              className="text-xs text-ink-soft hover:text-brand-teal font-semibold"
             >
               Novo Comprovante
             </button>
@@ -421,26 +422,28 @@ export default function ReceiptScanner({
           {/* Form setup for establishment / metadata */}
           <div className="space-y-3 mb-5 bg-brand-cream-dark p-4 rounded-2xl border border-brand-cream-darker">
             <div>
-              <label className="block text-[10px] font-bold text-brand-teal uppercase tracking-wider mb-1">
+              <label htmlFor="receipt-establishment" className="block text-[10px] font-bold text-brand-teal uppercase tracking-wider mb-1">
                 Estabelecimento / Farmácia
               </label>
               <input
+                id="receipt-establishment"
                 type="text"
                 value={extractedData.establishment}
                 onChange={(e) => setExtractedData({ ...extractedData, establishment: e.target.value })}
-                className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-xs text-brand-teal font-semibold focus:outline-hidden focus:border-brand-coral"
+                className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-xs text-brand-teal font-semibold focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral focus:border-brand-coral"
               />
             </div>
 
             <div>
-              <label className="block text-[10px] font-bold text-brand-teal uppercase tracking-wider mb-1 flex items-center gap-1">
+              <label htmlFor="receipt-date" className="block text-[10px] font-bold text-brand-teal uppercase tracking-wider mb-1 flex items-center gap-1">
                 <Calendar className="w-3 h-3" /> Data da Compra
               </label>
               <input
+                id="receipt-date"
                 type="text"
                 value={extractedData.date}
                 onChange={(e) => setExtractedData({ ...extractedData, date: e.target.value })}
-                className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-xs text-brand-teal focus:outline-hidden"
+                className="w-full bg-white border border-brand-cream-darker rounded-xl px-3 py-2 text-xs text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral"
               />
             </div>
           </div>
@@ -466,30 +469,32 @@ export default function ReceiptScanner({
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex-1">
-                    <label className="text-[8px] font-bold text-gray-400 uppercase block">Nome do Produto</label>
+                    <label htmlFor={`receipt-item-${index}-name`} className="text-[8px] font-bold text-ink-soft uppercase block">Nome do Produto</label>
                     <input
+                      id={`receipt-item-${index}-name`}
                       type="text"
                       value={item.name}
                       onChange={(e) => handleItemFieldChange(index, "name", e.target.value)}
-                      className="w-full border-b border-brand-cream-darker focus:border-brand-coral text-xs py-1 text-brand-teal font-medium focus:outline-hidden"
+                      className="w-full border-b border-brand-cream-darker focus:border-brand-coral text-xs py-1 text-brand-teal font-medium focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral"
                     />
                   </div>
 
                   <div className="w-24 shrink-0">
-                    <label className="text-[8px] font-bold text-gray-400 uppercase block">Preço (R$)</label>
+                    <label htmlFor={`receipt-item-${index}-price`} className="text-[8px] font-bold text-ink-soft uppercase block">Preço (R$)</label>
                     <input
+                      id={`receipt-item-${index}-price`}
                       type="number"
                       step="0.01"
                       value={item.price}
                       onChange={(e) => handleItemFieldChange(index, "price", parseFloat(e.target.value) || 0)}
-                      className="w-full border-b border-brand-cream-darker focus:border-brand-coral text-xs py-1 font-semibold text-brand-coral focus:outline-hidden"
+                      className="w-full border-b border-brand-cream-darker focus:border-brand-coral text-xs py-1 font-semibold text-brand-coral focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral"
                     />
                   </div>
 
                   <button
                     onClick={() => handleRemoveItem(index)}
-                    className="p-1 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors self-end"
-                    title="Remover Item"
+                    className="w-9 h-9 flex items-center justify-center rounded-lg text-gray-300 hover:text-error-500 hover:bg-error-50 transition-colors self-end"
+                    aria-label={`Remover item ${item.name || `#${index + 1}`}`}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -498,7 +503,7 @@ export default function ReceiptScanner({
             ))}
 
             {extractedData.items.length === 0 && (
-              <div className="text-center p-4 border border-dashed border-brand-cream-darker rounded-xl text-xs text-gray-400 font-sans">
+              <div className="text-center p-4 border border-dashed border-brand-cream-darker rounded-xl text-xs text-ink-soft font-sans">
                 Nenhum item adicionado à nota fiscal.
               </div>
             )}

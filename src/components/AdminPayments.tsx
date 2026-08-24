@@ -132,11 +132,11 @@ export default function AdminPayments() {
       {/* Resumo do período */}
       <div className="bg-white border border-brand-cream-darker rounded-2xl p-4 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shrink-0">
-            <Wallet className="w-4 h-4 text-emerald-600" />
+          <div className="w-9 h-9 rounded-xl bg-success-50 border border-success-100 flex items-center justify-center shrink-0">
+            <Wallet className="w-4 h-4 text-success-600" />
           </div>
           <div className="min-w-0">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">
+            <p className="text-[10px] font-bold text-ink-soft uppercase tracking-wide">
               {showingServerTotal ? "Total do período (bruto)" : "Total carregado (bruto)"}
             </p>
             <p className="text-lg font-display font-extrabold text-brand-teal leading-tight">
@@ -145,11 +145,11 @@ export default function AdminPayments() {
           </div>
         </div>
         <div className="text-right shrink-0">
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Pagamentos</p>
+          <p className="text-[10px] font-bold text-ink-soft uppercase tracking-wide">Pagamentos</p>
           <p className="text-lg font-display font-extrabold text-brand-coral leading-tight">{displayedCount ?? "-"}</p>
         </div>
       </div>
-      <p className="text-[10px] text-gray-400 -mt-4 leading-snug px-1">
+      <p className="text-[10px] text-ink-soft -mt-4 leading-snug px-1">
         Valor <strong>bruto</strong> cobrado — o Mercado Pago desconta a taxa dele antes de creditar.
         Consulte o valor líquido no painel do Mercado Pago.
       </p>
@@ -157,13 +157,13 @@ export default function AdminPayments() {
       {/* Search + Refresh */}
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-2.5 w-4 h-4 text-ink-soft" />
           <input
             type="text"
             placeholder="Buscar por nome, e-mail ou ID do pagamento..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-white border border-brand-cream-darker rounded-xl pl-9 pr-4 py-2 text-xs text-brand-teal focus:outline-hidden focus:border-brand-coral font-sans"
+            className="w-full bg-white border border-brand-cream-darker rounded-xl pl-9 pr-4 py-2 text-xs text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral focus:border-brand-coral font-sans"
           />
         </div>
         <button
@@ -184,23 +184,25 @@ export default function AdminPayments() {
       <div className="flex items-end gap-2 bg-white border border-brand-cream-darker rounded-2xl p-3">
         <CalendarRange className="w-4 h-4 text-brand-teal mb-2 shrink-0" />
         <div className="flex-1">
-          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">De</label>
+          <label htmlFor="payments-date-from" className="block text-[10px] font-bold text-ink-soft uppercase tracking-wide mb-1">De</label>
           <input
+            id="payments-date-from"
             type="date"
             value={dateFrom}
             max={dateTo || undefined}
             onChange={(e) => setDateFrom(e.target.value)}
-            className="w-full bg-white border border-brand-cream-darker rounded-lg px-2 py-1.5 text-xs text-brand-teal focus:outline-hidden focus:border-brand-coral font-sans"
+            className="w-full bg-white border border-brand-cream-darker rounded-lg px-2 py-1.5 text-xs text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral focus:border-brand-coral font-sans"
           />
         </div>
         <div className="flex-1">
-          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">Até</label>
+          <label htmlFor="payments-date-to" className="block text-[10px] font-bold text-ink-soft uppercase tracking-wide mb-1">Até</label>
           <input
+            id="payments-date-to"
             type="date"
             value={dateTo}
             min={dateFrom || undefined}
             onChange={(e) => setDateTo(e.target.value)}
-            className="w-full bg-white border border-brand-cream-darker rounded-lg px-2 py-1.5 text-xs text-brand-teal focus:outline-hidden focus:border-brand-coral font-sans"
+            className="w-full bg-white border border-brand-cream-darker rounded-lg px-2 py-1.5 text-xs text-brand-teal focus:outline focus:outline-2 focus:outline-offset-1 focus:outline-brand-coral focus:border-brand-coral font-sans"
           />
         </div>
         {(dateFrom || dateTo) && (
@@ -218,7 +220,7 @@ export default function AdminPayments() {
       </div>
 
       {error && (
-        <div className="bg-red-50/60 border border-red-100 rounded-2xl p-4 text-xs text-red-600 flex items-center gap-2">
+        <div className="bg-error-50/60 border border-error-100 rounded-2xl p-4 text-xs text-error-600 flex items-center gap-2">
           <AlertCircle className="w-4 h-4 shrink-0" /> {error}
         </div>
       )}
@@ -226,7 +228,7 @@ export default function AdminPayments() {
       {/* Lista */}
       <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
         {filteredPayments.length === 0 && !loading ? (
-          <div className="bg-white border border-brand-cream-darker rounded-3xl p-8 text-center text-gray-400 lg:col-span-2">
+          <div className="bg-white border border-brand-cream-darker rounded-3xl p-8 text-center text-ink-soft lg:col-span-2">
             <AlertCircle className="w-8 h-8 mx-auto mb-2 text-gray-300" />
             <p className="text-xs font-semibold">Nenhum pagamento encontrado.</p>
           </div>
@@ -239,11 +241,11 @@ export default function AdminPayments() {
                 className="bg-white border border-brand-cream-darker rounded-2xl p-4 shadow-2xs space-y-1.5"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[8px] font-extrabold px-1.5 py-0.5 rounded-full uppercase tracking-wide bg-emerald-100 text-emerald-700 flex items-center gap-1 shrink-0">
+                  <span className="text-[8px] font-extrabold px-1.5 py-0.5 rounded-full uppercase tracking-wide bg-success-100 text-success-700 flex items-center gap-1 shrink-0">
                     {method.isPix ? <QrCode className="w-2.5 h-2.5" /> : <CreditCard className="w-2.5 h-2.5" />}
                     {method.label}
                   </span>
-                  <span className="text-[9px] text-gray-400 font-mono shrink-0">{formatDateTime(p.createdAt)}</span>
+                  <span className="text-[9px] text-ink-soft font-mono shrink-0">{formatDateTime(p.createdAt)}</span>
                 </div>
 
                 <div className="flex items-baseline justify-between gap-2">
@@ -255,8 +257,8 @@ export default function AdminPayments() {
                   </span>
                 </div>
 
-                <p className="text-[10px] text-gray-500 font-mono truncate">{p.userEmail || p.userId}</p>
-                <p className="text-[10px] text-gray-400">
+                <p className="text-[10px] text-ink-soft font-mono truncate">{p.userEmail || p.userId}</p>
+                <p className="text-[10px] text-ink-soft">
                   Plano: <span className="font-semibold text-brand-teal">{p.plan === "yearly" ? "Anual" : "Mensal"}</span>
                   {p.periodEnd && <> · Válido até {formatDateTime(p.periodEnd)}</>}
                 </p>

@@ -126,7 +126,7 @@ export default function Appointments({
           </h3>
 
           {receitas.length === 0 ? (
-            <div className="bg-white border border-brand-cream-darker rounded-3xl p-8 text-center text-xs text-gray-400 font-sans">
+            <div className="bg-white border border-brand-cream-darker rounded-3xl p-8 text-center text-xs text-ink-soft font-sans">
               <FileText className="w-8 h-8 mx-auto mb-2 text-brand-teal-pale" />
               Nenhuma receita escaneada.<br />
               <button
@@ -160,7 +160,7 @@ export default function Appointments({
                         <h4 className="text-sm font-bold text-brand-teal font-display">
                           {recipe.doctorName || "Médico não informado"}
                         </h4>
-                        <p className="text-[10px] text-gray-400 font-sans flex items-center gap-1">
+                        <p className="text-[10px] text-ink-soft font-sans flex items-center gap-1">
                           <Calendar className="w-3.5 h-3.5 text-brand-teal/40" />
                           <span>Prescrito em: {recipe.date}</span>
                         </p>
@@ -168,8 +168,8 @@ export default function Appointments({
 
                       <button
                         onClick={() => setConfirmReceita({ id: recipe.receitaId, doctorName: recipe.doctorName || "Médico não informado" })}
-                        className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all absolute top-4 right-4"
-                        title="Remover receita e lembretes"
+                        className="w-9 h-9 flex items-center justify-center rounded-lg text-gray-300 hover:text-error-500 hover:bg-error-50 transition-all absolute top-2 right-2"
+                        aria-label={`Remover receita de ${recipe.doctorName || "médico não informado"} e seus lembretes`}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -177,7 +177,7 @@ export default function Appointments({
 
                     <div className="border-t border-brand-cream-darker mt-4 pt-3 flex items-center justify-between">
                       <div>
-                        <span className="text-[9px] text-gray-400 uppercase tracking-wide block">Medicamentos</span>
+                        <span className="text-[9px] text-ink-soft uppercase tracking-wide block">Medicamentos</span>
                         <span className="text-base font-display font-extrabold text-brand-coral">
                           {recipeMeds.length}
                         </span>
@@ -207,11 +207,11 @@ export default function Appointments({
                         </p>
 
                         {recipeMeds.length === 0 ? (
-                          <p className="text-[11px] text-gray-400 italic">Nenhum lembrete ativo de medicamento associado.</p>
+                          <p className="text-[11px] text-ink-soft italic">Nenhum lembrete ativo de medicamento associado.</p>
                         ) : (
                           <ul className="space-y-2">
                             {recipeMeds.map((med) => (
-                              <li key={med.medicamentoId} className="text-xs text-gray-600 flex items-start gap-2 bg-white p-2.5 rounded-xl border border-brand-cream-darker/40">
+                              <li key={med.medicamentoId} className="text-xs text-ink-soft flex items-start gap-2 bg-white p-2.5 rounded-xl border border-brand-cream-darker/40">
                                 <span className="w-2 h-2 rounded-full bg-brand-coral shrink-0 mt-1.5" />
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center justify-between gap-2">
@@ -224,11 +224,11 @@ export default function Appointments({
                                        med.category === "injection" ? "Injetável" : "Outro"}
                                     </span>
                                   </div>
-                                  <p className="text-[11px] text-gray-500 font-sans mt-0.5">
+                                  <p className="text-[11px] text-ink-soft font-sans mt-0.5">
                                     Dose: <span className="font-medium">{med.dosage}</span> • Intervalo: <span className="font-medium">{med.intervalHours}h</span> • Duração: <span className="font-medium">{med.durationDays} dias</span>
                                   </p>
                                   {med.instructions && (
-                                    <p className="text-[10px] text-gray-400 italic font-sans mt-1">
+                                    <p className="text-[10px] text-ink-soft italic font-sans mt-1">
                                       Obs: {med.instructions}
                                     </p>
                                   )}
