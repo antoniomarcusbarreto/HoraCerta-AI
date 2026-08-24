@@ -25,6 +25,7 @@ import Pharmacies from "./components/Pharmacies";
 import AuthScreen from "./components/AuthScreen";
 import PrivacyPolicy from "./components/PrivacyPolicy";
 import SubscriptionScreen from "./components/SubscriptionScreen";
+import SupportModal from "./components/SupportModal";
 import { useIsDesktop } from "./hooks/useIsDesktop";
 import { useInstallPrompt } from "./hooks/useInstallPrompt";
 import { InstallAppSheet, InstallGuideModal } from "./components/InstallAppPrompt";
@@ -148,6 +149,7 @@ export default function App() {
   const [schedulePatientId, setSchedulePatientId] = useState<string>("");
   const [showPrivacyPage, setShowPrivacyPage] = useState(false);
   const [showSubscription, setShowSubscription] = useState(false);
+  const [showSupportModal, setShowSupportModal] = useState(false);
 
   // 3.1 Separate Admin Page Route States
   const [isAdminRoute, setIsAdminRoute] = useState(() => {
@@ -1952,6 +1954,10 @@ export default function App() {
       {/* Privacy / LGPD full-screen page */}
       {showPrivacyPage && <PrivacyPolicy onBack={() => setShowPrivacyPage(false)} />}
 
+      {showSupportModal && activeUser && (
+        <SupportModal user={activeUser} onClose={() => setShowSupportModal(false)} />
+      )}
+
       {/* Subscription / paywall full-screen page */}
       {showSubscription && activeUser && (
         <SubscriptionScreen
@@ -2250,6 +2256,31 @@ export default function App() {
                   </div>
                   <span className="text-[10px] font-bold text-brand-teal/40 group-hover:text-brand-teal transition-all bg-brand-cream px-2.5 py-1 rounded-lg">
                     Ver
+                  </span>
+                </button>
+              </div>
+
+              {/* Suporte e Feedback */}
+              <div className="bg-white border border-brand-cream-darker rounded-3xl p-5 shadow-xs transition-all">
+                <button
+                  onClick={() => setShowSupportModal(true)}
+                  className="w-full flex items-center justify-between text-left group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-brand-peach text-brand-coral rounded-xl flex items-center justify-center transition-all group-hover:scale-105">
+                      <HelpCircle className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-brand-teal uppercase tracking-wider">
+                        Suporte e Feedback
+                      </h4>
+                      <p className="text-[11px] text-ink-soft font-sans mt-0.5">
+                        Reporte um problema ou envie sua sugestão
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-bold text-brand-teal/40 group-hover:text-brand-teal transition-all bg-brand-cream px-2.5 py-1 rounded-lg">
+                    Enviar
                   </span>
                 </button>
               </div>
