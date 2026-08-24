@@ -339,6 +339,20 @@ export default function App() {
   }, [verifySessionStillValid]);
 
   useEffect(() => {
+    // The visibilitychange check above only re-validates on a hidden->visible
+    // transition, so a session left open and untouched in the foreground for a
+    // long stretch (screen never locked, tab never backgrounded) would never
+    // re-run it. This keeps the same silent, no-UI token liveness check ticking
+    // on a fixed cadence for that case — same verifySessionStillValid, same
+    // dead-session-only teardown rule, just a different trigger.
+    const SESSION_CHECK_INTERVAL_MS = 10 * 60 * 1000; // 10 min
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") verifySessionStillValid();
+    }, SESSION_CHECK_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [verifySessionStillValid]);
+
+  useEffect(() => {
     // dbLocal's add*/update*/delete* methods fire-and-forget their Firestore
     // writes and only console.warn on failure (see dbLocalFallback.ts) — a
     // permission-denied there is otherwise invisible to the user. Bridge it
