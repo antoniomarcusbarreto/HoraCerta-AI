@@ -1,0 +1,441 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-23T00:00:00.000Z",
+  "title": "Design System: Hora Certa AI",
+  "extensions": {
+    "colorMeta": {
+      "teal-deep": {
+        "role": "primary",
+        "displayName": "Teal Consult\u00f3rio Profundo",
+        "canonical": "#0D3E46",
+        "tonalRamp": [
+          "#071B1F",
+          "#092A30",
+          "#0D3E46",
+          "#15555F",
+          "#1F6E79",
+          "#5C939A",
+          "#A6C6CB",
+          "#E4ECEE"
+        ]
+      },
+      "teal-light": {
+        "role": "primary",
+        "displayName": "Teal Consult\u00f3rio Claro",
+        "canonical": "#15555F",
+        "tonalRamp": [
+          "#092A30",
+          "#0D3E46",
+          "#15555F",
+          "#1F6E79",
+          "#3A8994",
+          "#6BA9B2",
+          "#A6C6CB",
+          "#E4ECEE"
+        ]
+      },
+      "teal-darker": {
+        "role": "primary",
+        "displayName": "Teal Consult\u00f3rio Noturno",
+        "canonical": "#092A30",
+        "tonalRamp": [
+          "#04141A",
+          "#092A30",
+          "#0D3E46",
+          "#15555F",
+          "#1F6E79",
+          "#5C939A",
+          "#A6C6CB",
+          "#E4ECEE"
+        ]
+      },
+      "teal-pale": {
+        "role": "primary",
+        "displayName": "Teal Suave",
+        "canonical": "#E4ECEE",
+        "tonalRamp": [
+          "#0D3E46",
+          "#15555F",
+          "#5C939A",
+          "#A6C6CB",
+          "#CBDDE0",
+          "#E4ECEE",
+          "#EFF5F6",
+          "#FAFCFC"
+        ]
+      },
+      "coral": {
+        "role": "secondary",
+        "displayName": "Coral P\u00f4r-do-Sol",
+        "canonical": "#EAA15F",
+        "tonalRamp": [
+          "#7A4218",
+          "#A85F26",
+          "#D6853C",
+          "#EAA15F",
+          "#F3BC8B",
+          "#F8D3AC",
+          "#FBE5CE",
+          "#FFF1E6"
+        ]
+      },
+      "coral-light": {
+        "role": "secondary",
+        "displayName": "Coral P\u00f4r-do-Sol Claro",
+        "canonical": "#F3BC8B",
+        "tonalRamp": [
+          "#A85F26",
+          "#D6853C",
+          "#EAA15F",
+          "#F3BC8B",
+          "#F8D3AC",
+          "#FBE5CE",
+          "#FDEEE0",
+          "#FFF1E6"
+        ]
+      },
+      "coral-deep": {
+        "role": "secondary",
+        "displayName": "Coral P\u00f4r-do-Sol Profundo",
+        "canonical": "#985920",
+        "tonalRamp": [
+          "#3F250D",
+          "#693E16",
+          "#985920",
+          "#CA762A",
+          "#DC9556",
+          "#E6B589",
+          "#F1D5BC",
+          "#FBF2EA"
+        ]
+      },
+      "cream": {
+        "role": "neutral",
+        "displayName": "Creme",
+        "canonical": "#FDFBF7",
+        "tonalRamp": [
+          "#0E2C30",
+          "#4C6469",
+          "#8A9C9F",
+          "#C7D2D3",
+          "#EFECE1",
+          "#F7F4EB",
+          "#FDFBF7",
+          "#FFFFFF"
+        ]
+      },
+      "cream-dark": {
+        "role": "neutral",
+        "displayName": "Creme Escurecido",
+        "canonical": "#F7F4EB",
+        "tonalRamp": [
+          "#0E2C30",
+          "#4C6469",
+          "#8A9C9F",
+          "#C7D2D3",
+          "#DAD5C4",
+          "#EFECE1",
+          "#F7F4EB",
+          "#FDFBF7"
+        ]
+      },
+      "cream-darker": {
+        "role": "neutral",
+        "displayName": "Creme Mais Escurecido",
+        "canonical": "#EFECE1",
+        "tonalRamp": [
+          "#0E2C30",
+          "#4C6469",
+          "#8A9C9F",
+          "#C0BCA9",
+          "#DAD5C4",
+          "#EFECE1",
+          "#F7F4EB",
+          "#FDFBF7"
+        ]
+      },
+      "peach": {
+        "role": "tertiary",
+        "displayName": "P\u00eassego",
+        "canonical": "#FFF1E6",
+        "tonalRamp": [
+          "#D6853C",
+          "#EAA15F",
+          "#F3BC8B",
+          "#F8D3AC",
+          "#FBE5CE",
+          "#FFF1E6",
+          "#FFF6EE",
+          "#FFFBF8"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Tinta",
+        "canonical": "#0E2C30",
+        "tonalRamp": [
+          "#000000",
+          "#0E2C30",
+          "#1A4247",
+          "#2E5A5F",
+          "#4C6469",
+          "#8A9C9F",
+          "#C7D2D3",
+          "#EFECE1"
+        ]
+      },
+      "ink-soft": {
+        "role": "neutral",
+        "displayName": "Tinta Suave",
+        "canonical": "#4C6469",
+        "tonalRamp": [
+          "#0E2C30",
+          "#1A4247",
+          "#2E5A5F",
+          "#4C6469",
+          "#6E8286",
+          "#8A9C9F",
+          "#C7D2D3",
+          "#EFECE1"
+        ]
+      },
+      "teal-deepest": {
+        "role": "primary",
+        "displayName": "Teal Mais Profundo",
+        "canonical": "#0A2226",
+        "tonalRamp": [
+          "#000000",
+          "#0A2226",
+          "#0D3E46",
+          "#15555F",
+          "#1F6E79",
+          "#5C939A",
+          "#A6C6CB",
+          "#E4ECEE"
+        ]
+      },
+      "teal-deepest-light": {
+        "role": "primary",
+        "displayName": "Teal Mais Profundo Claro",
+        "canonical": "#132F33",
+        "tonalRamp": [
+          "#000000",
+          "#0A2226",
+          "#132F33",
+          "#15555F",
+          "#1F6E79",
+          "#5C939A",
+          "#A6C6CB",
+          "#E4ECEE"
+        ]
+      },
+      "success": {
+        "role": "semantic",
+        "displayName": "Sucesso",
+        "canonical": "#059669",
+        "tonalRamp": [
+          "#065f46",
+          "#047857",
+          "#059669",
+          "#10b981",
+          "#34d399",
+          "#a7f3d0",
+          "#d1fae5",
+          "#ecfdf5"
+        ]
+      },
+      "error": {
+        "role": "semantic",
+        "displayName": "Erro",
+        "canonical": "#dc2626",
+        "tonalRamp": [
+          "#991b1b",
+          "#b91c1c",
+          "#dc2626",
+          "#ef4444",
+          "#fca5a5",
+          "#fecaca",
+          "#fee2e2",
+          "#fef2f2"
+        ]
+      },
+      "warning": {
+        "role": "semantic",
+        "displayName": "Aviso",
+        "canonical": "#d97706",
+        "tonalRamp": [
+          "#78350f",
+          "#92400e",
+          "#d97706",
+          "#f59e0b",
+          "#fde68a",
+          "#fef3c7",
+          "#fffbeb"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display Editorial",
+        "purpose": "T\u00edtulos de hero e CTA final; sempre serifa Newsreader, com uma palavra em it\u00e1lico coral-light."
+      },
+      "headline": {
+        "displayName": "Headline de Se\u00e7\u00e3o",
+        "purpose": "T\u00edtulos de se\u00e7\u00e3o de segunda ordem, misturando serifa no t\u00edtulo com sans no corpo."
+      },
+      "body": {
+        "displayName": "Corpo",
+        "purpose": "Par\u00e1grafos de explica\u00e7\u00e3o, sempre Inter, at\u00e9 ~46ch de largura."
+      },
+      "label": {
+        "displayName": "R\u00f3tulo",
+        "purpose": "Eyebrows, badges, tags e legendas de estado, sempre Space Grotesk em caixa alta."
+      },
+      "data": {
+        "displayName": "Dado / T\u00e9cnico",
+        "purpose": "JetBrains Mono para todo dado t\u00e9cnico verific\u00e1vel no app de opera\u00e7\u00e3o (IDs, c\u00f3digo PIX, e-mail/IP de auditoria, timestamp) \u2014 nunca na landing page."
+      }
+    },
+    "shadows": [
+      {
+        "name": "persuade-card-hover",
+        "value": "0 24px 40px -22px rgba(13,62,70,.25)",
+        "purpose": "Hover de cart\u00e3o em superf\u00edcies de persuas\u00e3o (site) \u2014 sombra tingida de teal, nunca cinza neutro."
+      },
+      {
+        "name": "persuade-phone-mock",
+        "value": "0 50px 90px -30px rgba(0,0,0,.55), 0 0 0 1px rgba(253,251,247,.06)",
+        "purpose": "Mockup de telefone flutuante no hero."
+      },
+      {
+        "name": "persuade-button-primary",
+        "value": "0 10px 24px -10px rgba(214,133,60,.55)",
+        "purpose": "Sombra tingida de coral sob o bot\u00e3o CTA prim\u00e1rio."
+      },
+      {
+        "name": "operate-card",
+        "value": "0 1px 2px 0 rgba(0,0,0,0.05)",
+        "purpose": "Sombra m\u00ednima (Tailwind shadow-sm) usada em cart\u00f5es de opera\u00e7\u00e3o no app, s\u00f3 para separar do fundo."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-standard",
+        "value": "cubic-bezier(0.16, 0.8, 0.24, 1)",
+        "purpose": "Easing padr\u00e3o de todas as transi\u00e7\u00f5es e reveals do site."
+      },
+      {
+        "name": "duration-reveal",
+        "value": "0.8s",
+        "purpose": "Dura\u00e7\u00e3o do fade+translate de entrada ao rolar a p\u00e1gina."
+      },
+      {
+        "name": "duration-hover",
+        "value": "0.2-0.28s",
+        "purpose": "Dura\u00e7\u00e3o de hover em bot\u00f5es e cart\u00f5es."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "mobile",
+        "value": "980px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button (Coral)",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "CTA principal sobre fundo escuro ou claro \u2014 'Comece gr\u00e1tis por 7 dias' etc.",
+      "html": "<button class=\"ds-btn-primary\">Come\u00e7ar gr\u00e1tis</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif; font-weight: 700; font-size: 14px; padding: 13px 26px; border-radius: 100px; border: 1.5px solid transparent; background: #EAA15F; color: #092A30; box-shadow: 0 10px 24px -10px rgba(214,133,60,.55); transition: transform .22s cubic-bezier(.16,.8,.24,1), box-shadow .22s cubic-bezier(.16,.8,.24,1), background .22s cubic-bezier(.16,.8,.24,1); } .ds-btn-primary:hover { background: #F3BC8B; transform: translateY(-2px); box-shadow: 0 14px 28px -10px rgba(214,133,60,.65); } .ds-btn-primary:focus-visible { outline: 2px solid #EAA15F; outline-offset: 3px; }"
+    },
+    {
+      "name": "Secondary Button (Quiet)",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "A\u00e7\u00e3o secund\u00e1ria de baixa prioridade, ex. 'j\u00e1 tenho conta'.",
+      "html": "<button class=\"ds-btn-quiet\">J\u00e1 tenho conta</button>",
+      "css": ".ds-btn-quiet { display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif; font-weight: 500; font-size: 14px; padding: 13px 26px; border-radius: 100px; border: 1.5px solid #EFECE1; background: transparent; color: #0D3E46; transition: transform .22s cubic-bezier(.16,.8,.24,1), border-color .22s, background .22s; } .ds-btn-quiet:hover { border-color: #0D3E46; background: #F7F4EB; transform: translateY(-1px); } .ds-btn-quiet:focus-visible { outline: 2px solid #EAA15F; outline-offset: 3px; }"
+    },
+    {
+      "name": "Feature Card",
+      "kind": "card",
+      "refersTo": "card-feature",
+      "description": "Cart\u00e3o de destaque em grid de recursos secund\u00e1rios (grid4), com \u00edcone colorido e hover elevado.",
+      "html": "<div class=\"ds-card-feature\"><div class=\"ds-card-feature-icon\">\ud83d\udc8a</div><h4>Leitura de receita por IA</h4><p>Fotografe a receita e o app organiza os rem\u00e9dios sozinho.</p></div>",
+      "css": ".ds-card-feature { background: #FDFBF7; border: 1px solid #EFECE1; border-radius: 20px; padding: 26px 22px; transition: transform .28s cubic-bezier(.16,.8,.24,1), box-shadow .28s cubic-bezier(.16,.8,.24,1); } .ds-card-feature:hover { transform: translateY(-5px); box-shadow: 0 24px 40px -22px rgba(13,62,70,.25); } .ds-card-feature-icon { width: 46px; height: 46px; border-radius: 14px; display: flex; align-items: center; justify-content: center; margin-bottom: 18px; background: #FFF1E6; font-size: 22px; } .ds-card-feature h4 { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 15px; color: #0D3E46; margin: 0; } .ds-card-feature p { font-family: Inter, sans-serif; font-size: 13.5px; color: #4C6469; margin-top: 8px; line-height: 1.55; }"
+    },
+    {
+      "name": "Operate Summary Card",
+      "kind": "card",
+      "refersTo": "card-operate",
+      "description": "Cart\u00e3o de resumo no app (ex. plano ativo no Dashboard) \u2014 teal s\u00f3lido, sombra m\u00ednima, registro de opera\u00e7\u00e3o.",
+      "html": "<div class=\"ds-card-operate\"><span class=\"ds-card-operate-label\">PLANO ATIVO</span><h4>3 doses hoje</h4></div>",
+      "css": ".ds-card-operate { background: #0D3E46; color: #FDFBF7; border-radius: 24px; padding: 24px; box-shadow: 0 1px 2px 0 rgba(0,0,0,0.05); position: relative; overflow: hidden; } .ds-card-operate-label { font-family: 'Space Grotesk', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; color: #F3BC8B; } .ds-card-operate h4 { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 18px; margin-top: 6px; }"
+    },
+    {
+      "name": "Pill Badge",
+      "kind": "chip",
+      "refersTo": "chip-badge",
+      "description": "Badge/tag arredondado usado para papel de cuidador, status ou categoria.",
+      "html": "<span class=\"ds-badge\">Coadministrador</span>",
+      "css": ".ds-badge { display: inline-block; background: #FFF1E6; color: #985920; font-family: 'Space Grotesk', sans-serif; font-size: 9px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 3px 8px; border-radius: 100px; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input-text",
+      "description": "Campo de texto padr\u00e3o de formul\u00e1rio (login, cadastro, edi\u00e7\u00e3o).",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"seu@email.com\" />",
+      "css": ".ds-input { font-family: Inter, sans-serif; font-size: 14px; color: #0E2C30; background: #FDFBF7; border: 1.5px solid #EFECE1; border-radius: 14px; padding: 12px 16px; width: 100%; transition: border-color .2s, box-shadow .2s; } .ds-input:focus { outline: none; border-color: #EAA15F; box-shadow: 0 0 0 3px rgba(234,161,95,.2); } .ds-input::placeholder { color: #4C6469; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "O Consult\u00f3rio Acolhedor",
+    "overview": "Hora Certa AI \u00e9 o consult\u00f3rio de confian\u00e7a da fam\u00edlia, n\u00e3o uma cl\u00ednica fria nem um app de produtividade gen\u00e9rico. Teal profundo carrega o peso de \"isso \u00e9 s\u00e9rio e cuidamos bem\" \u2014 \u00e9 a cor de fundo dos momentos de maior confian\u00e7a (hero, se\u00e7\u00f5es de seguran\u00e7a, CTA final) \u2014 enquanto o coral p\u00f4r-do-sol entra com modera\u00e7\u00e3o para marcar a\u00e7\u00e3o e calor humano: um bot\u00e3o, um \u00edcone, um destaque, nunca uma superf\u00edcie inteira. A serifa Newsreader nos t\u00edtulos existe para dar ao produto a voz de algu\u00e9m que escreve com cuidado sobre voc\u00ea e sua fam\u00edlia, contrastando com a precis\u00e3o geom\u00e9trica da Space Grotesk nos r\u00f3tulos e a\u00e7\u00f5es \u2014 a dupla resume o produto inteiro: cuidado humano (serifa) + organiza\u00e7\u00e3o confi\u00e1vel (sans geom\u00e9trica).\n\nO sistema tem dois registros deliberados, n\u00e3o um s\u00f3: a superf\u00edcie de persuas\u00e3o (landing page, index.html) usa o vocabul\u00e1rio completo \u2014 gradientes teal profundos, sombras suaves e generosas, cart\u00f5es flutuantes, micro-ilustra\u00e7\u00f5es animadas \u2014 porque aqui o design \u00e9 o produto sendo vendido. A superf\u00edcie de opera\u00e7\u00e3o (o app React em src/) usa a mesma paleta e a mesma linguagem de forma (cantos arredondados, pills), mas quase plana e sem serifa, porque aqui o cuidador est\u00e1 em tarefa (marcar dose, ler receita) e a est\u00e9tica n\u00e3o pode competir com a a\u00e7\u00e3o.",
+    "keyCharacteristics": [
+      "Teal profundo como cor de confian\u00e7a e fundo de destaque; nunca a cor padr\u00e3o de texto sobre fundo claro em telas de opera\u00e7\u00e3o.",
+      "Coral usado com raridade: CTA principal, \u00edcones de destaque, acentos de estado ativo \u2014 nunca uma superf\u00edcie grande.",
+      "Serifa (Newsreader) reservada a t\u00edtulos e cita\u00e7\u00f5es emocionais; sans (Space Grotesk/Inter) em todo o resto.",
+      "Cantos sempre arredondados, nunca retos \u2014 de 8px em detalhes a pill (100px) em bot\u00f5es e badges.",
+      "Dois registros de eleva\u00e7\u00e3o por modo: sombras generosas na persuas\u00e3o, quase plano na opera\u00e7\u00e3o."
+    ],
+    "rules": [
+      {
+        "name": "A Regra do Acento \u00danico",
+        "body": "O coral nunca cobre uma superf\u00edcie inteira maior que um bot\u00e3o, badge ou \u00edcone \u2014 sua raridade \u00e9 o que faz o CTA saltar aos olhos. Se duas cores quentes competem na mesma tela, uma delas est\u00e1 errada.",
+        "section": "colors"
+      },
+      {
+        "name": "A Regra do Creme, N\u00e3o Branco",
+        "body": "Nenhum fundo claro usa #FFFFFF puro; todo fundo claro parte da escala de creme, mesmo em estados de erro ou vazio.",
+        "section": "colors"
+      },
+      {
+        "name": "A Regra da Serifa Rara",
+        "body": "Newsreader aparece s\u00f3 em t\u00edtulos e em frases de resolu\u00e7\u00e3o emocional \u2014 nunca em r\u00f3tulo, bot\u00e3o ou corpo de texto longo. Se a serifa aparece em um elemento de a\u00e7\u00e3o, \u00e9 erro.",
+        "section": "typography"
+      },
+      {
+        "name": "A Regra dos Dois Registros",
+        "body": "Nunca importar a sombra generosa da persuas\u00e3o para uma tela de opera\u00e7\u00e3o, nem achatar a persuas\u00e3o para o registro do app \u2014 cada uma serve a um objetivo diferente do visitante.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do reservar a serifa Newsreader para t\u00edtulos e frases de resolu\u00e7\u00e3o emocional; todo o resto \u00e9 sans.",
+      "Do manter o coral como acento raro \u2014 um elemento de destaque por tela, nunca uma superf\u00edcie grande.",
+      "Do usar sombras tingidas de teal/coral na persuas\u00e3o e sombras m\u00ednimas neutras na opera\u00e7\u00e3o \u2014 nunca trocar os dois registros.",
+      "Do arredondar todo canto; pill completo em bot\u00f5es, badges e barras de progresso.",
+      "Do partir de creme (#FDFBF7), nunca de branco puro, em qualquer fundo claro novo."
+    ],
+    "donts": [
+      "Don't usar preto puro em texto, borda ou sombra \u2014 toda sombra escura \u00e9 tingida de teal (rgba(13,62,70,...)), todo texto escuro parte de ink/teal-deep.",
+      "Don't aplicar a est\u00e9tica generosa e cheia de movimento do site a uma tela de opera\u00e7\u00e3o do app \u2014 isso compete com a tarefa do cuidador.",
+      "Don't remover o outline/foco vis\u00edvel de um bot\u00e3o sem substitu\u00ed-lo por um contorno coral equivalente.",
+      "Don't inventar uma terceira cor de acento al\u00e9m de teal e coral sem uma decis\u00e3o expl\u00edcita \u2014 o sistema depende da raridade de duas cores, n\u00e3o de uma paleta ampla."
+    ]
+  }
+}

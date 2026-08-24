@@ -1,0 +1,32 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "createdAt": "2026-08-24T00:12:52.179Z",
+        "reason": "Inter é fonte de marca confirmada em DESIGN.md (par com Space Grotesk/Newsreader), pré-existente ao trabalho de responsividade desta sessão — não é escolha nova a revisar."
+      },
+      {
+        "rule": "dark-glow",
+        "value": "*",
+        "files": [
+          "index.html"
+        ],
+        "createdAt": "2026-08-24T00:27:14.129Z",
+        "reason": "hero-glow/final-glow são o brilho ambiente coral documentado como regra de marca em DESIGN.md > Elevation & Depth (registro de persuasão usa sombras generosas tingidas de coral/teal), não slop de IA — confirmado na auditoria de 2026-08-23."
+      },
+      {
+        "rule": "em-dash-overuse",
+        "value": "*",
+        "files": [
+          "index.html"
+        ],
+        "createdAt": "2026-08-24T00:27:14.215Z",
+        "reason": "cadência de travessão já era a voz de marca do copy em produção antes desta sessão, não um tique de geração por IA — confirmado na auditoria de 2026-08-23."
+      }
+    ]
+  }
+}
