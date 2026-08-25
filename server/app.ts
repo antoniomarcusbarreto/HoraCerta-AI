@@ -35,7 +35,7 @@ dotenv.config();
 // verified to honor the responseSchema below. Prefer a pinned id over
 // `gemini-flash-latest`, which shifts under you without a deploy.)
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-const ALLOWED_IMAGE_MIME = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
+const ALLOWED_IMAGE_MIME = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "application/pdf"];
 
 // Single admin's inbox: destination for "esqueci minha senha" notifications.
 // There is only one admin account in this project (see CLAUDE.md), so this is

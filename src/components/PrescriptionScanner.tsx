@@ -3,7 +3,7 @@ import { auth } from "../firebase";
 import { Medicado, Medicamento, MedicineCategory } from "../types";
 import { TRIAL_SCAN_LIMIT } from "../subscription";
 import { prepareScanImage } from "../imageUtils";
-import { Upload, Camera, FileText, Sparkles, Check, ArrowRight, Loader2, Calendar, User, Edit2, AlertCircle, Bell } from "lucide-react";
+import { Upload, Camera, FileText, Sparkles, Check, ArrowRight, Loader2, Calendar, User, Edit2, AlertCircle, Bell, FileType2 } from "lucide-react";
 
 interface PrescriptionScannerProps {
   medicados: Medicado[];
@@ -336,22 +336,32 @@ export default function PrescriptionScanner({
               type="file"
               ref={fileInputRef}
               onChange={handleFileChange}
-              accept="image/*"
+              accept="image/*,application/pdf"
               className="hidden"
             />
-            
-            {previewUrl ? (
-              <div className="relative max-h-48 overflow-hidden rounded-xl mx-auto flex items-center justify-center">
-                <img
-                  src={previewUrl}
-                  alt="Prescription Preview"
-                  loading="lazy"
-                  className="max-h-44 object-contain rounded-xl"
-                />
-                <div className="absolute inset-0 bg-black/35 flex items-center justify-center text-white text-xs font-semibold rounded-xl">
-                  Alterar Imagem
+
+            {previewUrl && file ? (
+              file.type === "application/pdf" ? (
+                <div className="relative rounded-xl mx-auto flex flex-col items-center justify-center gap-2 py-6">
+                  <div className="w-12 h-12 bg-brand-peach text-brand-coral rounded-2xl flex items-center justify-center">
+                    <FileType2 className="w-6 h-6" />
+                  </div>
+                  <p className="text-xs font-semibold text-brand-teal max-w-[90%] truncate">{file.name}</p>
+                  <p className="text-[10px] text-ink-soft font-sans">Toque para trocar o arquivo</p>
                 </div>
-              </div>
+              ) : (
+                <div className="relative max-h-48 overflow-hidden rounded-xl mx-auto flex items-center justify-center">
+                  <img
+                    src={previewUrl}
+                    alt="Prescription Preview"
+                    loading="lazy"
+                    className="max-h-44 object-contain rounded-xl"
+                  />
+                  <div className="absolute inset-0 bg-black/35 flex items-center justify-center text-white text-xs font-semibold rounded-xl">
+                    Alterar Imagem
+                  </div>
+                </div>
+              )
             ) : (
               <div className="space-y-3">
                 <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center mx-auto shadow-xs text-ink-soft">
